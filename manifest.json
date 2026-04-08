@@ -1,31 +1,25 @@
 {
-  "name": "Aquabri — Sistema de Ventas",
+  "name": "Aquabri",
   "short_name": "Aquabri",
-  "description": "Sistema de ventas para purificadora de agua Aquabri",
-  "start_url": "/",
+  "description": "Sistema de Ventas Aquabri",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "orientation": "portrait-primary",
   "background_color": "#1565c0",
   "theme_color": "#1565c0",
-  "lang": "es",
-  "scope": "/",
-  "categories": ["business", "productivity"],
+  "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "./icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png",
+      "src": "./icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ],
-  "screenshots": [],
-  "permissions": [
-    "geolocation"
   ]
 }

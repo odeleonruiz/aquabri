@@ -753,6 +753,8 @@ input[type="date"]{-webkit-appearance:none;appearance:none;min-height:36px;}
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button onclick="iniciarRutaInteligente()" style="background:#fff;color:#1565c0;border:none;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:700;cursor:pointer">▶️ Iniciar</button>
+          <button onclick="trazarRutaEnMapa()" id="btn-trazar-mapa" style="display:none;background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 12px;font-size:11px;font-weight:700;cursor:pointer">🗺️ Ver mapa</button>
+          <button onclick="abrirEnGoogleMaps()" id="btn-gmaps" style="display:none;background:#34a853;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:700;cursor:pointer">📱 Google Maps</button>
           <button onclick="cargarSiguientes10()" id="btn-siguientes-10" style="display:none;background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 12px;font-size:11px;font-weight:700;cursor:pointer">+10 más</button>
         </div>
       </div>
@@ -9780,6 +9782,10 @@ function mostrarLotePorVisitar(offset){
   const txt=document.getElementById('ruta-int-txt');
   const status=document.getElementById('ruta-int-status');
   const btnSig=document.getElementById('btn-siguientes-10');
+  const btnMapa=document.getElementById('btn-trazar-mapa');
+  const btnGmaps=document.getElementById('btn-gmaps');
+  if(btnMapa)btnMapa.style.display='';
+  if(btnGmaps)btnGmaps.style.display='';
   if(prog)prog.style.display='';
   const pct=total>0?(visitados/total)*100:0;
   if(bar)bar.style.width=pct+'%';
@@ -9902,6 +9908,63 @@ function optimizarCombinado(clientes, posInicio){
     const scoreB=(b.prioridad/maxPrioridad)*0.6+(1/(dB+0.1))*0.4;
     return scoreB-scoreA;
   });
+}
+
+// ══════════════════════════════════════════
+//  TRAZAR RUTA INTELIGENTE EN MAPA
+// ══════════════════════════════════════════
+
+function trazarRutaEnMapa(){
+  if(!_rutaInteligente.length){showNotif('Primero inicia la ruta','#e65100');return;}
+  if(!gmMap){showNotif('Abre el mapa primero','#e65100');return;}
+  const lote=_rutaInteligente.filter(r=>estadosParadas[r.c.id]!=='visitado').slice(0,10);
+  if(!lote.length){showNotif('No hay clientes pendientes','#e65100');return;}
+  const clisConUbic=lote.filter(r=>r.c.lat&&r.c.lng);
+  if(clisConUbic.length<2){showNotif('Se necesitan al menos 2 clientes con ubicación','#e65100');return;}
+  // Origen: mi ubicación o el primer cliente
+  const origen=_miPosRuta?new google.maps.LatLng(_miPosRuta.lat,_miPosRuta.lng):new google.maps.LatLng(parseFloat(clisConUbic[0].c.lat),parseFloat(clisConUbic[0].c.lng));
+  const destino=new google.maps.LatLng(parseFloat(clisConUbic[clisConUbic.length-1].c.lat),parseFloat(clisConUbic[clisConUbic.length-1].c.lng));
+  // Waypoints (máx 8 intermedios para Google Maps free)
+  const waypts=clisConUbic.slice(_miPosRuta?0:1,-1).slice(0,8).map(r=>({
+    location:new google.maps.LatLng(parseFloat(r.c.lat),parseFloat(r.c.lng)),
+    stopover:true
+  }));
+  if(!gmDirectionsService||!gmDirectionsRenderer){showNotif('Mapa no cargado','#e65100');return;}
+  gmDirectionsService.route({
+    origin:origen,
+    destination:destino,
+    waypoints:waypts,
+    travelMode:google.maps.TravelMode.DRIVING,
+    optimizeWaypoints:false
+  },(res,status)=>{
+    if(status==='OK'){
+      gmDirectionsRenderer.setDirections(res);
+      // Centrar mapa en la ruta
+      const bounds=new google.maps.LatLngBounds();
+      clisConUbic.forEach(r=>bounds.extend(new google.maps.LatLng(parseFloat(r.c.lat),parseFloat(r.c.lng))));
+      gmMap.fitBounds(bounds);
+      showNotif('✅ Ruta trazada en el mapa — '+clisConUbic.length+' paradas');
+    } else {
+      showNotif('No se pudo trazar la ruta: '+status,'#c62828');
+    }
+  });
+}
+
+function abrirEnGoogleMaps(){
+  if(!_rutaInteligente.length){showNotif('Primero inicia la ruta','#e65100');return;}
+  const lote=_rutaInteligente.filter(r=>estadosParadas[r.c.id]!=='visitado'&&r.c.lat&&r.c.lng).slice(0,10);
+  if(!lote.length){showNotif('No hay clientes con ubicación','#e65100');return;}
+  // Construir URL de Google Maps con waypoints
+  let url='https://www.google.com/maps/dir/';
+  // Punto de inicio: mi ubicación si está disponible
+  if(_miPosRuta){
+    url+=_miPosRuta.lat+','+_miPosRuta.lng+'/';
+  }
+  // Agregar cada parada
+  lote.forEach(r=>{
+    url+=parseFloat(r.c.lat)+','+parseFloat(r.c.lng)+'/';
+  });
+  window.open(url,'_blank');
 }
 
 </script>

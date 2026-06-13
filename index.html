@@ -1787,6 +1787,7 @@ input[type="date"]{-webkit-appearance:none;appearance:none;min-height:36px;}
       <button onclick="cajaAddMonto(1000)" style="background:var(--azulc);color:var(--azul);border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation">+Q1000</button>
       <button onclick="document.getElementById('caja-apertura-monto').value=''" style="background:var(--rojoc);color:var(--rojo);border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation">✕ Limpiar</button>
     </div>
+    <div class="fg" style="margin-bottom:12px"><label>👤 ¿Para quién es este fondo?</label><select id="caja-apertura-para"><option value="">— Jefe (caja general) —</option></select></div>
     <div class="fg" style="margin-bottom:12px"><label>Notas (opcional)</label><input id="caja-apertura-notas" placeholder="Ej: Cambio incluido..."></div>
     <div class="mfoot">
       <button class="btn" onclick="closeModal('modal-abrir-caja')" style="background:var(--grisc);color:var(--gris)">Cancelar</button>
@@ -1914,6 +1915,10 @@ input[type="date"]{-webkit-appearance:none;appearance:none;min-height:36px;}
     <div class="card"><div class="card-title">💸 Gastos por Cat.</div><div id="rep-gastos"></div></div>
   </div>
   <div class="card"><div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Total</th><th>Costo</th><th>Ganancia</th><th>Estado</th></tr></thead><tbody id="rep-tbody"></tbody></table></div></div>
+  <div class="card" id="rep-cobros-card" style="display:none;margin-top:12px">
+    <div class="card-title">💳 Cobros de Crédito</div>
+    <div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Monto</th></tr></thead><tbody id="rep-cobros-tbody"></tbody></table></div>
+  </div>
 </div>
 
 <!-- ===== RRHH ===== -->
@@ -8988,7 +8993,7 @@ async function generarReporte(){
   
   // Dinero realmente cobrado = ventas contado + cobros de créditos en caja
   const tvContado=ventasContado.reduce((s,v)=>s+parseFloat(v.total||0),0);
-  let qCobCred=sb.from('caja').select('monto,usuario_id').eq('tipo','cobro_credito').gte('fecha',desde||'2000-01-01').lte('fecha',hasta||hoy());
+  let qCobCred=sb.from('caja').select('monto,usuario_id,notas,fecha').eq('tipo','cobro_credito').gte('fecha',desde||'2000-01-01').lte('fecha',hasta||hoy());
   if(usuFiltro)qCobCred=qCobCred.eq('usuario_id',parseInt(usuFiltro));
   const{data:cobrosCred}=await qCobCred;
   const tvCobrosCred=(cobrosCred||[]).reduce((s,c)=>s+parseFloat(c.monto||0),0);
@@ -9024,11 +9029,20 @@ async function generarReporte(){
   // Crédito pendiente histórico total (todas las fechas)
   const creditoHistoricoTotal=D.creditos.filter(c=>c.estado==='Pendiente').reduce((s,c)=>s+(parseFloat(c.monto||0)-parseFloat(c.pagado||0)),0);
 
+  // Fondo de apertura (solo para el día de hoy, si el período incluye hoy)
+  let aperturaUsr=0;
+  const hoyEnRango=(!desde||desde<=hoy())&&(!hasta||hasta>=hoy());
+  if(hoyEnRango){
+    let qAp=sb.from('caja').select('monto,usuario_id').eq('tipo','apertura').eq('fecha',hoy());
+    if(usuFiltro)qAp=qAp.eq('usuario_id',parseInt(usuFiltro));
+    const{data:aperturas}=await qAp;
+    aperturaUsr=(aperturas||[]).reduce((s,a)=>s+parseFloat(a.monto||0),0);
+  }
   // KPIs detallados
-  const efectivoEsperado=tvCobrado; // contado + créditos cobrados
+  const efectivoEsperado=tvCobrado+aperturaUsr; // fondo + contado + créditos cobrados
   document.getElementById('rep-kpis').innerHTML=[
     {ic:'🛒',lbl:'Ventas totales',val:fQ(tv),c:'#1565c0',sub:'Todo lo facturado (contado + crédito)'},
-    {ic:'💵',lbl:'Efectivo en mano',val:fQ(efectivoEsperado),c:'#2e7d32',sub:'Lo que debes tener en caja'},
+    {ic:'💵',lbl:'Efectivo en mano',val:fQ(efectivoEsperado),c:'#2e7d32',sub:aperturaUsr>0?`Incluye fondo: ${fQ(aperturaUsr)}`:'Lo que debes tener en caja'},
     {ic:'⏳',lbl:'Crédito del período',val:fQ(totalCreditoPendiente),c:'#e65100',sub:'Vendido a crédito sin cobrar'},
     {ic:'💳',lbl:'Total por cobrar',val:fQ(creditoHistoricoTotal),c:'#f57f17',sub:'Crédito histórico pendiente'},
     {ic:'📦',lbl:'Costo productos',val:fQ(costoTotal),c:'#546e7a',sub:''},
@@ -9089,6 +9103,27 @@ async function generarReporte(){
       <span><b>${d.cant} uds gratis</b> · Costo: <b style="color:var(--rojo)">${fQ(d.costo)}</b></span>
     </div>`).join('')+'</div>':'');
 
+  // Tabla de cobros de crédito
+  const cobrosCard=document.getElementById('rep-cobros-card');
+  const cobrosTbody=document.getElementById('rep-cobros-tbody');
+  if(cobrosCard&&cobrosTbody){
+    if(cobrosCred?.length){
+      cobrosCard.style.display='';
+      cobrosTbody.innerHTML=cobrosCred.map(c=>{
+        // Extraer ID de cliente de las notas: "cliente ID:123" o "cliente #123"
+        const m=(c.notas||'').match(/cliente (?:ID:|#)(\d+)/);
+        const cliId=m?parseInt(m[1]):null;
+        const cliente=cliId?D.clientes.find(cl=>cl.id===cliId):null;
+        return`<tr>
+          <td>${c.fecha}</td>
+          <td>${cliente?.nombre||'—'}</td>
+          <td style="font-weight:700;color:var(--verde)">${fQ(c.monto)}</td>
+        </tr>`;
+      }).join('');
+    } else {
+      cobrosCard.style.display='none';
+    }
+  }
   // Gastos por categoría
   const cats={};(gastos||[]).forEach(g=>{cats[g.cat]=(cats[g.cat]||0)+parseFloat(g.monto||0);});
   const repGasEl=document.getElementById('rep-gastos');
@@ -12067,6 +12102,8 @@ function cajaAddMonto(v){
 }
 
 function modalAbrirCaja(){
+  const sel=document.getElementById('caja-apertura-para');
+  if(sel)sel.innerHTML='<option value="">— Jefe (caja general) —</option>'+(D.empleados||[]).filter(e=>e.estado==='Activo'&&e.usuario_id).map(e=>`<option value="${e.id}">👷 ${e.nombre}</option>`).join('');
   document.getElementById('caja-apertura-monto').value = '';
   document.getElementById('caja-apertura-notas').value = '';
   openModal('modal-abrir-caja');
@@ -12075,8 +12112,17 @@ function modalAbrirCaja(){
 async function abrirCaja(){
   const monto = parseFloat(document.getElementById('caja-apertura-monto').value)||0;
   const notas = document.getElementById('caja-apertura-notas').value||null;
+  const paraEmpId = document.getElementById('caja-apertura-para')?.value||'';
   if(monto<0){showNotif('Ingresa un monto válido','#c62828');return;}
-  await sb.from('caja').insert({fecha:hoy(),tipo:'apertura',monto,notas,usuario_id:CU?.id||null});
+  // Si se seleccionó un empleado, usar su usuario_id; si no, el del Jefe (CU)
+  let usuarioId=CU?.id||null;
+  let notaFinal=notas;
+  if(paraEmpId){
+    const emp=D.empleados.find(e=>e.id===parseInt(paraEmpId));
+    if(emp?.usuario_id)usuarioId=emp.usuario_id;
+    notaFinal=(notas?notas+' · ':'')+'Fondo para: '+(emp?.nombre||'');
+  }
+  await sb.from('caja').insert({fecha:hoy(),tipo:'apertura',monto,notas:notaFinal,usuario_id:usuarioId});
   closeModal('modal-abrir-caja');
   showNotif('✅ Caja abierta con Q '+monto.toFixed(2),'#2e7d32');
   initCaja();

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Mis Puntos · Aquabri</title>
+<style>
+  :root{--azul:#1565c0;--azul3:#42a5f5;--azulc:#e3f2fd;--verde:#2e7d32;--verdec:#e8f5e9;--gris:#546e7a;--borde:#b0bec5;--texto2:#37474f;}
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{font-family:'Segoe UI',sans-serif;background:linear-gradient(135deg,#0d47a1,#1565c0 45%,#42a5f5);min-height:100vh;color:var(--texto2);display:flex;align-items:flex-start;justify-content:center;padding:18px;overflow-x:hidden;}
+  .wrap{width:100%;max-width:420px;}
+
+  @keyframes fadeUp{from{opacity:0;transform:translateY(18px);}to{opacity:1;transform:translateY(0);}}
+  @keyframes popIn{from{opacity:0;transform:scale(.85);}to{opacity:1;transform:scale(1);}}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.05);}}
+  @keyframes shimmer{0%{background-position:-200px 0;}100%{background-position:200px 0;}}
+  @keyframes floatDrop{0%,100%{transform:translateY(0) rotate(0deg);}50%{transform:translateY(-6px) rotate(-4deg);}}
+
+  .header{text-align:center;color:#fff;margin-bottom:14px;animation:fadeUp .5s ease both;}
+  .logo-box{width:78px;height:78px;border-radius:18px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 8px;overflow:hidden;animation:popIn .6s cubic-bezier(.34,1.56,.64,1) both;box-shadow:0 6px 18px rgba(0,0,0,.2);}
+  .logo-box img{width:100%;height:100%;object-fit:contain;padding:8px;}
+  .logo-box .fallback{font-size:42px;animation:floatDrop 3s ease-in-out infinite;}
+  .header h1{font-size:20px;font-weight:800;margin-top:4px;}
+  .header p{font-size:12px;opacity:.85;margin-top:2px;}
+
+  .card{background:#fff;border-radius:16px;padding:18px;box-shadow:0 8px 28px rgba(0,0,0,.18);margin-bottom:14px;animation:fadeUp .55s ease both;}
+  .card.delay2{animation-delay:.22s;}
+  .card.delay3{animation-delay:.32s;}
+
+  .saldo-card{background:linear-gradient(135deg,#1565c0,#42a5f5);color:#fff;border-radius:16px;padding:24px;text-align:center;margin-bottom:14px;box-shadow:0 10px 30px rgba(13,71,161,.35);animation:popIn .6s cubic-bezier(.34,1.56,.64,1) both;animation-delay:.08s;position:relative;overflow:hidden;}
+  .saldo-card::after{content:'';position:absolute;inset:0;background:linear-gradient(120deg,transparent 30%,rgba(255,255,255,.18) 50%,transparent 70%);background-size:200px 100%;animation:shimmer 3.5s linear infinite;}
+  .saldo-card .lbl{font-size:12px;opacity:.85;text-transform:uppercase;letter-spacing:.5px;position:relative;}
+  .saldo-card .num{font-size:48px;font-weight:900;line-height:1.1;margin:8px 0;position:relative;}
+  .saldo-card .sub{font-size:12px;opacity:.85;position:relative;}
+  .saldo-card .star{font-size:22px;display:inline-block;animation:pulse 2s ease-in-out infinite;}
+
+  .cliente-nombre{font-size:15px;font-weight:700;color:var(--azul);text-align:center;margin-bottom:2px;}
+  .cliente-tel{font-size:12px;color:var(--gris);text-align:center;margin-bottom:0;}
+
+  .card-title{font-size:13px;font-weight:700;color:var(--azul);margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+  .hist-item{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f0f0f0;gap:10px;opacity:0;animation:fadeUp .4s ease both;}
+  .hist-item:last-child{border-bottom:none;}
+  .hist-left{flex:1;min-width:0;}
+  .hist-desc{font-size:12px;font-weight:600;color:var(--texto2);}
+  .hist-fecha{font-size:10px;color:var(--gris);margin-top:2px;}
+  .hist-pts{font-size:14px;font-weight:800;flex-shrink:0;}
+  .hist-pts.pos{color:var(--verde);}
+  .hist-pts.neg{color:#c62828;}
+  .empty{text-align:center;color:var(--gris);font-size:12px;padding:24px 10px;}
+
+  .loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 10px;color:#fff;}
+  .spin{width:42px;height:42px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:12px;}
+  .loading .drop-anim{font-size:40px;animation:floatDrop 1.6s ease-in-out infinite;margin-bottom:8px;}
+
+  .err-card{background:#fff;border-radius:16px;padding:24px;text-align:center;animation:popIn .5s ease both;}
+  .err-card .ic{font-size:36px;margin-bottom:8px;}
+  .err-card h3{font-size:15px;color:#c62828;margin-bottom:6px;}
+  .err-card p{font-size:12px;color:var(--gris);}
+
+  .footer{text-align:center;color:#fff;font-size:11px;opacity:.7;margin-top:18px;animation:fadeUp .6s ease both;animation-delay:.4s;}
+
+  .progress-wrap{margin-top:14px;position:relative;}
+  .progress-bar{background:rgba(255,255,255,.25);border-radius:20px;height:8px;overflow:hidden;margin-top:6px;}
+  .progress-fill{height:100%;background:#fff;border-radius:20px;width:0%;transition:width 1.2s cubic-bezier(.34,1.2,.64,1);}
+  .progress-lbl{font-size:10px;opacity:.85;display:flex;justify-content:space-between;margin-top:4px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="logo-box" id="logo-box">
+      <div class="fallback" id="logo-fallback">💧</div>
+      <img id="logo-img" style="display:none">
+    </div>
+    <h1 id="programa-nombre">Club Aquabri</h1>
+    <p>Tu programa de puntos y recompensas</p>
+  </div>
+
+  <div id="contenido">
+    <div class="loading">
+      <div class="drop-anim">💧</div>
+      <div class="spin"></div>
+      <div>Cargando tus puntos...</div>
+    </div>
+  </div>
+
+  <div class="footer">Aquabri · Sistema de fidelidad</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+const SURL='https://odwccqqvxpsggggehjtt.supabase.co';
+const SKEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kd2NjcXF2eHBzZ2dnZ2VoanR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1ODQxNTgsImV4cCI6MjA5MDE2MDE1OH0.4RulBc7xRiqfy5mAK9yxpj49fr7OloTp0-wZ9pZ0LJA';
+const sb=supabase.createClient(SURL,SKEY);
+
+function fGT(d){
+  try{
+    const dt=new Date(d);
+    return dt.toLocaleDateString('es-GT',{day:'2-digit',month:'short',year:'numeric'});
+  }catch(e){return d;}
+}
+
+// Animación de conteo numérico
+function animarNumero(el,destino,duracion=1200){
+  const inicio=0;
+  const t0=performance.now();
+  function paso(t){
+    const p=Math.min((t-t0)/duracion,1);
+    const ease=1-Math.pow(1-p,3);
+    el.textContent=(inicio+(destino-inicio)*ease).toFixed(2);
+    if(p<1)requestAnimationFrame(paso);
+    else el.textContent=destino.toFixed(2);
+  }
+  requestAnimationFrame(paso);
+}
+
+async function init(){
+  const params=new URLSearchParams(window.location.search);
+  const cid=params.get('cid');
+  const el=document.getElementById('contenido');
+
+  if(!cid){
+    el.innerHTML=`<div class="err-card"><div class="ic">⚠️</div><h3>Enlace inválido</h3><p>Falta el identificador del cliente. Escanea el código QR de tu última compra.</p></div>`;
+    return;
+  }
+
+  try{
+    const[{data:config},{data:cliente},{data:ptos},{data:historial}]=await Promise.all([
+      sb.from('config').select('*').eq('id',1).single(),
+      sb.from('clientes').select('id,nombre,telefono').eq('id',cid).single(),
+      sb.from('puntos_clientes').select('*').eq('cliente_id',cid).single(),
+      sb.from('puntos_historial').select('*').eq('cliente_id',cid).order('id',{ascending:false}).limit(30),
+    ]);
+
+    if(!cliente){
+      el.innerHTML=`<div class="err-card"><div class="ic">🔍</div><h3>Cliente no encontrado</h3><p>No pudimos encontrar tu información. Contacta a tu vendedor.</p></div>`;
+      return;
+    }
+
+    // Logo
+    if(config?.logo){
+      const img=document.getElementById('logo-img');
+      const fb=document.getElementById('logo-fallback');
+      img.src=config.logo;
+      img.style.display='block';
+      fb.style.display='none';
+    }
+
+    // Nombre del programa
+    let nombrePrograma='Club Aquabri';
+    let pct=5;
+    try{
+      const{data:pc}=await sb.from('puntos_config').select('nombre_programa,porcentaje').single();
+      if(pc?.nombre_programa)nombrePrograma=pc.nombre_programa;
+      pct=parseFloat(pc?.porcentaje||5);
+    }catch(e){}
+
+    document.getElementById('programa-nombre').textContent=nombrePrograma;
+    document.title='Mis Puntos · '+nombrePrograma;
+
+    const totales=parseFloat(ptos?.puntos_totales||0);
+    const canjeados=parseFloat(ptos?.puntos_canjeados||0);
+    const saldo=Math.max(0,totales-canjeados);
+
+    // Historial
+    let histHtml='';
+    if(historial?.length){
+      histHtml=historial.map((h,i)=>{
+        const esPositivo=parseFloat(h.puntos)>=0;
+        const fecha=h.created_at?fGT(h.created_at):(h.fecha?fGT(h.fecha):'');
+        return `<div class="hist-item" style="animation-delay:${.05*i}s">
+          <div class="hist-left">
+            <div class="hist-desc">${h.descripcion||(h.tipo==='canje'?'🎁 Canje de puntos':'🛒 Compra')}</div>
+            <div class="hist-fecha">${fecha}</div>
+          </div>
+          <div class="hist-pts ${esPositivo?'pos':'neg'}">${esPositivo?'+':''}${parseFloat(h.puntos).toFixed(2)} pts</div>
+        </div>`;
+      }).join('');
+    } else {
+      histHtml='<div class="empty">Aún no tienes movimientos registrados.<br>¡Tu próxima compra sumará puntos! 🎉</div>';
+    }
+
+    el.innerHTML=`
+      <div class="card" style="text-align:center;padding-bottom:10px">
+        <div class="cliente-nombre">👋 Hola, ${cliente.nombre}</div>
+        ${cliente.telefono?`<div class="cliente-tel">📞 ${cliente.telefono}</div>`:''}
+      </div>
+      <div class="saldo-card">
+        <div class="lbl"><span class="star">⭐</span> Saldo disponible</div>
+        <div class="num" id="saldo-num">0.00</div>
+        <div class="sub">puntos acumulados</div>
+        ${pct>0?`<div class="progress-wrap">
+          <div class="progress-lbl"><span>Acumulas ${pct}% en cada compra</span></div>
+          <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        </div>`:''}
+      </div>
+      <div class="card delay2">
+        <div class="card-title">📋 Historial de movimientos</div>
+        ${histHtml}
+      </div>
+      <div class="card delay3" style="text-align:center;background:var(--azulc)">
+        <div style="font-size:12px;color:var(--azul);font-weight:600">💧 ¡Gracias por tu preferencia!</div>
+        <div style="font-size:11px;color:var(--gris);margin-top:4px">Sigue comprando para acumular más puntos y canjearlos por productos.</div>
+      </div>
+    `;
+
+    // Animar número y barra
+    const numEl=document.getElementById('saldo-num');
+    animarNumero(numEl,saldo);
+    const fill=document.getElementById('progress-fill');
+    if(fill){
+      const pctVisual=saldo>0?Math.min(100,(saldo%100)||100):0;
+      setTimeout(()=>{fill.style.width=pctVisual+'%';},250);
+    }
+  }catch(e){
+    console.error(e);
+    el.innerHTML=`<div class="err-card"><div class="ic">⚠️</div><h3>Error al cargar</h3><p>No pudimos obtener tu información en este momento. Intenta de nuevo más tarde.</p></div>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

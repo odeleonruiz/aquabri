@@ -1406,22 +1406,8 @@ document.addEventListener('DOMContentLoaded',()=>{
 
   </div>
 
-  <!-- Panel rastreo GPS camiones -->
-  <div class="card" style="margin-top:12px">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-      <div class="card-title" style="margin:0">🚚 Rastreo GPS en Tiempo Real</div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <span id="gps-estado" style="font-size:11px;color:var(--gris)">⏸ Actualizando…</span>
-        <button class="btn bp bsm" onclick="cargarUbicaciones(true)">🔄 Actualizar</button>
-      </div>
-    </div>
-    <div id="camiones-lista" style="min-height:40px">
-      <p class="tmuted">Cargando repartidores…</p>
-    </div>
-  </div>
-
   <div style="margin-top:8px;font-size:11px;color:var(--gris)">
-    🔴 Pendiente &nbsp;|&nbsp; 🟡 En ruta hoy &nbsp;|&nbsp; 🟢 Visitado &nbsp;|&nbsp; 🔵 Mi ubicación &nbsp;|&nbsp; 🚚 Repartidor
+    🔴 Pendiente &nbsp;|&nbsp; 🟡 En ruta hoy &nbsp;|&nbsp; 🟢 Visitado &nbsp;|&nbsp; 🔵 Mi ubicación
   </div>
 </div>
 
@@ -3492,22 +3478,6 @@ function startApp(){
   }
   if(!CU)return;
   
-  setTimeout(()=>{
-    const emp=D.empleados.find(e=>e.nombre===CU.nombre);
-    if(window.Android){
-      if(window.Android.onLogin){
-        window.Android.onLogin(
-          CU.usuario||CU.nombre,
-          emp?emp.id:0,
-          CU.nombre||''
-        );
-      }else if(window.Android.setEmpleadoId&&emp){
-        window.Android.setEmpleadoId(emp.id);
-      }
-    }
-  },1500);
-  
-  setTimeout(()=>iniciarRastreo(),2000);
   // Restaurar ruta activa si había una al recargar
   const rutaActivaId=localStorage.getItem('aqb_ruta_activa_id');
   if(rutaActivaId){
@@ -3582,7 +3552,6 @@ function startApp(){
   const lastPage=localStorage.getItem('aqb_page')||'inicio';
   const allowed=PERMS[CU?.rol]||['inicio'];
   goPage(allowed.includes(lastPage)?lastPage:'inicio');
-  mostrarGpsFab();
   setTimeout(initNotificaciones,1000);
   if(window.innerWidth<=768){document.getElementById('sidebar').classList.add('hidden');document.getElementById('main-wrap').classList.add('full');}
 }
@@ -7221,7 +7190,6 @@ function initMapa(){
     centrarMiUbicacion();
     renderRutas();
     
-    setTimeout(()=>iniciarAutoRastreo(),1500);
   },300);
 }
 
@@ -12857,7 +12825,6 @@ async function saveEmp(){const nom=document.getElementById('en').value.trim();if
 function renderEmpleados(){document.getElementById('emp-tbody').innerHTML=D.empleados.map(e=>{const usr=D.usuarios.find(u=>u.id===e.usuario_id);const frecLabel={diario:'Diario',semanal:'Semanal',quincenal:'Quincenal',mensual:'Mensual'}[e.frecuencia_pago||'mensual']||'Mensual';return`<tr><td>${e.id}</td><td><b>${e.nombre}</b></td><td>${e.puesto}</td><td>${fQ(e.sueldo)}<br><span style="font-size:9px;color:var(--gris)">${frecLabel}</span></td><td>${sBadge(e.estado)}</td><td style="font-size:11px;color:var(--gris)">${usr?'👤 '+usr.nombre:'<span style="color:#e65100">⚠️ Sin vincular</span>'}</td><td><button class="btn bsm" onclick="editEmp(${e.id})">✏️</button> <button class="btn bd bsm" onclick="delEmp(${e.id})">🗑</button></td></tr>`}).join('');document.getElementById('emp-res').innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="ms"><div class="mv">${D.empleados.filter(e=>e.estado==='Activo').length}</div><div class="ml">Activos</div></div><div class="ms"><div class="mv">${fQ(D.empleados.reduce((s,e)=>s+parseFloat(e.sueldo||0),0))}</div><div class="ml">Nómina total</div></div></div>`;}
 function editEmp(id){const e=D.empleados.find(x=>x.id===id);if(!e)return;fillEmpUsrSel();document.getElementById('eid').value=e.id;document.getElementById('en').value=e.nombre;document.getElementById('epu').value=e.puesto;document.getElementById('esu').value=e.sueldo;if(document.getElementById('efrec'))document.getElementById('efrec').value=e.frecuencia_pago||'mensual';document.getElementById('etel').value=e.telefono||'';document.getElementById('efec').value=e.fecha_ingreso;document.getElementById('eest').value=e.estado;if(e.usuario_id&&document.getElementById('eusr'))document.getElementById('eusr').value=e.usuario_id;document.getElementById('eft').textContent='Editar Empleado';if(document.getElementById('enac'))document.getElementById('enac').value=e.fecha_nacimiento||'';}
 async function delEmp(id){if(!confirm('¿Eliminar empleado?'))return;
-  await sb.from('ubicaciones').delete().eq('empleado_id',id);
   await sb.from('metas_empleados').delete().eq('empleado_id',id);
   const tablasHistoricas=['gastos','comisiones','liquidaciones','pagos','pagos_comisiones','vales','ausencias'];
   for(const t of tablasHistoricas){
@@ -13788,209 +13755,54 @@ function editUser(id){
   if(u.foto){document.getElementById('u-foto-prev').src=u.foto;document.getElementById('u-foto-prev').style.display='';document.getElementById('u-foto-fb').style.display='none';}
   document.getElementById('uft').textContent='Editar Usuario — '+u.nombre;
 }
-async function delUser(id){if(id===1){showNotif('No puedes eliminar al Jefe','#c62828');return;}if(!confirm('¿Eliminar usuario?'))return;const emp=D.empleados.find(e=>e.usuario_id===id);if(emp)await sb.from('ubicaciones').delete().eq('empleado_id',emp.id);await sb.from('usuarios').delete().eq('id',id);await loadLight();renderUsers();showNotif('Usuario eliminado');}
+async function delUser(id){if(id===1){showNotif('No puedes eliminar al Jefe','#c62828');return;}if(!confirm('¿Eliminar usuario?'))return;const emp=D.empleados.find(e=>e.usuario_id===id);await sb.from('usuarios').delete().eq('id',id);await loadLight();renderUsers();showNotif('Usuario eliminado');}
 function clearUserForm(){
   const nomInp=document.getElementById('unom');
   if(nomInp){nomInp.disabled=false;nomInp.style.background='';nomInp.style.color='';nomInp.title='';}
   const usrInp=document.getElementById('uusr');
   if(usrInp){usrInp.disabled=false;usrInp.style.background='';usrInp.style.color='';usrInp.title='';}['uid','unom','uusr','upass'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});userFotoBase64='';document.getElementById('u-foto-prev').style.display='none';document.getElementById('u-foto-fb').style.display='';document.getElementById('uft').textContent='Nuevo Usuario';}
 
-let rastreoInterval=null;let rastreoWatch=null;let camionMarkers={};let rastreoActivo=false;
-let suscripcionUbic=null;
-
-async function iniciarRastreo(){
-  if(!navigator.geolocation)return;
-  if(rastreoActivo)return;
-  rastreoActivo=true;
-  const el=document.getElementById('gps-estado');
-  if(el){el.textContent='🟢 GPS activo';el.style.color='var(--verde)';}
-  
-  rastreoInterval=setInterval(()=>enviarMiUbicacion(),15000);
-  enviarMiUbicacion();
-  
-  cargarUbicaciones();
-  
-  escucharUbicaciones();
-}
-
-async function enviarMiUbicacion(){
-  if(!CU||!navigator.geolocation)return;
-  
-  const emp=D.empleados.find(e=>e.nombre===CU.nombre);
-  if(!emp)return;
-  navigator.geolocation.getCurrentPosition(async pos=>{
-    const{latitude:lat,longitude:lng,speed}=pos.coords;
-    
-    await sb.from('ubicaciones').upsert({
-      empleado_id:emp.id,
-      lat,lng,
-      velocidad:speed?Math.round(speed*3.6):0, 
-      actualizado_en:new Date().toISOString()
-    },{onConflict:'empleado_id'});
-  },{enableHighAccuracy:true,timeout:10000,maximumAge:0});
-}
-
-function detenerRastreo(){
-  
-  if(!CU||CU.rol!=='jefe'){showNotif('Sin permiso','#c62828');return;}
-  if(rastreoInterval)clearInterval(rastreoInterval);
-  if(suscripcionUbicaciones)suscripcionUbicaciones.unsubscribe();
-  rastreoActivo=false;
-  const el=document.getElementById('gps-estado');
-  if(el){el.textContent='⏸ Inactivo';el.style.color='var(--gris)';}
-  showNotif('⏹ Rastreo detenido');
-}
-
-function escucharUbicaciones(){
-  
-  cargarUbicaciones();
-  
-  suscripcionUbicaciones=sb.channel('ubicaciones-canal')
-    .on('postgres_changes',{event:'*',schema:'public',table:'ubicaciones'},()=>{
-      cargarUbicaciones();
-    }).subscribe();
-  
-  setInterval(cargarUbicaciones,15000);
-}
-
-let suscripcionUbicaciones=null;
-
-let gpsAutoInterval=null;
-function iniciarAutoRastreo(){
-  cargarUbicaciones();
-  if(gpsAutoInterval)clearInterval(gpsAutoInterval);
-  gpsAutoInterval=setInterval(()=>cargarUbicaciones(),10000);
-}
-
-async function cargarUbicaciones(manual=false){
-  const ahora=new Date();
-  const estadoEl=document.getElementById('gps-estado');
-  try{
-    const{data:ubics,error}=await sb.from('ubicaciones').select('*').order('actualizado_en',{ascending:false});
-    if(error){console.error('Error GPS:',error);if(manual)showNotif('Error cargando GPS','#c62828');return;}
-    if(!ubics||!ubics.length){
-      document.getElementById('camiones-lista').innerHTML=`<div style="text-align:center;padding:16px;color:var(--gris)"><div style="font-size:24px">📍</div><div style="font-size:12px">Ningún vendedor ha activado su GPS</div></div>`;
-      if(estadoEl){estadoEl.textContent='⏸ Sin vendedores activos';estadoEl.style.color='var(--gris)';}
-      if(manual)showNotif('Sin ubicaciones — activa tu GPS con el botón 📍','#e65100');
-      return;
-    }
-    
-    const ubicsActivos=ubics.filter(u=>Math.round((ahora-new Date(u.actualizado_en))/60000)<5);
-    if(!ubicsActivos.length){
-      document.getElementById('camiones-lista').innerHTML=`<div style="text-align:center;padding:16px;color:var(--gris)"><div style="font-size:24px">📍</div><div style="font-size:12px">Ningún vendedor ha activado su GPS</div></div>`;
-      if(estadoEl){estadoEl.textContent='⏸ Sin vendedores activos';estadoEl.style.color='var(--gris)';}
-      Object.values(camionMarkers).forEach(m=>m.setMap(null));camionMarkers={};
-      return;
-    }
-    ubicsActivos.forEach(u=>{const emp=D.empleados.find(e=>e.id===u.empleado_id);u._nombre=emp?.nombre||'Vendedor #'+u.empleado_id;});
-    if(estadoEl){estadoEl.textContent=`🟢 ${ubicsActivos.length} vendedor(es) en línea`;estadoEl.style.color='var(--verde)';}
-    if(manual)showNotif(`✅ ${ubicsActivos.length} vendedor(es) en línea`);
-    const ubicsShow=ubicsActivos;
-    let html='';
-    ubicsShow.forEach(u=>{
-      if(!u.lat||!u.lng)return;
-      const hace=Math.round((ahora-new Date(u.actualizado_en))/60000);
-      const activo=hace<60;
-      const nomCorto=(u._nombre||'?').split(' ')[0].substring(0,6);
-      const colorFill=activo?'%232e7d32':'%239e9e9e';
-      
-      if(gmMap&&window.google){
-        try{
-          if(camionMarkers[u.empleado_id])camionMarkers[u.empleado_id].setMap(null);
-          const svgIcon='data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><circle cx="22" cy="22" r="20" fill="'+decodeURIComponent(colorFill)+'" stroke="white" stroke-width="3"/><text x="22" y="27" font-family="Arial" font-size="11" font-weight="bold" fill="white" text-anchor="middle">'+nomCorto+'</text></svg>');
-          const marker=new google.maps.Marker({
-            position:{lat:parseFloat(u.lat),lng:parseFloat(u.lng)},
-            map:gmMap,title:u._nombre,zIndex:1000,
-            icon:{url:svgIcon,scaledSize:new google.maps.Size(44,44),anchor:new google.maps.Point(22,22)}
-          });
-          const iw=new google.maps.InfoWindow({content:'<div style="font-family:Arial;padding:4px"><b>'+u._nombre+'</b><br><small>'+(activo?'🟢 EN LÍNEA':'⚫ Inactivo')+' · hace '+(hace<1?'menos de 1':hace)+' min</small></div>'});
-          marker.addListener('click',()=>iw.open(gmMap,marker));
-          camionMarkers[u.empleado_id]=marker;
-        }catch(me){console.error('Marker:',me);}
-      }
-      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #eee"><div style="display:flex;align-items:center;gap:10px"><div style="width:36px;height:36px;border-radius:50%;background:'+(activo?'#2e7d32':'#9e9e9e')+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px">🚚</div><div><b>'+u._nombre+'</b> <span style="font-size:10px;background:'+(activo?'#e8f5e9':'#f5f5f5')+';color:'+(activo?'#2e7d32':'#9e9e9e')+';padding:2px 6px;border-radius:8px">'+(activo?'● EN LÍNEA':'○ Inactivo')+'</span><br><small style="color:#9e9e9e">Hace '+(hace<1?'<1':hace)+' min</small></div></div><button class="btn bp bsm" onclick="centrarEnCamion('+u.lat+','+u.lng+')">📍 Ver</button></div>';
-    });
-    document.getElementById('camiones-lista').innerHTML=html||'<p class="tmuted">Sin ubicaciones</p>';
-    if(gmMap){const idsActivos=ubics.map(u=>u.empleado_id);Object.keys(camionMarkers).forEach(eid=>{if(!idsActivos.includes(parseInt(eid))){camionMarkers[eid].setMap(null);delete camionMarkers[eid];}});}
-  }catch(err){console.error('GPS error:',err);}
-}
-
-function centrarEnCamion(lat,lng){
-  
-  if(!gmMap){
-    goPage('mapa');
-    setTimeout(()=>centrarEnCamion(lat,lng),2500);
-    return;
-  }
-  gmMap.setCenter({lat:parseFloat(lat),lng:parseFloat(lng)});
-  gmMap.setZoom(16);
-}
-
 async function asignarPedido(ventaId, clienteId){
-  
-  const{data:ubics}=await sb.from('ubicaciones')
-    .select('*,empleados(nombre,id)')
-    .order('actualizado_en',{ascending:false});
-
-  const cli=D.clientes.find(c=>c.id===clienteId);
-  const ubicsArr=ubics||[];
-
-  let masC=null,distMin=Infinity;
-  ubicsArr.forEach(u=>{
-    if(!u.lat||!u.lng)return;
-    let dist=999;
-    if(cli?.lat&&cli?.lng){
-      
-      const dlat=parseFloat(u.lat)-parseFloat(cli.lat);
-      const dlng=parseFloat(u.lng)-parseFloat(cli.lng);
-      dist=Math.sqrt(dlat*dlat+dlng*dlng);
-    }
-    if(dist<distMin){distMin=dist;masC=u;}
-  });
-
-  
-  // Si hay GPS activo usarlo, si no mostrar todos los empleados
-  let lista=[];
-  if(ubicsArr.length){
-    lista=ubics.map(u=>{
-      const dlat=cli?.lat?parseFloat(u.lat)-parseFloat(cli.lat):0;
-      const dlng=cli?.lng?parseFloat(u.lng)-parseFloat(cli.lng):0;
-      const dist=cli?.lat?Math.round(Math.sqrt(dlat*dlat+dlng*dlng)*111):null;
-      const hace=Math.round((new Date()-new Date(u.actualizado_en))/60000);
-      const esMasCercano=masC&&u.empleado_id===masC.empleado_id;
-      return{u,dist,hace,esMasCercano,emp:u.empleados};
-    }).sort((a,b)=>(a.dist||999)-(b.dist||999));
-  } else {
-    // Sin GPS — mostrar todos los empleados
-    lista=D.empleados.map(e=>({u:null,dist:null,hace:null,esMasCercano:false,emp:{nombre:e.nombre,id:e.id}}));
+  // El jefe asigna manualmente: sin consultar ni rastrear GPS de los trabajadores.
+  const cli=(D.clientes||[]).find(c=>c.id===clienteId);
+  const empleados=(D.empleados||[]).filter(e=>e&&e.id);
+  const cuerpo=document.getElementById('modal-asignar-body');
+  const titulo=document.getElementById('modal-asignar-titulo');
+  if(!cuerpo||!titulo)return;
+  cuerpo.replaceChildren();
+  const resumen=document.createElement('p');
+  resumen.style.cssText='font-size:12px;color:var(--gris);margin-bottom:10px';
+  resumen.textContent='Cliente: '+(docActual?.venta?.nombre_mostrador||cli?.nombre||'Mostrador')+' · Asignación manual';
+  cuerpo.appendChild(resumen);
+  if(!empleados.length){
+    const aviso=document.createElement('p');
+    aviso.className='tmuted';
+    aviso.textContent='No hay empleados disponibles para asignar.';
+    cuerpo.appendChild(aviso);
   }
-
-  
-  let html=`<div style="font-size:12px;color:var(--gris);margin-bottom:10px">
-    Cliente: <b>${docActual?.venta?.nombre_mostrador||cli?.nombre||'Mostrador'}</b> ${cli?.lat?'📍':'(sin GPS)'}
-  </div>`;
-  lista.forEach(({u,dist,hace,esMasCercano,emp:empObj})=>{
-    const emp=empObj||u?.empleados;
-    const tieneGps=!!u;
-    html+=`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eee;${esMasCercano?'background:#e8f5e9;margin:0 -12px;padding:10px 12px;border-radius:8px;':''}">
-      <div>
-        <b style="font-size:13px">${emp?.nombre||'?'}</b>
-        ${esMasCercano?'<span style="background:#2e7d32;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;margin-left:6px">⭐ Más cercano</span>':tieneGps?'<span style="background:#e8f5e9;color:#2e7d32;border-radius:10px;padding:1px 7px;font-size:10px;margin-left:6px">🟢 GPS activo</span>':'<span style="background:#f5f5f5;color:#9e9e9e;border-radius:10px;padding:1px 7px;font-size:10px;margin-left:6px">⚫ Sin GPS</span>'}
-        <br><span style="font-size:11px;color:var(--gris)">
-          ${dist!==null?'~'+dist+'km · ':''}${hace!==null?'Hace '+hace+' min':'Sin ubicación activa'}
-        </span>
-      </div>
-      <button class="btn bp bsm" onclick="confirmarAsignacion(${ventaId},${emp?.id||0},'${(emp?.nombre||'').replace(/'/g,"\'")}');closeModal('modal-asignar')">
-        Asignar
-      </button>
-    </div>`;
+  empleados.forEach(emp=>{
+    const fila=document.createElement('div');
+    fila.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #eee';
+    const nombre=document.createElement('b');
+    nombre.style.fontSize='13px';
+    nombre.textContent=emp.nombre||'Empleado';
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='btn bp bsm';
+    btn.textContent='Asignar';
+    btn.addEventListener('click',()=>{
+      btn.disabled=true;
+      Promise.resolve(confirmarAsignacion(ventaId,emp.id,emp.nombre||'Empleado'))
+        .then(()=>closeModal('modal-asignar'))
+        .catch(err=>{console.error('Error al asignar pedido:',err);showNotif('No se pudo asignar el pedido','#c62828');})
+        .finally(()=>{btn.disabled=false;});
+    });
+    fila.append(nombre,btn);
+    cuerpo.appendChild(fila);
   });
-
-  document.getElementById('modal-asignar-body').innerHTML=html;
-  document.getElementById('modal-asignar-titulo').textContent='Asignar pedido #'+ventaId;
+  titulo.textContent='Asignar pedido #'+ventaId;
   openModal('modal-asignar');
 }
-
 async function confirmarAsignacion(ventaId,empleadoId,empleadoNombre){
   await sb.from('ventas').update({
     estado:'Preparando',
@@ -14338,130 +14150,12 @@ async function verChatAdmin(uid,nombre){
 
 setInterval(actualizarBadges, 30000);
 
-let gpsRepartidorActivo=false;
-let gpsWatchId=null;
-let gpsEnvioInterval=null;
-let gpsUltimaPos=null;
-
+// GPS exclusivo de navegación y clientes cercanos: no envía posiciones a Supabase.
 // Actualizar posición GPS continuamente para ordenar clientes
 if(navigator.geolocation){
   navigator.geolocation.watchPosition(function(pos){
     window._miUbicacionActual={lat:pos.coords.latitude,lng:pos.coords.longitude};
   },null,{enableHighAccuracy:true,maximumAge:5000,timeout:10000});
-}
-
-function mostrarGpsFab(){
-  if(!CU)return;
-  const panel=document.getElementById('gps-panel');
-  if(panel){
-    panel.style.display='flex';
-    
-    panel.classList.add('oculto');
-    if(localStorage.getItem('autoActivarGPS')==='1'){
-      localStorage.removeItem('autoActivarGPS');
-      setTimeout(()=>activarGpsRepartidor(),1000);
-    }
-  }
-}
-
-function toggleGpsPanel(){
-  const panel=document.getElementById('gps-panel');
-  if(!panel)return;
-  panel.classList.toggle('oculto');
-}
-
-async function toggleGpsRepartidor(){
-  if(gpsRepartidorActivo){
-    detenerGpsRepartidor();
-  }else{
-    activarGpsRepartidor();
-  }
-}
-
-function activarGpsRepartidor(){
-  const btn=document.getElementById('gps-fab-btn');
-  const pulse=document.getElementById('gps-fab-pulse');
-  if(!navigator.geolocation){
-    alert('Tu navegador no soporta GPS.\nUsa Chrome y permite la ubicación cuando te lo pida.');
-    return;
-  }
-  showNotif('📍 Activando GPS…','#1565c0');
-  showNotif('📍 Conectando GPS...','#1565c0');
-  const watchId=navigator.geolocation.watchPosition(
-    async pos=>{
-      gpsUltimaPos=pos;
-      gpsWatchId=watchId;
-      await enviarPosicion(pos);
-      if(!gpsRepartidorActivo){
-        gpsRepartidorActivo=true;
-        if(btn)btn.style.background='#2e7d32';
-        if(pulse)pulse.style.display='block';
-        showNotif('✅ GPS activado — el jefe puede verte','#2e7d32');
-        gpsEnvioInterval=setInterval(async()=>{
-          if(gpsUltimaPos)await enviarPosicion(gpsUltimaPos);
-        },15000);
-      }
-    },
-    err=>{
-      if(err.code===1){
-        alert('Permiso de GPS denegado.\n\nPara activarlo:\n1. Toca el ícono 🔒 en la barra de dirección\n2. Toca Ubicación\n3. Selecciona Permitir\n4. Recarga la página');
-      }else if(err.code===2){
-        alert('GPS no disponible.\nActiva el GPS de tu celular en Configuración.');
-      }else{
-        showNotif('GPS tardó mucho — intenta de nuevo','#e65100');
-      }
-    },
-    {enableHighAccuracy:true,timeout:10000,maximumAge:0}
-  );
-}
-
-async function detenerGpsRepartidor(){
-  if(gpsWatchId)navigator.geolocation.clearWatch(gpsWatchId);
-  if(gpsEnvioInterval)clearInterval(gpsEnvioInterval);
-  gpsWatchId=null;gpsEnvioInterval=null;gpsRepartidorActivo=false;gpsUltimaPos=null;
-  const btn=document.getElementById('gps-fab-btn');
-  const pulse=document.getElementById('gps-fab-pulse');
-  const pestana=document.getElementById('gps-pestana');
-  const label=document.getElementById('gps-label');
-  if(btn)btn.style.background='#546e7a';
-  if(pulse)pulse.style.display='none';
-  if(pestana)pestana.classList.remove('activo');
-  if(label){label.textContent='Mi GPS';label.style.color='#546e7a';}
-  
-  const emp=D.empleados.find(e=>e.usuario_id===CU?.id||(e.nombre||'').trim().toLowerCase()===(CU?.nombre||'').trim().toLowerCase());
-  if(emp){
-    await sb.from('ubicaciones').delete().eq('empleado_id',emp.id);
-    
-    if(camionMarkers[emp.id]){camionMarkers[emp.id].setMap(null);delete camionMarkers[emp.id];}
-  }
-  showNotif('GPS desactivado — ya no eres visible en el mapa');
-}
-
-async function enviarPosicion(pos){
-  if(!CU)return;
-  
-  
-  let emp=D.empleados.find(e=>e.usuario_id===CU.id);
-  
-  if(!emp){
-    const nomCU=(CU.nombre||'').trim().toLowerCase();
-    emp=D.empleados.find(e=>(e.nombre||'').trim().toLowerCase()===nomCU);
-  }
-  if(!emp){
-    showNotif('⚠️ Ve a RRHH → Empleados y vincula tu usuario para activar el GPS','#e65100');
-    return;
-  }
-  try{
-    await sb.from('ubicaciones').upsert({
-      empleado_id:emp.id,
-      lat:pos.coords.latitude,
-      lng:pos.coords.longitude,
-      velocidad:pos.coords.speed?parseFloat((pos.coords.speed*3.6).toFixed(1)):0,
-      actualizado_en:new Date().toISOString()
-    },{onConflict:'empleado_id'});
-  }catch(e){
-    console.error('Error enviando ubicación:',e);
-  }
 }
 
 function hacerArrastrable(elId){
@@ -15529,23 +15223,6 @@ window.addEventListener('load',()=>{
     </div>
   </div>
 </div>
-
-<!-- ── GPS DESLIZABLE ── -->
-<style>#gps-panel{position:fixed;right:0;bottom:100px;z-index:7999;display:none;align-items:center;transition:transform .3s ease;will-change:transform;}#gps-panel.oculto{transform:translateX(calc(100% - 18px));}#gps-pestana{width:18px;height:60px;background:#546e7a;border-radius:10px 0 0 10px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;touch-action:manipulation;box-shadow:-2px 0 8px rgba(0,0,0,.2);writing-mode:vertical-rl;font-size:11px;color:#fff;font-weight:700;letter-spacing:1px;user-select:none;}#gps-pestana.activo{background:#2e7d32;}#gps-contenido{background:#fff;border-radius:12px 0 0 12px;padding:12px 14px;box-shadow:-4px 0 16px rgba(0,0,0,.15);display:flex;flex-direction:column;align-items:center;gap:6px;min-width:80px;}</style>
-<div id="gps-panel">
-  <!-- Pestaña para sacar/guardar -->
-  <div id="gps-pestana" onclick="toggleGpsPanel()">GPS</div>
-  <!-- Contenido del panel GPS -->
-  <div id="gps-contenido">
-    <button id="gps-fab-btn" onclick="toggleGpsRepartidor()"
-      style="width:52px;height:52px;border-radius:50%;background:#546e7a;color:#fff;border:none;font-size:22px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2);touch-action:manipulation;-webkit-tap-highlight-color:transparent;position:relative">
-      📍
-      <div id="gps-fab-pulse" style="display:none;position:absolute;top:-2px;right:-2px;width:12px;height:12px;border-radius:50%;background:#2e7d32;border:2px solid #fff;animation:gpsPulse 1.5s infinite"></div>
-    </button>
-    <div id="gps-label" style="font-size:10px;color:#546e7a;font-weight:600;text-align:center">Mi GPS</div>
-  </div>
-</div>
-<style>@keyframes gpsPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.3);opacity:.7}}</style>
 
 <!-- ── MENÚ CONTEXTUAL CHAT ── -->
 <div id="chat-context-menu">

@@ -3643,7 +3643,7 @@ async function goPage(p){
     // Auto-refresh mapa cada 30s para ver visitados de vendedores en tiempo real
     if(window._mapaRefreshInterval)clearInterval(window._mapaRefreshInterval);
     window._mapaRefreshInterval=setInterval(async()=>{
-      if(!document.getElementById('page-mapa')?.classList.contains('active'))return;
+      if(document.hidden||!document.getElementById('page-mapa')?.classList.contains('active'))return;
       const hoyStr=hoy();
       const[{data:vis},{data:vtas},{data:prds}]=await Promise.all([
         sb.from('visitas').select('cliente_id').eq('fecha',hoyStr),
@@ -4309,7 +4309,7 @@ function iniciarProgresoRealtime(){
   renderProgresoVendedores();
   // Actualizar cada 30 segundos
   _progresoInterval=setInterval(async()=>{
-    if(!document.getElementById('card-progreso-vendedores')?.offsetParent)return;
+    if(document.hidden||!document.getElementById('card-progreso-vendedores')?.offsetParent)return;
     // Recargar solo ventas del día
     const hoyStr=hoy();
     const{data:ventasHoy}=await sb.from('ventas').select('*,clientes(nombre)').eq('fecha',hoyStr).neq('estado','Cancelada').order('id',{ascending:false});
@@ -4847,7 +4847,7 @@ async function seguirRutaComoJefe(rid){
   // Auto-refresh cada 15s — siempre actualizar desde Supabase
   if(_autoRefreshInterval)clearInterval(_autoRefreshInterval);
   _autoRefreshInterval=setInterval(async()=>{
-    if(!navRutaActiva)return;
+    if(document.hidden||!navRutaActiva)return;
     const hoyStr=hoy();
     // Traer 3 fuentes en paralelo: paradas, visitas de hoy, ventas de hoy
     const[{data:paradas},{data:visitasHoy},{data:ventasHoy}]=await Promise.all([
@@ -6293,7 +6293,7 @@ async function aqDescargarReciboVentana(doc,nombre,compartir=false){
 }
 
 function aquabriNombreClienteCobro(cobro){
-  // Los cobros antiguos usan notas con el nombre; los más recientes pueden incluir ID de crédito.
+  // Conservar los códigos de control en Caja; aquí solo formatear nombre visible.
   const notas=String(cobro?.notas||'').trim();
   const idExp=notas.match(/\b(?:cliente\s*(?:ID\s*[:#]?|#)|ID\s*:)\s*(\d+)\b/i);
   if(idExp){const cli=(D.clientes||[]).find(x=>String(x.id)===idExp[1]);if(cli?.nombre)return cli.nombre;}
@@ -6303,18 +6303,29 @@ function aquabriNombreClienteCobro(cobro){
     const cli=(D.clientes||[]).find(x=>String(x.id)===String(cred?.cliente_id));
     if(cli?.nombre)return cli.nombre;
   }
-  const nombreExp=notas.match(/Cobro\s+(?:de\s+)?cr[eé]dito\s*[—–:-]\s*(.+?)(?:\s*\(cr[eé]dito\s*#\d+\))?\s*$/i);
-  if(nombreExp&&nombreExp[1].trim())return nombreExp[1].trim();
+  const nombreExp=notas.match(/Cobro\s+(?:de\s+)?cr[eé]dito\s*[—–:-]\s*([\s\S]*)/i);
+  if(nombreExp){
+    const limpio=nombreExp[1]
+      .replace(/\s*\[AQ-[A-Z0-9-]+:[^\]]*\]/gi,'')
+      .replace(/\s*(?:[·|]\s*)?Medio\s+de\s+pago\s*:\s*[\s\S]*$/i,'')
+      .replace(/\s*\(cr[eé]dito\s*#\s*\d+\)/gi,'')
+      .replace(/\s*[·|]\s*$/,'').trim();
+    if(limpio)return limpio;
+  }
   const cliDirecto=(D.clientes||[]).find(x=>String(x.id)===String(cobro?.cliente_id));
   if(cliDirecto?.nombre)return cliDirecto.nombre;
   return 'Cliente no identificado';
 }
+function aquabriEscaparNombreVisible(valor){
+  return String(valor||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 async function renderHistorial(){
   const esVendedor=CU&&!SOLO_JEFE.includes(CU.rol)&&CU.rol!=='reportes';
   const desde=document.getElementById('hd')?.value||'';
   const hasta=document.getElementById('hh')?.value||'';
   const buscar=normalizar(document.getElementById('hist-buscar')?.value||'').trim();
-  let q=sb.from('ventas').select('*,clientes(nombre,telefono)').order('id',{ascending:false});
+  let q=sb.from('ventas').select('id,fecha,cliente_id,usuario_id,nombre_mostrador,total,entrega,estado,cancelado_por,notas,clientes(nombre,telefono)').order('id',{ascending:false});
   // Vendedores solo ven las ventas de HOY
   if(esVendedor){
     q=q.eq('fecha',hoy());
@@ -6325,7 +6336,7 @@ async function renderHistorial(){
   const{data:ventas}=await q;
   let lista=ventas||[];
   // Traer cobros de crédito del mismo período
-  let qcob=sb.from('caja').select('*').eq('tipo','cobro_credito').order('id',{ascending:false});
+  let qcob=sb.from('caja').select('id,fecha,monto,notas,usuario_id').eq('tipo','cobro_credito').order('id',{ascending:false});
   if(esVendedor){qcob=qcob.eq('fecha',hoy());}
   else{if(desde)qcob=qcob.gte('fecha',desde);if(hasta)qcob=qcob.lte('fecha',hasta);}
   const{data:cobrosData}=await qcob;
@@ -6362,11 +6373,10 @@ async function renderHistorial(){
 
   // ── VISTA ESCRITORIO ──
   const cobrosRows=cobrosFiltrados.map(c=>{
-    const nombreCliente=aquabriNombreClienteCobro(c);
-    const uNom=D.usuarios?.find(u=>u.id===c.usuario_id)?.nombre||'';
+    const nombreCliente=aquabriEscaparNombreVisible(aquabriNombreClienteCobro(c));
     return`<tr class="aq-cobro-credito" style="background:#e8f5e9">
       <td style="color:var(--gris);font-size:10px">#C${c.id}</td><td>${c.fecha}</td>
-      <td><b style="color:var(--verde)">💳 Cobro de crédito</b><br><span class="aq-nombre-cobro" style="font-size:11px;color:var(--texto2);font-weight:700">👤 ${nombreCliente}</span>${uNom?'<br><span style="font-size:10px;color:var(--morado)">👤 '+uNom+'</span>':''}</td>
+      <td><b style="color:var(--verde)">💳 Cobro de crédito</b><br><span class="aq-nombre-cobro" style="font-size:11px;color:var(--texto2);font-weight:700">👤 ${nombreCliente}</span></td>
       <td><b style="color:var(--verde)">${fQ(c.monto)}</b></td><td>—</td>
       <td><span style="background:var(--verdec);color:var(--verde);border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">✅ Cobrado</span></td>
       <td>—</td></tr>`;
@@ -6425,13 +6435,12 @@ async function renderHistorial(){
         </div>
       </div>`;
     }).join('')+cobrosFiltrados.map(c=>{
-      const nombreCliente=aquabriNombreClienteCobro(c);
-      const uNom=D.usuarios?.find(u=>u.id===c.usuario_id)?.nombre||'';
-      return`<div class="aq-cobro-credito" style="background:#e8f5e9;border-radius:12px;padding:12px 14px;margin-bottom:10px;border-left:4px solid var(--verde)">
+      const nombreCliente=aquabriEscaparNombreVisible(aquabriNombreClienteCobro(c));
+        return`<div class="aq-cobro-credito" style="background:#e8f5e9;border-radius:12px;padding:12px 14px;margin-bottom:10px;border-left:4px solid var(--verde)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
             <div style="font-size:13px;font-weight:700;color:var(--verde)">💳 Cobro de crédito</div>
-            <div style="font-size:11px;color:var(--gris)">${c.fecha} · ${nombreCliente}${uNom?' · 👤 '+uNom:''}</div>
+            <div style="font-size:11px;color:var(--gris)">${c.fecha} · ${nombreCliente}</div>
           </div>
           <div style="text-align:right">
             <div style="font-size:16px;font-weight:800;color:var(--verde)">${fQ(c.monto)}</div>
@@ -7749,7 +7758,7 @@ async function iniciarNavegacionRuta(rid){
   // Auto-refresh cada 20 segundos para ver visitados en tiempo real
   if(_autoRefreshInterval)clearInterval(_autoRefreshInterval);
   _autoRefreshInterval=setInterval(async()=>{
-    if(!navRutaActiva)return;
+    if(document.hidden||!navRutaActiva)return;
     const{data:paradas}=await sb.from('ruta_paradas').select('id,estado,cliente_id').eq('ruta_id',navRutaActiva.id);
     if(!paradas)return;
     let cambios=0;
@@ -8027,7 +8036,7 @@ function mostrarRutaCompletada(){
 }
 
 async function finalizarRuta(){
-  if(!navRutaActiva)return;
+  if(document.hidden||!navRutaActiva)return;
   await sb.from('rutas').update({estado:'Completada'}).eq('id',navRutaActiva.id);
   cerrarNavRuta();
   showNotif('✅ Ruta finalizada y guardada','#2e7d32');
@@ -10324,7 +10333,7 @@ async function saveCredito(){const m=parseFloat(document.getElementById('cc-mont
 async function cargarHistorialPagosCredito(){
   const desde=document.getElementById('hpc-desde')?.value||'';
   const hasta=document.getElementById('hpc-hasta')?.value||'';
-  let q=sb.from('caja').select('*').eq('tipo','cobro_credito').order('fecha',{ascending:false}).order('id',{ascending:false});
+  let q=sb.from('caja').select('id,fecha,monto,notas,usuario_id').eq('tipo','cobro_credito').order('fecha',{ascending:false}).order('id',{ascending:false});
   if(desde)q=q.gte('fecha',desde);
   if(hasta)q=q.lte('fecha',hasta);
   const{data,error}=await q;
@@ -10337,7 +10346,7 @@ async function cargarHistorialPagosCredito(){
   if(elResumen)elResumen.innerHTML=`<div style="font-size:13px;font-weight:700;color:var(--verde)">Total cobrado: ${fQ(total)} — ${pagos.length} pago(s)</div>`;
   elLista.innerHTML=pagos.length?pagos.map(p=>`
     <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;font-size:12px">
-      <div><b>${p.notas||'Cobro de crédito'}</b><div style="font-size:10px;color:var(--gris)">${p.fecha}</div></div>
+      <div><b>${aquabriEscaparNombreVisible(aquabriNombreClienteCobro(p))}</b><div style="font-size:10px;color:var(--gris)">${p.fecha}</div></div>
       <span style="font-weight:700;color:var(--verde)">${fQ(p.monto)}</span>
     </div>`).join(''):'<p class="tmuted" style="text-align:center;padding:14px">Sin pagos en este rango</p>';
 }
@@ -12589,7 +12598,7 @@ async function generarReporte(){
     if(cobrosCredFiltrados?.length){
       cobrosCard.style.display='';
       cobrosTbody.innerHTML=cobrosCredFiltrados.map(c=>{
-        const nombreCliente=aquabriNombreClienteCobro(c);
+        const nombreCliente=aquabriEscaparNombreVisible(aquabriNombreClienteCobro(c));
         return`<tr>
           <td>${c.fecha}</td>
           <td class="aq-nombre-cobro">👤 ${nombreCliente}</td>

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>AQUABRI | Activación de celular (pruebas)</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#e9f1fa;color:#152943;font:15px system-ui,-apple-system,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
+main{width:min(470px,calc(100% - 24px));padding:27px;background:white;border-radius:17px;box-shadow:0 14px 45px #12345b22}
+h1{color:#1564ba;margin:0;font-size:25px}p{line-height:1.5}small,.hint{font-size:12px;color:#54677e}
+label{font-size:13px;font-weight:700;display:block;margin-top:14px}
+input,select{width:100%;margin-top:5px;border:1px solid #9aabc2;border-radius:9px;padding:11px;font:inherit}
+button{border:0;border-radius:9px;background:#1564ba;color:white;cursor:pointer;padding:12px 14px;font:inherit;font-weight:650}
+button[disabled]{opacity:.6;cursor:progress}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.actions button{flex:1}
+#confirmStep{display:none}#message{min-height:24px;margin-top:18px;color:#345d85;white-space:pre-wrap;font-size:14px}
+.muted{background:#f1f5f9;border-radius:9px;padding:11px;font-size:13px}
+</style>
+</head>
+<body><main>
+<h1>AQUABRI</h1>
+<p><strong>Verificación de celular — base de PRUEBAS</strong></p>
+<div class="muted">Este formulario <strong>no crea otro empleado</strong> en AQUABRI y no modifica la cuenta real. Verifica un teléfono en Supabase Auth de pruebas. Después, el administrador debe vincularlo con el usuario existente.</div>
+<form id="startForm">
+<label for="mode">¿Qué necesitas?</label>
+<select id="mode"><option value="activate">Verificar celular por primera vez (1 SMS)</option><option value="recover">Recuperar contraseña (solo cuando sea necesario)</option></select>
+<label for="mobile">Número de Guatemala</label>
+<input id="mobile" inputmode="tel" type="tel" pattern="[0-9]{8}" autocomplete="tel-national" maxlength="8" placeholder="8 dígitos, sin +502" required>
+<label for="secret">Contraseña nueva para esta identidad</label>
+<input id="secret" type="password" minlength="12" maxlength="128" autocomplete="new-password" required placeholder="Al menos 12 caracteres">
+<div class="actions"><button id="send" type="submit">Enviar código por SMS</button></div>
+</form>
+<form id="confirmStep">
+<p>Escribe aquí el código de 6 dígitos que llegó a tu celular. <strong>No lo compartas con nadie.</strong></p>
+<label for="otp">Código SMS</label>
+<input id="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+<div class="actions"><button id="validate" type="submit">Confirmar código</button><button type="button" id="restart">Cancelar</button></div>
+</form>
+<p id="message" role="status"></p>
+<small>El SMS se solicita únicamente al pulsar «Enviar código». El inicio diario de AQUABRI seguirá siendo usuario y contraseña, sin SMS. Antes de funcionar, debes habilitar Phone y Twilio Verify en Supabase staging. No uses aquí la contraseña actual de tu cuenta principal.</small>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.min.js"></script>
+<script>
+(()=>{
+"use strict";
+const SB_URL="https://xzbawbkstaqvkwtqlqai.supabase.co";
+const KEY="sb_publishable_QOGiyV0pqGEYY8tXBaTMag_e_eVQRJw";
+const sb=supabase.createClient(SB_URL,KEY,{auth:{autoRefreshToken:false,persistSession:false}});
+const el=id=>document.getElementById(id);
+let pending=null;
+const message=t=>{el("message").textContent=t;};
+el("startForm").addEventListener("submit",async e=>{
+ e.preventDefault();
+ const number=el("mobile").value.trim();
+ const password=el("secret").value;
+ if(!/^\d{8}$/.test(number)||password.length<12){message("Introduce 8 dígitos y una contraseña nueva de al menos 12 caracteres.");return;}
+ const phone="+502"+number, mode=el("mode").value;
+ el("send").disabled=true;
+ message("Solicitando código de activación...");
+ try{
+  if(mode==="activate"){
+   const {error}=await sb.auth.signUp({phone,password});
+   if(error)throw error;
+  }else{
+   const {error}=await sb.auth.signInWithOtp({phone,options:{shouldCreateUser:false}});
+   if(error)throw error;
+  }
+  pending={phone,password,mode};
+  el("startForm").style.display="none";
+  el("confirmStep").style.display="block";
+  message("Solicitud enviada. Si tu configuración está habilitada, llegará un SMS al celular.");
+ }catch(err){message("No se pudo enviar el código: "+(err.message||"revisa la configuración Phone y Twilio Verify en staging"));}
+ finally{el("send").disabled=false;}
+});
+el("confirmStep").addEventListener("submit",async e=>{
+ e.preventDefault();if(!pending)return;
+ const code=el("otp").value.trim();if(!/^\d{6}$/.test(code)){message("Introduce el código de 6 dígitos.");return;}
+ el("validate").disabled=true;message("Comprobando código...");
+ try{
+  const {data,error}=await sb.auth.verifyOtp({phone:pending.phone,token:code,type:"sms"});
+  if(error||!data?.user)throw error||new Error("No se confirmó el teléfono");
+  if(pending.mode==="recover"){
+    if(!data.session)throw new Error("No se pudo abrir la sesión de recuperación");
+    const {error:updateErr}=await sb.auth.updateUser({password:pending.password});
+    if(updateErr)throw updateErr;
+    message("Contraseña restablecida en staging. Cierra esta página y utiliza tu usuario habitual cuando esté vinculado.");
+  }else{
+    message("Celular verificado en Supabase staging. La cuenta todavía debe vincularse a tu usuario original de AQUABRI mediante el administrador.");
+  }
+  await sb.auth.signOut();
+  pending=null;el("confirmStep").style.display="none";
+  el("secret").value="";el("otp").value="";
+ }catch(err){message("No se completó: "+(err.message||"verificación no autorizada"));}
+ finally{el("validate").disabled=false;}
+});
+el("restart").addEventListener("click",async()=>{pending=null;await sb.auth.signOut().catch(()=>{});el("confirmStep").style.display="none";el("startForm").style.display="block";el("secret").value="";el("otp").value="";message("Operación cancelada.");});
+})();
+</script>
+</body></html>

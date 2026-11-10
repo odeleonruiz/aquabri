@@ -12699,7 +12699,7 @@ async function generarReporte(){
     '<div class="aq-cred-titulo">📝 Crédito pendiente por vendedor</div>'+
     '<div class="aq-cred-sub">Únicamente de ventas del período seleccionado y que aún están sin pagar. Si se cobraron completos, no aparecen aquí. Los créditos que se pagaron siguen en “Ver más detalles” como crédito originalmente generado.</div>'+
     (filasPendientes||'<div class="aq-cred-fila">✅ No quedan créditos pendientes de las ventas seleccionadas.</div>');
-  const tarjetasPrincipales=[
+  const tarjetasBase=[
     {ic:'🛒',lbl:'Ventas del período',val:fQ(tv),c:'#1565c0',sub:'Todo lo vendido, de contado y a crédito.'},
     {ic:'📝',lbl:'Crédito pendiente',val:fQ(totalCreditoPendiente),c:'#e65100',
       sub:'Dinero que todavía deben de las ventas del período seleccionado.'},
@@ -12712,6 +12712,52 @@ async function generarReporte(){
       sub:'Transferencias '+fQ(importeMedio('transferencia'))+' · Otros '+fQ(importeMedio('otro'))},
     {ic:'💸',lbl:usuFiltro?'Gastos asociados al empleado':'Gastos registrados',val:fQ(gastosRegistrados),c:'#c62828',
       sub:usuFiltro?'Gastos vinculados al empleado seleccionado en el registro; no necesariamente dinero que él pagó.':'Todos los gastos anotados, operativos y otros.'}
+  ];
+  // Las tarjetas complementarias importantes se elevan al cuadre si tienen
+  // importe; cuando están a Q0 siguen en el desplegable. Nunca se alteran
+  // los cálculos existentes ni se presume que Gastos = salida de efectivo.
+  const categoriasPrevistas=['Otros','Proveedores','Vehículos / Combustible','Mantenimiento','Insumos / Materiales'];
+  const gastoCategoriaCentes=new Map();
+  for(const gasto of (gastos||[])){
+    const cat=String(gasto.cat||'Sin categoría').trim()||'Sin categoría';
+    gastoCategoriaCentes.set(cat,(gastoCategoriaCentes.get(cat)||0)+aqMontoCentes(gasto.monto));
+  }
+  const categoriasGasto=[...new Set([...categoriasPrevistas,...gastoCategoriaCentes.keys()])];
+  const gastoCategoriaCards=categoriasGasto.map(cat=>{
+    const monto=(gastoCategoriaCentes.get(cat)||0)/100;
+    return {
+      id:'gasto_cat_'+cat,
+      ic:cat==='Otros'?'🧾':'💸',
+      lbl:cat==='Otros'?'Otros gastos':'Gastos: '+nombreSeguro(cat),
+      val:fQ(monto),importe:monto,c:'#c62828',
+      sub:'Parte de «Gastos registrados». No restar dos veces este importe.'
+    };
+  });
+  const importesBase=[tv,totalCreditoPendiente,tvCobrosCred,importeMedio('efectivo'),bancoYTarjeta,gastosRegistrados];
+  const tarjetasPrincipalesBase=tarjetasBase.map((card,i)=>({...card,importe:importesBase[i],id:'principal_'+i}));
+  const extrasCuadre=[
+    {id:'salidas_caja',ic:'📤',lbl:'Salidas registradas en Caja',
+      val:fQ(resumenFinanciero.salidasCaja),importe:resumenFinanciero.salidasCaja,c:'#c62828',
+      sub:'Pagos y retiros asentados en Caja. Se descuentan según su medio de pago.'},
+    {id:'medio_desconocido',ic:'❔',lbl:'Cobros sin medio identificado',
+      val:fQ(importeMedio('sinClasificar')),importe:importeMedio('sinClasificar'),c:'#e65100',
+      sub:'Cobros sin etiqueta. No asumir efectivo: comprobar el movimiento.'},
+    {id:'otros_ingresos',ic:'💰',lbl:'Otros ingresos en Caja',
+      val:fQ(resumenFinanciero.otrosIngresos),importe:resumenFinanciero.otrosIngresos,c:'#2e7d32',
+      sub:'Ya están incluidos en «Dinero recibido». No sumarlos de nuevo.'},
+    {id:'compras_inventario',ic:'📦',lbl:'Compras pagadas de inventario',
+      val:fQ(comprasPagadas),importe:comprasPagadas,c:'#1565c0',
+      sub:'Compras pagadas. Revisa el medio utilizado y su salida de Caja; no volver a restar en gastos.'},
+    ...gastoCategoriaCards
+  ];
+  const tieneImporte=card=>Math.abs(Number(card.importe||0))>=0.005;
+  const tarjetasPrincipales=[
+    ...tarjetasPrincipalesBase.filter((card,i)=>i===0||tieneImporte(card)),
+    ...extrasCuadre.filter(tieneImporte)
+  ];
+  const tarjetasSoloDetalle=[
+    ...tarjetasPrincipalesBase.filter((card,i)=>i!==0&&!tieneImporte(card)),
+    ...extrasCuadre.filter(card=>!tieneImporte(card))
   ];
   const kpisDetallados=[
     {ic:'🛒',lbl:'Ventas totales',val:fQ(tv),c:'#1565c0',sub:'Todo lo facturado (contado + crédito)'},
@@ -12744,6 +12790,7 @@ async function generarReporte(){
     {ic:'🎁',lbl:'Canjes realizados',val:ventasCanjeadas.length,c:'#6a1b9a',sub:'Productos por puntos'},
     {ic:'🛒',lbl:'Nº Ventas',val:ventasNormales.length,c:'#0288d1',sub:'No incluye canjes ni anuladas'},
   ];
+  // Solo las tarjetas esenciales o con importe aparecen en primer nivel.
   document.getElementById('rep-kpis').innerHTML=tarjetasPrincipales.map(k=>`<div class="kpi-card aq-report-card" style="border-left-color:${k.c}">
     <div class="aq-report-card-head"><span class="aq-report-card-icon" aria-hidden="true">${k.ic}</span><span class="kpi-lbl aq-report-card-label">${k.lbl}</span></div>
     <div class="aq-report-card-content"><div class="kpi-val aq-report-card-value" style="color:${k.c}" title="${k.val}">${k.val}</div><div class="aq-report-card-sub">${k.sub}</div></div>
@@ -12752,7 +12799,7 @@ async function generarReporte(){
   const mediosIncompletos=importeMedio('sinClasificar');
   const avisoGastos=Math.abs(gastosRegistrados-resumenFinanciero.salidasCaja)>0.009
     ?'<div class="aq-nota-clara">⚠️ Gastos anotados '+fQ(gastosRegistrados)+' y salidas registradas en Caja '+fQ(resumenFinanciero.salidasCaja)+
-      ' no son lo mismo. Revisa cuáles gastos se pagaron en efectivo antes de cerrar.</div>':'';
+      ' no son lo mismo. Los gastos por categoría ya están incluidos en el total de Gastos: no los descuentes nuevamente. Revisa cuáles se pagaron realmente en efectivo antes de cerrar.</div>':'';
   document.getElementById('rep-resumen-simple').innerHTML=
     '<div class="aq-cuenta-clara">💰 Dinero recibido: '+fQ(resumenFinanciero.ventasCobradas)+' por ventas + '+
       fQ(tvCobrosCred)+' por abonos + '+fQ(resumenFinanciero.otrosIngresos)+' otros = <strong>'+fQ(totalEntradasCaja)+'</strong>.</div>'+
@@ -12767,9 +12814,18 @@ async function generarReporte(){
   const repetidosEnPrincipal=new Set([
     'Ventas totales','Cobros en efectivo','Tarjeta / otros medios',
     'Transferencias / depósitos','Abonos recibidos de créditos',
-    'Saldo pendiente del crédito del período'
+    'Saldo pendiente del crédito del período',
+    'Salidas registradas en Caja','Cobros sin medio registrado',
+    'Compras pagadas de inventario'
   ]);
-  const tarjetasExtra=kpisDetallados.filter(k=>!repetidosEnPrincipal.has(k.lbl));
+  const tarjetasExtra=[
+    ...tarjetasSoloDetalle,
+    ...kpisDetallados.filter(k=>!repetidosEnPrincipal.has(k.lbl) &&
+      // Si el subtotal de operativos coincide con todos los gastos, evitar
+      // otra tarjeta idéntica que parezca un gasto adicional.
+      !((k.lbl==='Gastos operativos'||k.lbl==='Gastos operativos asociados al empleado')&&
+        Math.abs(tg-gastosRegistrados)<0.005))
+  ];
   const tarjetasExtraHtml=tarjetasExtra.map(k=>`<div class="kpi-card aq-report-card" style="border-left-color:${k.c}">
     <div class="aq-report-card-head"><span class="aq-report-card-icon" aria-hidden="true">${k.ic}</span><span class="kpi-lbl aq-report-card-label">${k.lbl}</span></div>
     <div class="aq-report-card-content"><div class="kpi-val aq-report-card-value" style="color:${k.c}" title="${k.val}">${k.val}</div>

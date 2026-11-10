@@ -163,6 +163,25 @@ html[data-aq-theme="dark"] #rep-kpis .aq-report-card-sub{color:#bdd0e2}
 #page-ventas .aq-master-precio-prod{position:absolute;z-index:5;bottom:7px;left:7px;border-radius:7px;border:1px solid var(--borde);background:var(--card);color:var(--azul);font-size:13px;font-weight:700;line-height:1;padding:6px;cursor:pointer;touch-action:manipulation;box-shadow:0 1px 5px rgba(0,0,0,.13)}
 html[data-aq-theme="dark"] #page-ventas .aq-master-editar-precio,html[data-aq-theme="dark"] #page-ventas .aq-master-precio-prod{background:#25425f!important;color:#eaf5ff!important;border-color:#547898!important}
 </style>
+<style id="aq-reportes-cuadre-simple-20261109">
+/* Seis cifras visibles; las métricas de análisis quedan en "Ver detalles". */
+#rep-kpis{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}
+#rep-kpis .aq-report-card{min-height:118px}
+#rep-resumen-simple{margin:12px 0 14px;padding:13px 15px;border:1px solid var(--borde,#dce6ed);border-radius:11px;background:var(--card,#fff);color:var(--texto,#26384b);font-size:12px;line-height:1.6}
+#rep-resumen-simple .aq-cuenta-clara{font-size:13px;font-weight:750}
+#rep-resumen-simple .aq-nota-clara{margin-top:7px;color:var(--texto2,#52677c)}
+#rep-detalles-financieros{margin:0 0 14px}
+#rep-detalles-financieros details{border:1px solid var(--borde,#dce6ed);border-radius:10px;background:var(--card,#fff);color:var(--texto,#26384b);overflow:hidden}
+#rep-detalles-financieros summary{padding:12px 15px;font-size:13px;font-weight:800;cursor:pointer}
+#rep-detalles-financieros summary:focus-visible{outline:2px solid #1766b7;outline-offset:-2px}
+#rep-detalles-financieros .aq-detalles-desglose{overflow-x:auto;padding:0 14px 12px}
+#rep-detalles-financieros table{width:100%;border-collapse:collapse;font-size:12px}
+#rep-detalles-financieros th,#rep-detalles-financieros td{padding:9px 7px;border-bottom:1px solid var(--borde,#dce6ed);text-align:left;vertical-align:top}
+#rep-detalles-financieros th{font-weight:650}
+#rep-detalles-financieros td.aq-valor-desglose{font-weight:800;text-align:right;white-space:nowrap}
+#rep-detalles-financieros small{color:var(--texto2,#657c90);font-size:11px}
+@media(max-width:768px){#rep-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}#rep-resumen-simple{padding:11px 12px}}
+</style>
 </head>
 <body>
 
@@ -2457,6 +2476,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   </div>
   <div id="rep-calidad-detalle" role="alert" style="display:none;margin:4px 0 12px;padding:12px 14px;background:#fff6e9;border:1.5px solid #f59e0b;border-radius:9px;color:#713f12;font-size:12px;font-weight:700;line-height:1.5"></div>
   <div class="kpi-grid" id="rep-kpis"></div>
+  <div id="rep-resumen-simple" role="status"></div>
+  <div id="rep-detalles-financieros"></div>
   <!-- Acceso privado a Caja después del resumen de Reportes (bajo Nº Ventas en móvil). -->
   <div id="rep-cierre-box" class="aq-rep-cierre" style="display:none">
     <div class="aq-rep-cierre-text">
@@ -12597,7 +12618,32 @@ async function generarReporte(){
   // Los fondos de apertura NO son ingresos y el total histórico NO es efectivo en mano.
   // Estos KPIs distinguen facturado e ingresos registrados en Caja.
   // KPIs detallados
-  document.getElementById('rep-kpis').innerHTML=[
+
+  // Vista simple del cuadre, sin cambiar los cálculos subyacentes.
+  const gastosRegistrados=(gastos||[]).reduce((acc,g)=>acc+Number(g.monto||0),0);
+  const abonosMedios={efectivo:0,transferencia:0,otro:0,sinClasificar:0};
+  for(const mov of cobrosCredFiltrados){
+    const medio=aqCajaMedioDeNotas(mov.notas);
+    const clave=medio&&Object.prototype.hasOwnProperty.call(abonosMedios,medio)?medio:'sinClasificar';
+    abonosMedios[clave]+=Math.round(Number(mov.monto||0)*100);
+  }
+  const abonoDe=x=>abonosMedios[x]/100;
+  const bancoYTarjeta=Math.round((importeMedio('transferencia')+importeMedio('otro'))*100)/100;
+  const tarjetasPrincipales=[
+    {ic:'🛒',lbl:'Ventas del período',val:fQ(tv),c:'#1565c0',sub:'Todo lo vendido, de contado y a crédito.'},
+    {ic:'📝',lbl:'Vendido a crédito',val:fQ(resumenFinanciero.creditoOriginado),c:'#e65100',
+      sub:'Productos dejados al crédito, aunque después se paguen.'},
+    {ic:'💳',lbl:'Abonos recibidos',val:fQ(tvCobrosCred),c:'#1565c0',
+      sub:'Efectivo '+fQ(abonoDe('efectivo'))+' · Banco '+fQ(abonoDe('transferencia'))+
+          ' · Otros '+fQ(abonoDe('otro'))+(abonoDe('sinClasificar')?' · Sin identificar '+fQ(abonoDe('sinClasificar')):'')},
+    {ic:'💵',lbl:'Efectivo recibido',val:fQ(importeMedio('efectivo')),c:'#2e7d32',
+      sub:'Ventas y abonos cobrados en efectivo, antes de gastos.'},
+    {ic:'🏦',lbl:'Tarjetas y transferencias',val:fQ(bancoYTarjeta),c:'#6a1b9a',
+      sub:'Transferencias '+fQ(importeMedio('transferencia'))+' · Otros '+fQ(importeMedio('otro'))},
+    {ic:'💸',lbl:'Gastos registrados',val:fQ(gastosRegistrados),c:'#c62828',
+      sub:'Todos los gastos anotados, operativos y otros.'}
+  ];
+  const kpisDetallados=[
     {ic:'🛒',lbl:'Ventas totales',val:fQ(tv),c:'#1565c0',sub:'Todo lo facturado (contado + crédito)'},
     {ic:'💸',lbl:usuFiltro?'Gastos operativos del vendedor':'Gastos operativos',val:fQ(tg),c:'#c62828',sub:usuFiltro&&tg>0?'Pagados por este vendedor':'No incluye compras para inventario'},
     {ic:'💳',lbl:'Crédito originado en el período',val:fQ(resumenFinanciero.creditoOriginado),c:'#e65100',sub:'Importe financiado originalmente; incluye créditos ya pagados'},
@@ -12627,10 +12673,30 @@ async function generarReporte(){
     {ic:'📍',lbl:'Clientes visitados',val:(()=>{const cids=new Set(ventasNormales.filter(v=>v.cliente_id).map(v=>v.cliente_id));return cids.size;})(),c:'#2e7d32',sub:'Con compra en el período'},
     {ic:'🎁',lbl:'Canjes realizados',val:ventasCanjeadas.length,c:'#6a1b9a',sub:'Productos por puntos'},
     {ic:'🛒',lbl:'Nº Ventas',val:ventasNormales.length,c:'#0288d1',sub:'No incluye canjes ni anuladas'},
-  ].map(k=>`<div class="kpi-card aq-report-card" style="border-left-color:${k.c}">
+  ];
+  document.getElementById('rep-kpis').innerHTML=tarjetasPrincipales.map(k=>`<div class="kpi-card aq-report-card" style="border-left-color:${k.c}">
     <div class="aq-report-card-head"><span class="aq-report-card-icon" aria-hidden="true">${k.ic}</span><span class="kpi-lbl aq-report-card-label">${k.lbl}</span></div>
-    <div class="aq-report-card-content"><div class="kpi-val aq-report-card-value" style="color:${k.c}" title="${k.val}">${k.val}</div>${k.sub?`<div class="aq-report-card-sub">${k.sub}</div>`:''}</div>
+    <div class="aq-report-card-content"><div class="kpi-val aq-report-card-value" style="color:${k.c}" title="${k.val}">${k.val}</div><div class="aq-report-card-sub">${k.sub}</div></div>
   </div>`).join('');
+  const entradasEfectivo=importeMedio('efectivo'),salidasEfectivo=resumenFinanciero.porMedio.efectivo.salida;
+  const mediosIncompletos=importeMedio('sinClasificar');
+  const avisoGastos=Math.abs(gastosRegistrados-resumenFinanciero.salidasCaja)>0.009
+    ?'<div class="aq-nota-clara">⚠️ Gastos anotados '+fQ(gastosRegistrados)+' y salidas registradas en Caja '+fQ(resumenFinanciero.salidasCaja)+
+      ' no son lo mismo. Revisa cuáles gastos se pagaron en efectivo antes de cerrar.</div>':'';
+  document.getElementById('rep-resumen-simple').innerHTML=
+    '<div class="aq-cuenta-clara">💰 Dinero recibido: '+fQ(resumenFinanciero.ventasCobradas)+' por ventas + '+
+      fQ(tvCobrosCred)+' por abonos + '+fQ(resumenFinanciero.otrosIngresos)+' otros = <strong>'+fQ(totalEntradasCaja)+'</strong>.</div>'+
+    '<div>Medios de pago: efectivo '+fQ(entradasEfectivo)+' · banco/tarjeta '+fQ(bancoYTarjeta)+
+      (mediosIncompletos?' · sin identificar '+fQ(mediosIncompletos):'')+'.</div>'+
+    '<div class="aq-nota-clara">💵 Efectivo registrado después de salidas en efectivo: <b>'+fQ(entradasEfectivo-salidasEfectivo)+
+      '</b>. No incluye el fondo inicial; confirma el dinero físico en Caja.</div>'+avisoGastos;
+  const detallesContainer=document.getElementById('rep-detalles-financieros');
+  const detalleAbierto=detallesContainer.querySelector('details')?.open===true;
+  const filas=kpisDetallados.map(k=>'<tr><th>'+k.ic+' '+k.lbl+(k.sub?'<div><small>'+k.sub+'</small></div>':'')+
+      '</th><td class="aq-valor-desglose" style="color:'+k.c+'">'+k.val+'</td></tr>').join('');
+  detallesContainer.innerHTML='<details id="aq-rep-mas-detalles"'+(detalleAbierto?' open':'')+
+    '><summary>Ver detalles: ganancias, créditos pendientes y otros cálculos</summary>'+
+    '<div class="aq-detalles-desglose"><table><tbody>'+filas+'</tbody></table></div></details>';
   requestAnimationFrame(aqAjustarMontosReporte);
 
   // Top productos — excluir canceladas

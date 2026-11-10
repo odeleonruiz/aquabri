@@ -2434,9 +2434,14 @@ document.addEventListener('DOMContentLoaded',()=>{
             <option value="efectivo">💵 Efectivo que salió de Caja</option>
             <option value="transferencia">🏦 Transferencia / depósito del negocio</option>
             <option value="otro">💳 Tarjeta u otro medio del negocio</option>
-            <option value="sin_caja">🧾 Sin salida de Caja (pago externo o pendiente)</option>
+            <option value="sin_caja">🧾 Ya pagado por fuera de la Caja (tercero / dinero personal)</option>
+            <option value="credito_proveedor">📋 Gasto pendiente de pago / crédito de proveedor</option>
           </select>
-          <small id="g-metodo-ayuda" style="display:block;font-size:11px;line-height:1.4;color:var(--gris);margin-top:5px">Selecciona la forma de pago. Si fue efectivo de Caja, se registrará también una salida que reducirá el efectivo esperado del cierre.</small>
+          <small id="g-metodo-ayuda" style="display:block;font-size:11px;line-height:1.4;color:var(--gris);margin-top:5px">Selecciona cómo se pagó. Si todavía debes al proveedor, elige Crédito de proveedor para registrar la deuda.</small>
+          <div style="margin-top:9px;font-size:11px;color:var(--texto2,#607087)">
+            ¿Compraste productos, materiales o insumos para inventario a crédito?
+            <button type="button" class="btn bs bsm" style="margin:6px 0" onclick="aqPrepararInventarioCreditoDesdeGastos()">📦 Registrar compra de inventario a crédito</button>
+          </div>
         </div>
       </div>
       <div class="fe"><button class="btn bp" id="g-guardar" onclick="saveGasto()">💾 Registrar</button></div>
@@ -12143,10 +12148,14 @@ function aqGastosAyudaMetodo(){
     efectivo:'Se anotará el gasto y una salida de efectivo en Caja, en la MISMA operación. Requiere Caja abierta para esta fecha.',
     transferencia:'Se anotará el gasto y una salida bancaria identificada en Caja, sin reducir el efectivo físico.',
     otro:'Se anotará el gasto y una salida por tarjeta/otro medio, sin reducir el efectivo físico.',
-    sin_caja:'Solo se anotará en Gastos. No se restará efectivo de Caja. Úsalo cuando pagó alguien por fuera o aún no se pagó.',
+    sin_caja:'Ya se pagó con dinero de una persona o fuente externa, no desde Caja AQUABRI. No usar para una deuda pendiente.',
+    credito_proveedor:'El gasto NO se guardará aquí. Te llevaré a Facturas Proveedores para registrar el gasto y la deuda en una sola operación. Requiere proveedor.',
     '':'Selecciona cómo se pagó. Esto permite distinguir gastos registrados y salidas de Caja.'
   };
   ayuda.textContent=explicaciones[select.value]||explicaciones[''];
+  const boton=document.getElementById('g-guardar');
+  if(boton&&!boton.disabled)boton.textContent=select.value==='credito_proveedor'
+    ?'📋 Continuar a Facturas (crédito)':'💾 Registrar';
 }
 async function aqRecargarGastos(){
   // No es necesario recargar ventas, clientes ni inventario al registrar un gasto.
@@ -12156,6 +12165,64 @@ async function aqRecargarGastos(){
   renderGastosCat();
 }
 let aqGuardandoGasto=false;
+
+// Para facturas pendientes NO se registra un gasto aislado sin deuda.
+// Se prepara el registro existente de Facturas Proveedores y el jefe confirma.
+async function aqPasarFacturaDesdeGastos(tipo,datos={}){
+  if(!['gasto','inventario'].includes(tipo))throw new Error('Tipo de factura no válido');
+  const permisos=PERMS[CU?.rol]||[];
+  if(!permisos.includes('facturas')){
+    showNotif('No tienes permiso para Facturas Proveedores. Solicita ese acceso al jefe; el gasto NO se guardó.','#c62828');
+    return false;
+  }
+  try{
+    await goPage('facturas');
+    const page=document.getElementById('page-facturas');
+    if(!page?.classList.contains('active'))throw new Error('No se pudo abrir Facturas Proveedores.');
+    const tipoInput=document.getElementById('aq-fact-tipo-registro');
+    const estadoInput=document.getElementById('fe2');
+    if(!tipoInput||!estadoInput)throw new Error('Falta el formulario de Facturas Proveedores.');
+    tipoInput.value=tipo;
+    estadoInput.value='Crédito';
+    aqCambiarTipoFactura();
+    const llenar=(id,valor)=>{
+      const campo=document.getElementById(id);
+      if(campo&&valor!==null&&valor!==undefined)campo.value=String(valor);
+    };
+    llenar('fp',datos.proveedor||'');
+    llenar('ff',datos.fecha||hoy());
+    llenar('fno',datos.notas||'');
+    if(tipo==='gasto'){
+      llenar('aq-fact-concepto',datos.descripcion||'');
+      llenar('aq-fact-monto',datos.monto??'');
+      const cat=document.getElementById('aq-fact-categoria');
+      if(cat&&datos.cat){
+        if(![...cat.options].some(op=>op.value===datos.cat))cat.add(new Option(datos.cat,datos.cat));
+        cat.value=datos.cat;
+      }
+    }
+    aqFactMetodoPago();
+    aqFactActualizarTotal();
+    // Preparar NO registra nada. Se guarda al confirmar la factura.
+    showNotif(tipo==='inventario'
+      ?'Añade los artículos y pulsa Registrar en Facturas. Se creará inventario y deuda, no gasto operativo.'
+      :'Revisa el documento y pulsa Registrar. Se crearán gasto y deuda de proveedor, sin salida de Caja.','#1565c0');
+    return true;
+  }catch(error){
+    console.error('No se pudo preparar factura de crédito',error);
+    showNotif('No se guardó el gasto. '+(error?.message||'No se pudo abrir Facturas Proveedores.'),'#c62828');
+    return false;
+  }
+}
+async function aqPrepararInventarioCreditoDesdeGastos(){
+  const el=id=>document.getElementById(id);
+  await aqPasarFacturaDesdeGastos('inventario',{
+    proveedor:el('gprov')?.value?.trim()||'',
+    fecha:el('gf2')?.value||hoy(),
+    notas:el('gn')?.value?.trim()||''
+  });
+}
+
 async function saveGasto(){
   if(aqGuardandoGasto)return;
   const el=id=>document.getElementById(id);
@@ -12170,6 +12237,19 @@ async function saveGasto(){
   }
   if(!fecha||!cat||!descripcion){
     showNotif('Completa fecha, categoría y descripción del gasto','#c62828');return;
+  }
+  if(metodo==='credito_proveedor'){
+    const proveedor=el('gprov')?.value?.trim()||'';
+    if(proveedor.length<2){
+      showNotif('Indica el proveedor al que AQUABRI le debe este gasto.','#c62828');
+      el('gprov')?.focus();
+      return;
+    }
+    // No enviar metodo=credito_proveedor al RPC de pago: llevar a Facturas.
+    await aqPasarFacturaDesdeGastos('gasto',{
+      fecha,cat,descripcion,monto,proveedor,notas:el('gn')?.value?.trim()||''
+    });
+    return;
   }
   if(!['efectivo','transferencia','otro','sin_caja'].includes(metodo)){
     showNotif('Selecciona de dónde se pagó el gasto','#c62828');el('g-metodo')?.focus();return;

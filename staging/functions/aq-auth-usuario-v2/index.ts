@@ -67,13 +67,20 @@ Deno.serve(async (request: Request) => {
     if (userError || !record?.auth_uid) return invalid();
 
     const { data: identity, error: authError } = await admin.auth.admin.getUserById(record.auth_uid);
-    const email = identity?.user?.email;
-    if (authError || !identity?.user || !email || !identity.user.email_confirmed_at) return invalid();
+    // Nuevas cuentas AQUABRI: teléfono +502 verificado mediante SMS al activarlas.
+    // El SMS NO se solicita en el inicio de sesión cotidiano.
+    // Se conserva el correo verificado como respaldo para identidades anteriores de staging.
+    const phone = identity?.user?.phone || "";
+    const phoneVerified = Boolean(identity?.user?.phone_confirmed_at) && /^\+502\d{8}$/.test(phone);
+    const email = identity?.user?.email || "";
+    const emailVerified = Boolean(identity?.user?.email_confirmed_at);
+    if (authError || !identity?.user || (!phoneVerified && !emailVerified)) return invalid();
 
     const publicAuth = createClient(url, anonKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-    const { data: result, error: loginError } = await publicAuth.auth.signInWithPassword({ email, password });
+    const credentials = phoneVerified ? { phone, password } : { email, password };
+    const { data: result, error: loginError } = await publicAuth.auth.signInWithPassword(credentials);
     if (loginError || result.user?.id !== record.auth_uid || !result.session) return invalid();
 
     return respond(200, {

@@ -1,4 +1,8 @@
--- AQ: factura inventario vs gasto vs crédito proveedor; sin costos duplicados.
+-- AQUABRI QA 2026-11-09
+-- Compras inventario: capitalización + lotes; pagos y deudas separados.
+-- Gasto operativo a crédito: gasto + deuda, sin falsear «pagado por».
+-- Ningún historial se modifica al instalar estas funciones.
+
 CREATE OR REPLACE FUNCTION public.aq_registrar_compra_segura(p_token text, p_uid bigint, p_nonce text, p_factura jsonb, p_items jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -292,7 +296,7 @@ BEGIN
    -- El gasto se reconoce UNA sola vez al registrar el documento, no al pagarlo.
    INSERT INTO public.gastos(fecha,cat,descripcion,proveedor,monto,notas,pagado_por,empleado_id)
    VALUES(v_fecha,coalesce(nullif(v_categoria,''),'Otros gastos'),v_concepto,
-      v_proveedor,v_monto,'Auto: Gasto #'||v_fact.id,'Jefe',NULL);
+      v_proveedor,v_monto,'Auto: Gasto #'||v_fact.id,CASE WHEN v_estado='Pagado' THEN 'Jefe' ELSE 'Pendiente de pago' END,NULL);
  END IF;
  IF v_estado IN ('Crédito','Pendiente') THEN
    INSERT INTO public.deudas_proveedores(proveedor,concepto,monto,pagado,fecha,estado,notas)

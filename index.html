@@ -3814,6 +3814,133 @@ function ventasMes(){
   }).map(v=>({...v,total:parseFloat(v.total||0)>0?v.total:v.pagado}));
 }
 
+// AQUABRI CUADRE v2: cálculo compartido por Inicio, Reportes y Caja.
+// Crédito originado pertenece a la fecha de la venta, abono a la fecha en Caja.
+// Los medios electrónicos son ingresos, pero NO efectivo físico en caja.
+function aqResumenCobrosFinancieros(ventas,creditos,movimientos){
+  const cents=(v)=>{
+    const n=Number(v??0);
+    if(!Number.isFinite(n))throw new Error('Monto no numérico en conciliación');
+    return Math.round(n*100);
+  };
+  const ventasValidas=(ventas||[]).filter(v=>v.estado!=='Cancelada'&&v.estado!=='Anulado'&&v.tipo_venta!=='canje');
+  const ids=new Set(ventasValidas.map(v=>Number(v.id)));
+  // Incluye también créditos PAGADOS: nunca se convierten en contado al liquidarse.
+  const creditosOriginados=(creditos||[]).filter(c=>c.venta_id!=null&&ids.has(Number(c.venta_id)));
+  const sumar=(arr,campo='monto')=>arr.reduce((total,v)=>total+cents(v[campo]),0);
+  const entradas=(movimientos||[]).filter(m=>['venta','cobro_credito','ingreso','entrada'].includes(m.tipo));
+  const movimientosVenta=entradas.filter(m=>m.tipo==='venta');
+  const movimientosAbono=entradas.filter(m=>m.tipo==='cobro_credito');
+  const movimientosOtro=entradas.filter(m=>m.tipo==='ingreso'||m.tipo==='entrada');
+  const porMedioCentavos={efectivo:0,transferencia:0,otro:0,sinClasificar:0};
+  const porMedioCantidad={efectivo:0,transferencia:0,otro:0,sinClasificar:0};
+  for(const m of entradas){
+    const medio=aqCajaMedioDeNotas(m.notas);
+    const key=medio&&Object.prototype.hasOwnProperty.call(porMedioCentavos,medio)?medio:'sinClasificar';
+    porMedioCentavos[key]+=cents(m.monto);
+    porMedioCantidad[key]++;
+  }
+  const ventaCents=sumar(ventasValidas,'total');
+  const creditoCents=sumar(creditosOriginados,'monto');
+  const pendienteCents=creditosOriginados.reduce((acc,c)=>acc+Math.max(0,cents(c.monto)-cents(c.pagado)),0);
+  const ventasCents=sumar(movimientosVenta);
+  const abonosCents=sumar(movimientosAbono);
+  const otrosCents=sumar(movimientosOtro);
+  return {
+    facturado:ventaCents/100,
+    creditoOriginado:creditoCents/100,
+    creditoPendiente:pendienteCents/100,
+    creditoAbonado:Math.max(0,creditoCents-pendienteCents)/100,
+    ventasCobradas:ventasCents/100,
+    abonosCredito:abonosCents/100,
+    otrosIngresos:otrosCents/100,
+    entradasCaja:(ventasCents+abonosCents+otrosCents)/100,
+    porMedio:Object.fromEntries(Object.entries(porMedioCentavos).map(([k,v])=>[k,v/100])),
+    cantidadPorMedio:porMedioCantidad,
+    creditosOriginados,ventasValidas
+  };
+}
+
+// Consultar TODOS los movimientos del día, sin recorte de 50 ni 1.000 registros.
+// Los datos parciales no se presentan como un cuadre válido.
+let aqCuadreInicioSecuencia=0;
+async function aqActualizarCuadreInicio(fecha){
+  const secuencia=++aqCuadreInicioSecuencia;
+  const [ventasDia,cajaDia]=await Promise.all([
+    aqRepLeerTodas('ventas','id,fecha,tipo_venta,estado,total,pagado,usuario_id',q=>q.eq('fecha',fecha)),
+    aqRepLeerTodas('caja','id,fecha,tipo,monto,notas,usuario_id',q=>q.eq('fecha',fecha))
+  ]);
+  const ventasValidas=ventasDia.filter(v=>v.tipo_venta!=='canje'&&v.estado!=='Cancelada'&&v.estado!=='Anulado');
+  const ids=[...new Set(ventasValidas.map(v=>Number(v.id)).filter(Number.isSafeInteger))];
+  const creditosDia=[];
+  for(let i=0;i<ids.length;i+=100){
+    creditosDia.push(...await aqRepLeerTodas('creditos','id,venta_id,monto,pagado,estado',
+      q=>q.in('venta_id',ids.slice(i,i+100))));
+  }
+  if(secuencia!==aqCuadreInicioSecuencia||fecha!==hoy())return;
+  const resumen=aqResumenCobrosFinancieros(ventasValidas,creditosDia,cajaDia);
+  const el=document.getElementById('ini-cuadre');
+  if(!el)return;
+  const gastosHoy=(D.gastos||[]).filter(g=>g.fecha===fecha)
+    .reduce((acc,g)=>acc+(Number(g.monto)||0),0);
+  const porVendedor={};
+  const creditoVenta=new Map();
+  for(const c of creditosDia){
+    const id=Number(c.venta_id);
+    creditoVenta.set(id,(creditoVenta.get(id)||0)+Number(c.monto||0));
+  }
+  for(const v of ventasValidas){
+    const usuarioId=Number(v.usuario_id);
+    if(!usuarioId)continue;
+    const usuario=(D.usuarios||[]).find(u=>Number(u.id)===usuarioId);
+    const nombre=usuario?.nombre||'Usuario '+usuarioId;
+    if(!porVendedor[nombre])porVendedor[nombre]={total:0,contado:0,credito:0};
+    const importe=Number(v.total||0);
+    const credito=Math.min(importe,creditoVenta.get(Number(v.id))||0);
+    porVendedor[nombre].total+=importe;
+    porVendedor[nombre].contado+=importe-credito;
+    porVendedor[nombre].credito+=credito;
+  }
+  const porVendedorHtml=Object.entries(porVendedor).map(([nombre,d])=>
+    '<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid #eee;font-size:11px">'
+    +'<span>'+esc(nombre)+'</span><span>'+fQ(d.total)+' · Contado facturado '+fQ(d.contado)+' · Crédito originado '+fQ(d.credito)+'</span></div>'
+  ).join('');
+  const sinMedio=resumen.porMedio.sinClasificar;
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-bottom:10px">
+      <div style="background:var(--verdec,#e8f5e9);border-radius:8px;padding:12px;border-left:3px solid #2e7d32">
+        <div style="font-size:11px;font-weight:700">🏦 COBROS REGISTRADOS EN CAJA</div>
+        <div style="font-size:20px;font-weight:900">${fQ(resumen.entradasCaja)}</div>
+        <div style="font-size:11px">Ventas cobradas ${fQ(resumen.ventasCobradas)} · Abonos ${fQ(resumen.abonosCredito)} · Otros ${fQ(resumen.otrosIngresos)}</div>
+      </div>
+      <div style="background:var(--naranjac,#fff3e0);border-radius:8px;padding:12px;border-left:3px solid #e65100">
+        <div style="font-size:11px;font-weight:700">⏳ CRÉDITO ORIGINADO / PENDIENTE</div>
+        <div style="font-size:20px;font-weight:900">${fQ(resumen.creditoOriginado)} / ${fQ(resumen.creditoPendiente)}</div>
+        <div style="font-size:11px">Los créditos pagados no se vuelven ventas de contado</div>
+      </div>
+      <div style="background:var(--azulc,#e3f2fd);border-radius:8px;padding:12px;border-left:3px solid #1565c0">
+        <div style="font-size:11px;font-weight:700">🛒 TOTAL FACTURADO HOY</div>
+        <div style="font-size:21px;font-weight:900">${fQ(resumen.facturado)}</div>
+        <div style="font-size:11px">Son ventas del día, no cobros de deudas anteriores</div>
+      </div>
+      <div style="background:var(--grisc,#f4f6f8);border-radius:8px;padding:12px;border-left:3px solid #607d8b">
+        <div style="font-size:11px;font-weight:700">💵 COBROS POR MEDIO</div>
+        <div style="font-size:12px">Efectivo ${fQ(resumen.porMedio.efectivo)} · Transferencias ${fQ(resumen.porMedio.transferencia)} · Otros ${fQ(resumen.porMedio.otro)}${sinMedio?', Sin clasificar '+fQ(sinMedio):''}</div>
+        <div style="font-size:11px">No es el efectivo físico contado. Para ello utiliza el cierre de Caja.</div>
+      </div>
+    </div>
+    ${sinMedio?'<div style="background:#fff3e0;color:#8a4e00;padding:8px;border-radius:7px;font-size:11px">⚠️ Hay cobros sin medio de pago. No se puede confirmar el efectivo físico sin revisar esos movimientos.</div>':''}
+    ${gastosHoy>0?'<p style="font-size:11px">Gastos operativos registrados: '+fQ(gastosHoy)+'. Se muestran separados de los cobros.</p>':''}
+    ${porVendedorHtml?'<div style="font-size:11px;font-weight:700;margin:9px 0 4px">Facturación por vendedor:</div>'+porVendedorHtml:''}
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button onclick="abrirModalCerrarCaja()" style="flex:1;background:#c62828;color:#fff;border:none;border-radius:9px;padding:10px;font-weight:700">🔒 Cerrar Caja</button>
+      <button onclick="goPage('caja')" style="flex:1;background:#1565c0;color:#fff;border:none;border-radius:9px;padding:10px;font-weight:700">📒 Ver Caja</button>
+    </div>`;
+  // El KPI superior debe mostrar el MISMO facturado que Reportes.
+  const kpi=document.querySelector('#kpi-grid .kpi-card .kpi-val');
+  if(kpi)kpi.textContent=fQ(resumen.facturado);
+}
+
 function renderInicio(){
   if(!D.ventas||!D.prods||!D.creditos)return; // datos no cargados aún
   const esVendedor=CU&&!SOLO_JEFE.includes(CU.rol)&&CU.rol!=='reportes';
@@ -3825,11 +3952,7 @@ function renderInicio(){
   const tc=credPend.reduce((s,c)=>s+(parseFloat(c.monto||0)-parseFloat(c.pagado||0)),0);
   // Ventas hoy = productos entregados hoy (contado + crédito)
   const thTotal=ventasHoy.reduce((s,v)=>s+parseFloat(v.total||0),0);
-  // Cobrado hoy = solo lo que realmente entró en efectivo hoy
-  // Cobrado hoy = contado de hoy + créditos cobrados hoy
-  const cajaCobrosHoy=(D.caja||[]).filter(c=>c.fecha===hoyStr&&c.tipo==='cobro_credito');
-  const thCobrado=ventasHoy.filter(v=>v.estado==='Entregado'&&parseFloat(v.pagado||0)>=parseFloat(v.total||0)).reduce((s,v)=>s+parseFloat(v.pagado||0),0)
-    +cajaCobrosHoy.reduce((s,c)=>s+parseFloat(c.monto||0),0);
+  // Los cobros se calculan desde Caja con el histórico completo, no de v.pagado.
   const thGanancia=ventasHoy.reduce((s,v)=>{try{return s+(calcularGananciaVenta(v)?.ganancia||0);}catch(e){return s;}},0);
   const tmTotal=ventasMesAct.reduce((s,v)=>s+parseFloat(v.total||0),0);
   // Cobrado mes = contado pagado + créditos de otros días que se cobraron hoy no incluidos aquí
@@ -3902,78 +4025,19 @@ function renderInicio(){
     {ic:'🧴',lbl:'Envases bodega',val:D.envBod,c:'#546e7a'},
   ].map(k=>`<div class="kpi-card" style="border-left-color:${k.c}"><div class="kpi-ic">${k.ic}</div><div><div class="kpi-lbl">${k.lbl}</div><div class="kpi-val" style="color:${k.c}">${k.val}</div></div></div>`).join('');
 
-  // ── Cuadre del día ──
-  const ventasNormalesHoy=ventasHoy.filter(v=>v.tipo_venta!=='canje'&&v.estado!=='Anulado');
-  // IDs de ventas con crédito pendiente
-  const ventasConCredito=new Set(D.creditos.filter(c=>c.estado==='Pendiente').map(c=>c.venta_id).filter(Boolean));
-  // Contado = Entregado SIN crédito asociado pendiente
-  const contadoHoy=ventasNormalesHoy.filter(v=>v.estado==='Entregado'&&!ventasConCredito.has(v.id)).reduce((s,v)=>s+parseFloat(v.total||0),0);
-  // Crédito = ventas que tienen crédito pendiente asociado
-  const creditoHoy=ventasNormalesHoy.filter(v=>ventasConCredito.has(v.id)).reduce((s,v)=>s+parseFloat(v.total||0),0);
-  // Cobros de créditos anteriores hechos hoy
-  const cobrosCredHoy=(D.caja||[]).filter(c=>c.fecha===hoyStr&&c.tipo==='cobro_credito').reduce((s,c)=>s+parseFloat(c.monto||0),0);
-  // Gastos de hoy
-  const gastosHoy=(D.gastos||[]).filter(g=>g.fecha===hoyStr).reduce((s,g)=>s+parseFloat(g.monto||0),0);
-  // Monto apertura de caja de hoy
-  const aperturaHoy=(D.caja||[]).filter(c=>c.fecha===hoyStr&&c.tipo==='apertura').reduce((s,c)=>s+parseFloat(c.monto||0),0);
-  // Efectivo final = apertura + contado + cobros de crédito - gastos
-  const efectivoFinalHoy=aperturaHoy+contadoHoy+cobrosCredHoy; // Gastos no se descuentan del efectivo
-  // Ventas por vendedor hoy
-  const ventasPorVendedor={};
-  ventasNormalesHoy.forEach(v=>{
-    const uid=v.usuario_id;
-    if(!uid)return;
-    const usu=D.usuarios?.find(u=>u.id===uid);
-    const nombre=usu?.nombre||'Usuario '+uid;
-    if(!ventasPorVendedor[nombre])ventasPorVendedor[nombre]={total:0,contado:0,credito:0};
-    const total=parseFloat(v.total||0);
-    const pagado=parseFloat(v.pagado||0);
-    ventasPorVendedor[nombre].total+=total;
-    if(pagado>=total)ventasPorVendedor[nombre].contado+=total;
-    else ventasPorVendedor[nombre].credito+=(total-pagado);
-  });
-  const vendedoresRows=Object.entries(ventasPorVendedor).map(([nombre,d])=>
-    '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee;font-size:11px">'
-    +'<span style="font-weight:600">👤 '+nombre+'</span>'
-    +'<span>'+fQ(d.total)+'<span style="color:#2e7d32;margin-left:6px">+'+fQ(d.contado)+'</span>'
-    +(d.credito>0?'<span style="color:#e65100;margin-left:4px">cr:'+fQ(d.credito)+'</span>':'')
-    +'</span></div>'
-  ).join('');
+  // Cuadre de Inicio: consulta movimientos completos y mantiene créditos pagados
+  // como créditos originales. No se considera efectivo real sin conteo físico.
   const cuadreEl=document.getElementById('ini-cuadre');
   const cuadreCard=document.getElementById('card-cuadre-dia');
   const soloJefeCuadre=CU&&SOLO_JEFE.includes(CU.rol);
-  if(cuadreCard) cuadreCard.style.display=soloJefeCuadre?'':'none';
+  if(cuadreCard)cuadreCard.style.display=soloJefeCuadre?'':'none';
   if(cuadreEl&&soloJefeCuadre){
-    cuadreEl.innerHTML=
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
-        +'<div style="background:#e8f5e9;border-radius:8px;padding:10px 12px;border-left:3px solid #2e7d32">'
-          +'<div style="font-size:10px;color:#2e7d32;font-weight:700">📋 RESUMEN PRELIMINAR DEL DÍA</div>'
-          +'<div style="font-size:20px;font-weight:900;color:#2e7d32">'+fQ(efectivoFinalHoy)+'</div>'
-          +'<div style="font-size:10px;color:#546e7a">'+(aperturaHoy>0?'Fondo: '+fQ(aperturaHoy)+' · ':'')+'Ventas y cobros estimados. Para ver el efectivo real, entra a Caja.</div>'
-        +'</div>'
-        +'<div style="background:#fff3e0;border-radius:8px;padding:10px 12px;border-left:3px solid #e65100">'
-          +'<div style="font-size:10px;color:#e65100;font-weight:700">⏳ CRÉDITO HOY</div>'
-          +'<div style="font-size:20px;font-weight:900;color:#e65100">'+fQ(creditoHoy)+'</div>'
-          +'<div style="font-size:10px;color:#546e7a">Sin cobrar</div>'
-        +'</div>'
-        +'<div style="background:#e3f2fd;border-radius:8px;padding:10px 12px;border-left:3px solid #1565c0;grid-column:1/-1">'
-          +'<div style="font-size:10px;color:#1565c0;font-weight:700">🛒 TOTAL FACTURADO</div>'
-          +'<div style="font-size:22px;font-weight:900;color:#1565c0">'+fQ(thTotal)+'</div>'
-          +'<div style="font-size:10px;color:#546e7a">Efectivo: '+fQ(contadoHoy+cobrosCredHoy)+' · Crédito: '+fQ(creditoHoy)+'</div>'
-        +'</div>'
-        +(gastosHoy>0?
-          '<div style="background:#fff3e0;border-radius:8px;padding:10px 12px;border-left:3px solid #e65100;grid-column:1/-1">'
-          +'<div style="font-size:10px;color:#e65100;font-weight:700">💸 GASTOS DEL DÍA</div>'
-          +'<div style="font-size:20px;font-weight:900;color:#e65100">'+fQ(gastosHoy)+'</div>'
-          +'<div style="font-size:10px;color:#546e7a">Registrados — no afectan el efectivo en caja</div>'
-          +'</div>'
-        :'')
-      +'</div>'
-      +(vendedoresRows?'<div style="font-size:11px;font-weight:700;color:#546e7a;margin-bottom:4px">Por vendedor:</div>'+vendedoresRows:'')
-      +'<div style="margin-top:12px;padding-top:10px;border-top:1px solid #eee;display:flex;gap:8px;flex-wrap:wrap">'
-      +'<button onclick="abrirModalCerrarCaja()" style="flex:1;background:#c62828;color:#fff;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:800;cursor:pointer">🔒 Cerrar Caja</button>'
-      +'<button onclick="goPage(\'caja\')" style="flex:1;background:#1565c0;color:#fff;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:800;cursor:pointer">📒 Ver Caja</button>'
-      +'</div>';
+    cuadreEl.textContent='Consultando todos los movimientos del día…';
+    aqActualizarCuadreInicio(hoyStr).catch(error=>{
+      console.error('Cuadre de Inicio:',error);
+      if(document.getElementById('ini-cuadre'))document.getElementById('ini-cuadre').textContent=
+        'No se pudo calcular el cuadre completo: '+(error.message||'Error de conexión')+'. Revisa Caja o vuelve a intentarlo.';
+    });
   }
   const thTotalReal=D.ventas.filter(v=>v.fecha===hoy()&&v.tipo_venta!=='canje'&&v.estado!=='Cancelada').reduce((s,v)=>s+parseFloat(v.total||0),0);
   renderModoDueno(thTotalReal,thGanancia,tmTotal,tmGanancia,margenHoy,pend,credPend);
@@ -12398,36 +12462,23 @@ async function generarReporte(){
   const ventasCredito=ventasNormales.filter(v=>ventasConCreditoPendiente.has(Number(v.id)));
 
   // Total facturado
-  const tv=ventasNormales.reduce((s,v)=>s+parseFloat(v.total||0),0);
+  const tv=resumenFinanciero.facturado;
+
+  // Mismo motor compartido con Inicio. No reclasifica créditos pagados.
+  const resumenFinanciero=aqResumenCobrosFinancieros(ventasNormales,creditosReporte,movimientosCaja);
 
   // Contabilidad de entradas de Caja, sin confundir facturación con dinero recibido.
-  const tiposEntrada=new Set(['venta','cobro_credito','ingreso','entrada']);
-  const cobrosCredFiltrados=movimientosCaja.filter(c=>c.tipo==='cobro_credito');
-  const tvCobrosCred=cobrosCredFiltrados.reduce((s,c)=>s+Number(c.monto||0),0);
-  const entradasCaja=movimientosCaja.filter(c=>tiposEntrada.has(c.tipo));
-  const totalEntradasCaja=entradasCaja.reduce((s,c)=>s+Number(c.monto||0),0);
+  const tvCobrosCred=resumenFinanciero.abonosCredito;
+  const totalEntradasCaja=resumenFinanciero.entradasCaja;
   const ventasContado=ventasNormales.filter(v=>!ventasConCreditoSet.has(Number(v.id)));
   const tvContado=ventasContado.reduce((s,v)=>s+Number(v.total||0),0);
-  const ventasRegistradasEnCaja=movimientosCaja.filter(c=>c.tipo==='venta').reduce((s,c)=>s+Number(c.monto||0),0);
-  // Cuadre de vendedores: clasificar SOLO ingresos registrados (ventas, abonos,
-  // ingreso y entrada); nunca sumar aperturas, cierres ni facturas a crédito.
-  // Todos utilizan el mismo filtro por fecha y usuario aplicado a movimientosCaja.
-  // Los importes se acumulan en centavos para evitar diferencias por punto flotante.
-  const porMedioCentavos={efectivo:0,transferencia:0,otro:0,sinClasificar:0};
-  const porMedioCantidad={efectivo:0,transferencia:0,otro:0,sinClasificar:0};
-  for(const mov of entradasCaja){
-    const medio=aqCajaMedioDeNotas(mov.notas);
-    const clave=medio&&Object.hasOwn(porMedioCentavos,medio)?medio:'sinClasificar';
-    const importe=Number(mov.monto||0);
-    if(!Number.isFinite(importe))throw new Error('Movimiento de Caja #'+mov.id+' con monto inválido');
-    porMedioCentavos[clave]+=Math.round(importe*100);
-    porMedioCantidad[clave]++;
-  }
-  const importeMedio=medio=>porMedioCentavos[medio]/100;
+  const ventasRegistradasEnCaja=resumenFinanciero.ventasCobradas;
+  const porMedioCantidad=resumenFinanciero.cantidadPorMedio;
   const movimientosSinMedio=porMedioCantidad.sinClasificar;
-  const totalPorMedios=Object.values(porMedioCentavos).reduce((a,b)=>a+b,0)/100;
+  const importeMedio=medio=>resumenFinanciero.porMedio[medio]||0;
+  const totalPorMedios=Object.values(resumenFinanciero.porMedio).reduce((a,b)=>a+b,0);
   if(Math.abs(totalPorMedios-totalEntradasCaja)>0.01){
-    throw new Error('No se pudo conciliar el desglose por medio de pago con el total registrado en Caja.');
+    throw new Error('Desglose de cobros por medio de pago no coincide con Caja.');
   }
   if(movimientosSinMedio)advertenciasReporte.push(movimientosSinMedio+' ingresos de Caja sin medio de pago identificado ('+fQ(importeMedio('sinClasificar'))+'): no deben asignarse automáticamente a efectivo, tarjeta o transferencia.');
   if(Math.abs(tvContado-ventasRegistradasEnCaja)>0.009){
@@ -12502,9 +12553,7 @@ async function generarReporte(){
   const margen=tv>0?((gananciaBruta/tv)*100).toFixed(1):0;
   // Crédito pendiente = solo lo que falta pagar de las ventas del período seleccionado
   // Crédito pendiente = solo el saldo que falta cobrar de estas ventas
-  const totalCreditoPendiente=ventasCredito.reduce((s,v)=>s+
-    creditosReporte.filter(c=>Number(c.venta_id)===Number(v.id)&&c.estado==='Pendiente')
-      .reduce((t,c)=>t+Number(c.monto||0)-Number(c.pagado||0),0),0);
+  const totalCreditoPendiente=resumenFinanciero.creditoPendiente;
   // Crédito pendiente histórico total (todas las fechas)
   const creditoHistoricoTotal=tc;
 
@@ -12514,6 +12563,10 @@ async function generarReporte(){
   document.getElementById('rep-kpis').innerHTML=[
     {ic:'🛒',lbl:'Ventas totales',val:fQ(tv),c:'#1565c0',sub:'Todo lo facturado (contado + crédito)'},
     {ic:'💸',lbl:usuFiltro?'Gastos operativos del vendedor':'Gastos operativos',val:fQ(tg),c:'#c62828',sub:usuFiltro&&tg>0?'Pagados por este vendedor':'No incluye compras para inventario'},
+    {ic:'🧾',lbl:'Crédito generado en el período',val:fQ(resumenFinanciero.creditoOriginado),c:'#e65100',
+      sub:'Importe de ventas realizadas a crédito, incluso si ya se pagaron'},
+    {ic:'💰',lbl:'Ventas cobradas en Caja',val:fQ(resumenFinanciero.ventasCobradas),c:'#2e7d32',
+      sub:'Cobros directos de ventas; no incluye abonos de créditos'},
     {ic:'🏦',lbl:'Cobros registrados en Caja',val:fQ(totalEntradasCaja),c:'#2e7d32',
       sub:'Ventas cobradas, abonos y otros ingresos'},
     {ic:'💵',lbl:'Cobros en efectivo',val:fQ(importeMedio('efectivo')),c:'#2e7d32',
@@ -12526,7 +12579,7 @@ async function generarReporte(){
       sub:movimientosSinMedio+' movimiento(s) sin medio de pago'},
     {ic:'💳',lbl:'Abonos recibidos de créditos',val:fQ(tvCobrosCred),c:'#1565c0',
       sub:'Según movimientos de Caja durante el período'},
-    {ic:'⏳',lbl:'Crédito del período',val:fQ(totalCreditoPendiente),c:'#e65100',sub:'Vendido a crédito sin cobrar'},
+    {ic:'⏳',lbl:'Crédito pendiente del período',val:fQ(totalCreditoPendiente),c:'#e65100',sub:'Saldo actual de créditos originados en las ventas del período'},
     {ic:'💳',lbl:'Total por cobrar',val:fQ(creditoHistoricoTotal),c:'#f57f17',sub:'Crédito histórico pendiente'},
     {ic:'📦',lbl:'Costo productos',val:fQ(costoTotal),c:'#546e7a',sub:''},
     {ic:'💰',lbl:'Ganancia bruta',val:fQ(gananciaBruta),c:'#2e7d32',sub:'Ventas − costo'},
@@ -16275,7 +16328,8 @@ async function aqCalcularEfectivoCaja(fecha){
     else if(ingreso)otrosIngresos+=monto;
     else salidas+=monto;
   }
-  return {fecha,aperturaId:ultima.id,apertura:Number(ultima.monto||0),ventas,abonos,otrosIngresos,salidas,
+  const cobrosRegistrados=aqResumenCobrosFinancieros([],[],posteriores).entradasCaja;
+  return {fecha,aperturaId:ultima.id,apertura:Number(ultima.monto||0),ventas,abonos,otrosIngresos,salidas,cobrosRegistrados,
     transferencias,otrosNoEfectivo,sinClasificarMonto,sinClasificarCantidad,
     esperado:Math.round((Number(ultima.monto||0)+ventas+abonos+otrosIngresos-salidas)*100)/100,
     desconocidos,numeroMovimientos:posteriores.length};
@@ -16286,6 +16340,7 @@ function aqPintarResumenCierre(info){
     <div style="font-size:11px;color:var(--texto2,#546e7a);margin-bottom:8px">Estimación basada en movimientos registrados de Caja. No equivale necesariamente al efectivo físico si hubo operaciones omitidas o pagos electrónicos.</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;color:var(--texto,#223548)">
       <div>Fondo inicial<br><b>${f(info.apertura)}</b></div>
+      <div>Cobros registrados, todos los medios<br><b>${f(info.cobrosRegistrados)}</b></div>
       <div>Ventas ingresadas<br><b>${f(info.ventas)}</b></div>
       <div>Cobros de créditos<br><b>${f(info.abonos)}</b></div>
       <div>Otros ingresos<br><b>${f(info.otrosIngresos)}</b></div>
@@ -16323,7 +16378,10 @@ function cajaCierreActualizar(){
     el.textContent='Ingresa el monto real contado para comparar.';el.style.background='transparent';el.style.color='var(--texto2,#546e7a)';return;
   }
   const diff=Math.round((Number(input.value)-info.esperado)*100)/100;
-  if(Math.abs(diff)<0.01){el.textContent='✅ Sin diferencia en el cálculo';el.style.background='var(--verdec)';el.style.color='var(--verde)';}
+  if(info.sinClasificarCantidad||info.desconocidos.length){
+    el.textContent='⚠️ Diferencia provisional de '+fQ(diff)+'; hay movimientos o medios de pago pendientes de clasificar. Revisa Caja antes de afirmar sobrante o faltante.';
+    el.style.background='var(--naranjac,#fff3e0)';el.style.color='var(--naranja,#e65100)';
+  }else if(Math.abs(diff)<0.01){el.textContent='✅ Sin diferencia en el cálculo';el.style.background='var(--verdec)';el.style.color='var(--verde');}
   else if(diff>0){el.textContent='⬆️ Sobrante estimado: '+fQ(diff);el.style.background='var(--azulc)';el.style.color='var(--azul)';}
   else{el.textContent='⬇️ Faltante estimado: '+fQ(-diff);el.style.background='var(--rojoc)';el.style.color='var(--rojo)';}
 }

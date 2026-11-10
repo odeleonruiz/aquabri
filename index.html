@@ -3887,6 +3887,7 @@ function aqPintarCuadreCompleto(){
   if(!el||!dat||dat.fecha!==hoy())return;
   const r=dat.resumen,gd=dat.gastos;
   const fecha=dat.fecha;
+  const actualizadoEn=dat.actualizadoEn||'sin hora';
   const creditoPorVenta=new Map();
   for(const c of r.creditosOriginados){
     const id=Number(c.venta_id);
@@ -3920,6 +3921,7 @@ function aqPintarCuadreCompleto(){
       '💵 Efectivo cobrado '+fQ(r.porMedio.efectivo.entrada)+' · Transferencias '+fQ(r.porMedio.transferencia.entrada)+
       ' · Otros medios '+fQ(r.porMedio.otro.entrada)+' · Sin clasificar '+fQ(r.porMedio.sinClasificar.entrada)+
       ' · Gastos registrados '+fQ(gd)+
+      '<div style="margin-top:3px">Calculado a las '+aqCuadreEsc(actualizadoEn)+'. Pulsa Actualizar si se registraron nuevas ventas o cobros.</div>'+ 
       '<div style="margin-top:3px">Los gastos solo se descuentan del efectivo si hay salida registrada en Caja. El sobrante/faltante requiere contar el dinero físico.</div>'+
     '</div>'+aviso+
     (porVendedorHtml?'<div style="font-weight:700;font-size:11px;margin-top:9px">Facturado por vendedor:</div>'+porVendedorHtml:'')+
@@ -3952,7 +3954,7 @@ async function aqActualizarCuadreCompleto(fecha){
     const resumen=aqResumenFinanciero(ventasValidas,creditos,caja);
     if(fecha!==hoy())return;
     aqCuadreCompletoCache={
-      fecha,resumen,gastos:gastos.reduce((a,g)=>a+Number(g.monto||0),0)
+      fecha,resumen,actualizadoEn:new Date().toLocaleTimeString('es-GT'),gastos:gastos.reduce((a,g)=>a+Number(g.monto||0),0)
     };
     aqPintarCuadreCompleto();
     renderResumenDia();
@@ -4464,6 +4466,7 @@ function renderResumenDia(){
   const r=dat.resumen,nl='\n',nombre=D.cfg?.nombre||'Aquabri';
   el.textContent='*Reporte del día - '+fecha+'*'+nl+nombre+nl+nl+
     '*Ventas facturadas:* '+fQ(r.facturado)+nl+
+    '*N.º de ventas:* '+r.ventasValidas.length+nl+
     '*Crédito originado:* '+fQ(r.creditoOriginado)+nl+
     '*Crédito pendiente (actual):* '+fQ(r.creditoPendiente)+nl+
     '*Cobros directos por ventas:* '+fQ(r.ventasCobradas)+nl+
@@ -12614,7 +12617,7 @@ async function generarReporte(){
     {ic:'💳',lbl:'Abonos recibidos de créditos',val:fQ(tvCobrosCred),c:'#1565c0',
       sub:'Según movimientos de Caja durante el período'},
     {ic:'⏳',lbl:'Saldo pendiente del crédito del período',val:fQ(totalCreditoPendiente),c:'#e65100',sub:'Pendiente actual de los créditos originados en ventas de este período'},
-    {ic:'💳',lbl:'Total por cobrar',val:fQ(creditoHistoricoTotal),c:'#f57f17',sub:'Crédito histórico pendiente'},
+    {ic:'💳',lbl:usuFiltro?'Total por cobrar (empresa)':'Total por cobrar',val:fQ(creditoHistoricoTotal),c:'#f57f17',sub:'Crédito histórico pendiente'},
     {ic:'📦',lbl:'Costo productos',val:fQ(costoTotal),c:'#546e7a',sub:''},
     {ic:'💰',lbl:'Ganancia bruta',val:fQ(gananciaBruta),c:'#2e7d32',sub:'Ventas − costo'},
     ...(!usuFiltro?[{ic:'🧾',lbl:'Compras pagadas de inventario',val:fQ(comprasPagadas),c:'#1565c0',sub:'Salida de efectivo (no se resta de nuevo a utilidad)'}]:[]),

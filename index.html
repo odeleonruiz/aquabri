@@ -207,6 +207,16 @@ html[data-aq-theme="dark"] #page-ventas .aq-master-editar-precio,html[data-aq-th
  #rep-detalles-financieros .aq-report-card-label{font-size:10px}
  #rep-detalles-financieros .aq-report-card-sub{font-size:9px}
 }
+
+/* Solo créditos aún pendientes de ventas del período, agrupados por vendedor. */
+#rep-creditos-por-usuario{margin:12px 0;padding:13px 15px;border:1px solid var(--borde,#dce6ed);background:var(--card,#fff);color:var(--texto,#26384b);border-radius:11px}
+#rep-creditos-por-usuario .aq-cred-titulo{font-size:14px;font-weight:800;margin-bottom:6px}
+#rep-creditos-por-usuario .aq-cred-sub{color:var(--texto2,#52677c);font-size:11px;line-height:1.45;margin-bottom:9px}
+#rep-creditos-por-usuario .aq-cred-fila{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 5px;border-bottom:1px solid var(--borde,#dce6ed);font-size:12px}
+#rep-creditos-por-usuario .aq-cred-fila:last-child{border-bottom:none}
+#rep-creditos-por-usuario .aq-cred-nombre{font-weight:650;overflow-wrap:anywhere}
+#rep-creditos-por-usuario .aq-cred-importe{font-size:17px;font-weight:850;color:#c66b05;white-space:nowrap;font-variant-numeric:tabular-nums}
+html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffbf64}
 </style>
 </head>
 <body>
@@ -2502,6 +2512,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   </div>
   <div id="rep-calidad-detalle" role="alert" style="display:none;margin:4px 0 12px;padding:12px 14px;background:#fff6e9;border:1.5px solid #f59e0b;border-radius:9px;color:#713f12;font-size:12px;font-weight:700;line-height:1.5"></div>
   <div class="kpi-grid" id="rep-kpis"></div>
+  <section id="rep-creditos-por-usuario" aria-label="Crédito pendiente por vendedor"></section>
   <div id="rep-resumen-simple" role="status"></div>
   <div id="rep-detalles-financieros"></div>
   <!-- Acceso privado a Caja después del resumen de Reportes (bajo Nº Ventas en móvil). -->
@@ -12655,6 +12666,39 @@ async function generarReporte(){
   }
   const abonoDe=x=>abonosMedios[x]/100;
   const bancoYTarjeta=Math.round((importeMedio('transferencia')+importeMedio('otro'))*100)/100;
+  // Solo ventas del período solicitado y su saldo PENDIENTE ACTUAL.
+  // El vendedor que ya cobró todo no aparece como deudor, aunque haya
+  // vendido originalmente a crédito (ese importe se conserva en detalles).
+  const ventasFiltradasPorId=new Map(ventasNormales.map(v=>[Number(v.id),v]));
+  const pendientesPorUsuario=new Map();
+  for(const credito of creditosReporte){
+    const venta=ventasFiltradasPorId.get(Number(credito.venta_id));
+    if(!venta)continue;
+    const pendienteCent=Math.max(0,aqMontoCentes(credito.monto)-aqMontoCentes(credito.pagado));
+    if(pendienteCent===0)continue;
+    const uid=Number.isSafeInteger(Number(venta.usuario_id))&&venta.usuario_id!=null&&Number(venta.usuario_id)>0
+      ?Number(venta.usuario_id):null;
+    const key=uid===null?'sin-asignar':String(uid);
+    const previo=pendientesPorUsuario.get(key)||{usuarioId:uid,pendienteCent:0,creditos:0};
+    previo.pendienteCent+=pendienteCent;
+    previo.creditos++;
+    pendientesPorUsuario.set(key,previo);
+  }
+  const totalPendientesVendedores=Array.from(pendientesPorUsuario.values()).reduce((n,v)=>n+v.pendienteCent,0);
+  if(Math.abs(totalPendientesVendedores/100-totalCreditoPendiente)>0.009)
+    throw new Error('No se pudo conciliar el crédito pendiente por vendedor con el total del reporte');
+  const nombreSeguro=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const pendientesOrdenados=Array.from(pendientesPorUsuario.values()).sort((a,b)=>b.pendienteCent-a.pendienteCent);
+  const filasPendientes=pendientesOrdenados.map(item=>{
+    const empleado=(D.usuarios||[]).find(u=>Number(u.id)===item.usuarioId);
+    const nombre=item.usuarioId===null?'Sin vendedor asignado':(empleado?.nombre||empleado?.usuario||('Usuario '+item.usuarioId));
+    return '<div class="aq-cred-fila"><span class="aq-cred-nombre">👤 '+nombreSeguro(nombre)+
+      '</span><strong class="aq-cred-importe">'+fQ(item.pendienteCent/100)+'</strong></div>';
+  }).join('');
+  document.getElementById('rep-creditos-por-usuario').innerHTML=
+    '<div class="aq-cred-titulo">📝 Crédito pendiente por vendedor</div>'+
+    '<div class="aq-cred-sub">Únicamente de ventas del período seleccionado y que aún están sin pagar. Si se cobraron completos, no aparecen aquí. Los créditos que se pagaron siguen en “Ver más detalles” como crédito originalmente generado.</div>'+
+    (filasPendientes||'<div class="aq-cred-fila">✅ No quedan créditos pendientes de las ventas seleccionadas.</div>');
   const tarjetasPrincipales=[
     {ic:'🛒',lbl:'Ventas del período',val:fQ(tv),c:'#1565c0',sub:'Todo lo vendido, de contado y a crédito.'},
     {ic:'📝',lbl:'Crédito pendiente',val:fQ(totalCreditoPendiente),c:'#e65100',
@@ -12666,12 +12710,12 @@ async function generarReporte(){
       sub:'Ventas y abonos cobrados en efectivo, antes de gastos.'},
     {ic:'🏦',lbl:'Tarjetas y transferencias',val:fQ(bancoYTarjeta),c:'#6a1b9a',
       sub:'Transferencias '+fQ(importeMedio('transferencia'))+' · Otros '+fQ(importeMedio('otro'))},
-    {ic:'💸',lbl:'Gastos registrados',val:fQ(gastosRegistrados),c:'#c62828',
-      sub:'Todos los gastos anotados, operativos y otros.'}
+    {ic:'💸',lbl:usuFiltro?'Gastos asociados al empleado':'Gastos registrados',val:fQ(gastosRegistrados),c:'#c62828',
+      sub:usuFiltro?'Gastos vinculados al empleado seleccionado en el registro; no necesariamente dinero que él pagó.':'Todos los gastos anotados, operativos y otros.'}
   ];
   const kpisDetallados=[
     {ic:'🛒',lbl:'Ventas totales',val:fQ(tv),c:'#1565c0',sub:'Todo lo facturado (contado + crédito)'},
-    {ic:'💸',lbl:usuFiltro?'Gastos operativos del vendedor':'Gastos operativos',val:fQ(tg),c:'#c62828',sub:usuFiltro&&tg>0?'Pagados por este vendedor':'No incluye compras para inventario'},
+    {ic:'💸',lbl:usuFiltro?'Gastos operativos asociados al empleado':'Gastos operativos',val:fQ(tg),c:'#c62828',sub:usuFiltro?'Gastos vinculados al empleado; excluye registros automáticos de facturas e incentivos.':'No incluye compras para inventario ni gastos automáticos de facturas e incentivos'},
     {ic:'💳',lbl:'Crédito originado en el período',val:fQ(resumenFinanciero.creditoOriginado),c:'#e65100',sub:'Importe financiado originalmente; incluye créditos ya pagados'},
     {ic:'🧾',lbl:'Ventas cobradas directamente',val:fQ(resumenFinanciero.ventasCobradas),c:'#2e7d32',sub:'Solo movimientos tipo venta en Caja'},
     {ic:'🏦',lbl:'Cobros registrados en Caja',val:fQ(totalEntradasCaja),c:'#2e7d32',
@@ -12682,8 +12726,8 @@ async function generarReporte(){
       sub:'El registro actual agrupa tarjeta y otros medios'},
     {ic:'🏦',lbl:'Transferencias / depósitos',val:fQ(importeMedio('transferencia')),c:'#1565c0',
       sub:'Cobros identificados como transferencia'},
-    {ic:'❔',lbl:'Medio sin identificar',val:fQ(importeMedio('sinClasificar')),c:'#e65100',
-      sub:movimientosSinMedio+' movimiento(s) sin medio de pago'},
+    {ic:'❔',lbl:'Cobros sin medio registrado',val:fQ(importeMedio('sinClasificar')),c:'#e65100',
+      sub:movimientosSinMedio+' cobro(s) antiguo(s) o sin etiqueta de medio. No se clasifican automáticamente como efectivo.'},
     {ic:'📤',lbl:'Salidas registradas en Caja',val:fQ(resumenFinanciero.salidasCaja),c:'#c62828',sub:'Gastos y pagos realmente asentados como salida en Caja'},
     {ic:'📊',lbl:'Movimiento neto de Caja',val:fQ(resumenFinanciero.netoCaja),c:'#546e7a',sub:'Entradas menos salidas, todos los medios; excluye fondos de apertura'},
     {ic:'💳',lbl:'Abonos recibidos de créditos',val:fQ(tvCobrosCred),c:'#1565c0',

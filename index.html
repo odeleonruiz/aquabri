@@ -2427,8 +2427,19 @@ document.addEventListener('DOMContentLoaded',()=>{
         <div class="fg"><label>Fecha</label><input type="date" id="gf2"></div>
         <div class="fg"><label>Proveedor</label><input id="gprov"></div>
         <div class="fg"><label>Notas</label><input id="gn"></div>
+        <div class="fg" style="grid-column:1/-1">
+          <label for="g-metodo">💳 ¿De dónde se pagó este gasto?</label>
+          <select id="g-metodo" required onchange="aqGastosAyudaMetodo()" style="border-color:var(--azul);font-weight:650">
+            <option value="">— Seleccionar forma de pago —</option>
+            <option value="efectivo">💵 Efectivo que salió de Caja</option>
+            <option value="transferencia">🏦 Transferencia / depósito del negocio</option>
+            <option value="otro">💳 Tarjeta u otro medio del negocio</option>
+            <option value="sin_caja">🧾 Sin salida de Caja (pago externo o pendiente)</option>
+          </select>
+          <small id="g-metodo-ayuda" style="display:block;font-size:11px;line-height:1.4;color:var(--gris);margin-top:5px">Selecciona la forma de pago. Si fue efectivo de Caja, se registrará también una salida que reducirá el efectivo esperado del cierre.</small>
+        </div>
       </div>
-      <div class="fe"><button class="btn bp" onclick="saveGasto()">💾 Registrar</button></div>
+      <div class="fe"><button class="btn bp" id="g-guardar" onclick="saveGasto()">💾 Registrar</button></div>
     </div>
     <div class="card"><div class="card-title">Por Categoría</div><div id="gastos-cat"></div></div>
   </div>
@@ -2441,7 +2452,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       <button class="btn bsm" style="background:#f3e5f5;color:#6a1b9a;margin-top:14px" onclick="(()=>{const n=new Date();const y=n.getFullYear();const m=String(n.getMonth()+1).padStart(2,'0');document.getElementById('gf-desde').value=y+'-'+m+'-01';document.getElementById('gf-hasta').value=hoy();renderGastos();})()">Este mes</button>
       <button class="btn bsm" style="background:#f1f8e9;color:#2e7d32;margin-top:14px" onclick="(()=>{document.getElementById('gf-desde').value='';document.getElementById('gf-hasta').value='';renderGastos();})()">Todos</button>
     </div>
-    <div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr><th>Fecha</th><th>Cat.</th><th>Descripción</th><th>Proveedor</th><th>Monto Q</th><th>Acc.</th></tr></thead><tbody id="gastos-tbody"></tbody></table></div>
+    <div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr><th>Fecha</th><th>Cat.</th><th>Descripción</th><th>Proveedor</th><th>Forma de pago</th><th>Monto Q</th><th>Acc.</th></tr></thead><tbody id="gastos-tbody"></tbody></table></div>
   </div>
   <!-- Mobile -->
   <div id="gastos-mobile" style="display:none"></div>
@@ -12119,17 +12130,95 @@ function fillGPagador(){
     +(D.empleados||[]).filter(e=>e.estado==='Activo').map(e=>`<option value="${e.id}">👷 ${e.nombre}</option>`).join('');
   if(actual)sel.value=actual;
 }
+
+function aqGastosMetodoEtiqueta(notas){
+  const cod=String(notas||'').match(/\[AQ-GP:(EFECTIVO|TRANSFERENCIA|OTRO|SIN_CAJA)\]/i)?.[1]?.toUpperCase()||'';
+  return ({EFECTIVO:'💵 Efectivo de Caja',TRANSFERENCIA:'🏦 Transferencia',OTRO:'💳 Tarjeta / otro',
+    SIN_CAJA:'🧾 Sin salida de Caja'})[cod]||'— Anterior sin clasificar';
+}
+function aqGastosAyudaMetodo(){
+  const select=document.getElementById('g-metodo'),ayuda=document.getElementById('g-metodo-ayuda');
+  if(!select||!ayuda)return;
+  const explicaciones={
+    efectivo:'Se anotará el gasto y una salida de efectivo en Caja, en la MISMA operación. Requiere Caja abierta para esta fecha.',
+    transferencia:'Se anotará el gasto y una salida bancaria identificada en Caja, sin reducir el efectivo físico.',
+    otro:'Se anotará el gasto y una salida por tarjeta/otro medio, sin reducir el efectivo físico.',
+    sin_caja:'Solo se anotará en Gastos. No se restará efectivo de Caja. Úsalo cuando pagó alguien por fuera o aún no se pagó.',
+    '':'Selecciona cómo se pagó. Esto permite distinguir gastos registrados y salidas de Caja.'
+  };
+  ayuda.textContent=explicaciones[select.value]||explicaciones[''];
+}
+async function aqRecargarGastos(){
+  // No es necesario recargar ventas, clientes ni inventario al registrar un gasto.
+  // La lectura usa paginación para no perder filas a partir del límite de 1000.
+  D.gastos=await aqRepLeerTodas('gastos','*');
+  renderGastos();
+  renderGastosCat();
+}
+let aqGuardandoGasto=false;
 async function saveGasto(){
-  const m=parseFloat(document.getElementById('gm').value)||0;if(!m)return;
-  const pagadorVal=document.getElementById('g-pagador')?.value||'jefe';
-  let pagadoPorNombre='Jefe';let empleadoIdGasto=null;
-  if(pagadorVal!=='jefe'){
-    const emp=D.empleados.find(e=>e.id===parseInt(pagadorVal));
-    if(emp){pagadoPorNombre=emp.nombre;empleadoIdGasto=emp.id;}
+  if(aqGuardandoGasto)return;
+  const el=id=>document.getElementById(id);
+  const monto=Number(el('gm')?.value);
+  const fecha=el('gf2')?.value||'';
+  const cat=el('gc')?.value||'';
+  const descripcion=el('gd')?.value?.trim()||'';
+  const metodo=el('g-metodo')?.value||'';
+  const pagadorVal=el('g-pagador')?.value||'jefe';
+  if(!Number.isFinite(monto)||monto<=0||Math.round(monto*100)/100!==monto){
+    showNotif('Escribe un monto mayor que Q0 con máximo dos decimales','#c62828');return;
   }
-  await sb.from('gastos').insert({fecha:document.getElementById('gf2').value,cat:document.getElementById('gc').value,descripcion:document.getElementById('gd').value,proveedor:document.getElementById('gprov').value,monto:m,notas:document.getElementById('gn').value,pagado_por:pagadoPorNombre,empleado_id:empleadoIdGasto});
-  await loadLight();renderGastos();renderGastosCat();showNotif('Gasto registrado');
-  ['gm','gd','gprov','gn'].forEach(id=>document.getElementById(id).value='');
+  if(!fecha||!cat||!descripcion){
+    showNotif('Completa fecha, categoría y descripción del gasto','#c62828');return;
+  }
+  if(!['efectivo','transferencia','otro','sin_caja'].includes(metodo)){
+    showNotif('Selecciona de dónde se pagó el gasto','#c62828');el('g-metodo')?.focus();return;
+  }
+  const empleadoId=pagadorVal==='jefe'?null:Number(pagadorVal);
+  if(empleadoId!==null&&(!Number.isSafeInteger(empleadoId)||empleadoId<=0)){
+    showNotif('Selecciona un responsable válido','#c62828');return;
+  }
+  const datos={fecha,cat,descripcion,proveedor:el('gprov')?.value?.trim()||'',monto,notas:el('gn')?.value?.trim()||'',
+    empleado_id:empleadoId,metodo};
+  const fingerprint=JSON.stringify(datos);
+  if(window._aqGastoPendiente?.fingerprint!==fingerprint){
+    window._aqGastoPendiente={
+      fingerprint,nonce:(typeof crypto!=='undefined'&&crypto.randomUUID)
+        ?crypto.randomUUID():('aqg-'+Date.now()+'-'+Math.random().toString(36).slice(2))
+    };
+  }
+  aqGuardandoGasto=true;
+  const btn=el('g-guardar');if(btn){btn.disabled=true;btn.textContent='⏳ Guardando…';}
+  let confirmado=null;
+  try{
+    const resp=await sb.rpc('aq_registrar_gasto_seguro',{
+      p_token:localStorage.getItem('aqb_token')||'',
+      p_uid:Number(CU?.id)||0,
+      p_nonce:window._aqGastoPendiente.nonce,
+      p_gasto:datos
+    });
+    if(resp.error)throw resp.error;
+    if(!resp.data?.id)throw new Error('Supabase no confirmó el ID del gasto.');
+    confirmado=resp.data;
+    window._aqGastoPendiente=null;
+    ['gm','gd','gprov','gn'].forEach(id=>{if(el(id))el(id).value='';});
+    el('g-metodo').value='';
+    aqGastosAyudaMetodo();
+    try{
+      await aqRecargarGastos();
+      showNotif('✅ Gasto #'+confirmado.id+' guardado. '+(confirmado.caja_id?'Salida de Caja vinculada.':'No se descontó dinero de Caja.'));
+    }catch(err){
+      console.warn('Gasto registrado, pero la lista no pudo actualizarse',err);
+      showNotif('✅ Gasto #'+confirmado.id+' registrado, pero falló la recarga de la lista. Actualiza la pantalla.','#e65100');
+    }
+  }catch(err){
+    console.error('No se confirmó el registro de gasto',err);
+    const msg=err?.message||'No se pudo guardar el gasto.';
+    showNotif('⚠️ No se confirmó el gasto: '+msg+' Verifica el historial antes de intentar de nuevo.','#c62828');
+  }finally{
+    aqGuardandoGasto=false;
+    if(btn){btn.disabled=false;btn.textContent='💾 Registrar';}
+  }
 }
 function renderGastos(){
   // Inicializar filtros con hoy si están vacíos
@@ -12161,6 +12250,7 @@ function renderGastos(){
           <div style="flex:1">
             <div style="font-size:13px;font-weight:700">${g.descripcion}</div>
             <div style="font-size:10px;color:var(--gris);margin-top:2px">${g.fecha} · <span class="badge bgr" style="font-size:9px">${g.cat}</span></div>
+            <div style="font-size:10px;color:var(--gris);margin-top:3px">${aqGastosMetodoEtiqueta(g.notas)}</div>
             ${g.proveedor?`<div style="font-size:10px;color:var(--gris)">${g.proveedor}</div>`:''}
           </div>
           <div style="text-align:right;flex-shrink:0;margin-left:8px">
@@ -12172,9 +12262,9 @@ function renderGastos(){
     :'<p class="tmuted" style="text-align:center;padding:16px">Sin gastos en este período</p>');
   } else {
     document.getElementById('gastos-tbody').innerHTML=filtrados.length
-      ?filtrados.map(g=>`<tr><td>${g.fecha}</td><td><span class="badge bgr" style="font-size:9px">${g.cat}</span></td><td>${g.descripcion}</td><td>${g.proveedor||'—'}</td><td><b>${fQ(g.monto)}</b></td><td><button class="btn bd bsm" onclick="delGasto(${g.id})">🗑</button></td></tr>`).join('')
-      +`<tr style="background:#fff3e0"><td colspan="4" style="font-weight:700;text-align:right">Total período:</td><td><b style="color:var(--rojo)">${fQ(totalFiltrado)}</b></td><td></td></tr>`
-      :'<tr><td colspan="6" class="tmuted" style="text-align:center;padding:12px">Sin gastos en este período</td></tr>';
+      ?filtrados.map(g=>`<tr><td>${g.fecha}</td><td><span class="badge bgr" style="font-size:9px">${g.cat}</span></td><td>${g.descripcion}</td><td>${g.proveedor||'—'}</td><td style="font-size:11px">${aqGastosMetodoEtiqueta(g.notas)}</td><td><b>${fQ(g.monto)}</b></td><td><button class="btn bd bsm" onclick="delGasto(${g.id})">🗑</button></td></tr>`).join('')
+      +`<tr style="background:#fff3e0"><td colspan="5" style="font-weight:700;text-align:right">Total período:</td><td><b style="color:var(--rojo)">${fQ(totalFiltrado)}</b></td><td></td></tr>`
+      :'<tr><td colspan="7" class="tmuted" style="text-align:center;padding:12px">Sin gastos en este período</td></tr>';
   }
 }
 function syncFiltroGastos(val,tipo){
@@ -12189,7 +12279,23 @@ function syncFiltroGastos(val,tipo){
   }
   renderGastos();
 }
-async function delGasto(id){if(!confirm('¿Eliminar?'))return;await sb.from('gastos').delete().eq('id',id);await loadLight();renderGastos();renderGastosCat();}
+async function delGasto(id){
+  if(!confirm('¿Eliminar este gasto? Si tiene una salida de Caja vinculada y todavía no se cerró, se eliminarán ambos registros juntos.'))return;
+  try{
+    const resp=await sb.rpc('aq_eliminar_gasto_seguro',{
+      p_token:localStorage.getItem('aqb_token')||'',
+      p_uid:Number(CU?.id)||0,
+      p_gasto_id:Number(id)
+    });
+    if(resp.error)throw resp.error;
+    if(!resp.data?.eliminado)throw new Error('Supabase no confirmó la eliminación.');
+    await aqRecargarGastos();
+    showNotif('Gasto eliminado'+(resp.data.caja_eliminada?' junto con su salida de Caja.':'.'));
+  }catch(err){
+    console.error('Gasto no eliminado',err);
+    showNotif('⚠️ '+(err?.message||'No se pudo eliminar el gasto. No se realizó ninguna corrección en Caja.'),'#c62828');
+  }
+}
 function renderGastosCat(){const el=document.getElementById('gastos-cat');if(!el)return;const cats={};D.gastos.forEach(g=>{cats[g.cat]=(cats[g.cat]||0)+parseFloat(g.monto||0);});const tot=Object.values(cats).reduce((s,v)=>s+v,0);el.innerHTML=Object.entries(cats).sort((a,b)=>b[1]-a[1]).map(([c,m])=>{const pct=tot?Math.round(m/tot*100):0;return`<div style="margin-bottom:7px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px"><span>${c}</span><b>${fQ(m)} (${pct}%)</b></div><div class="pw"><div class="pb" style="width:${pct}%;background:linear-gradient(90deg,#e65100,#ff8f00)"></div></div></div>`;}).join('')||'<p class="tmuted">Sin gastos</p>';}
 
 function metasTab(t,el){document.querySelectorAll('#page-metas .tabs .tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');document.getElementById('meta-gen').style.display=t==='gen'?'':'none';document.getElementById('meta-emp').style.display=t==='emp'?'':'none';}

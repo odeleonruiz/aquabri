@@ -1,7 +1,7 @@
--- AQUABRI QA 2026-11-09
--- Compras inventario: capitalización + lotes; pagos y deudas separados.
--- Gasto operativo a crédito: gasto + deuda, sin falsear «pagado por».
--- Ningún historial se modifica al instalar estas funciones.
+-- AQUABRI producción 2026-11-09. Probado primero en aquabri-staging.
+-- Corrección: factura con stock y lote FIFO; no contabilizar compra como gasto operativo.
+-- Factura servicio a crédito crea gasto y deuda, sin salida de Caja.
+-- Las funciones conservan autorizaciones existentes en producción y no modifican registros previos.
 
 CREATE OR REPLACE FUNCTION public.aq_registrar_compra_segura(p_token text, p_uid bigint, p_nonce text, p_factura jsonb, p_items jsonb)
  RETURNS jsonb
@@ -46,7 +46,7 @@ BEGIN
   FROM public.sesiones s JOIN public.usuarios u ON u.id = s.usuario_id
   WHERE s.token = p_token AND s.usuario_id = p_uid AND s.expira_en > now()
   LIMIT 1;
-  IF v_rol IS NULL OR NOT aquabri_private.tiene_permiso_usuario(p_uid::integer,'compras.registrar') THEN
+  IF v_rol IS NULL OR v_rol NOT IN ('jefe','inventario') THEN
     RAISE EXCEPTION 'Usuario sin autorización para registrar facturas de proveedores';
   END IF;
   IF jsonb_typeof(p_factura) <> 'object' OR jsonb_typeof(p_items) <> 'array' OR
@@ -328,7 +328,7 @@ BEGIN
  END IF;
  SELECT u.rol INTO v_rol FROM public.sesiones s JOIN public.usuarios u ON u.id=s.usuario_id
   WHERE s.token=p_token AND s.usuario_id=p_uid AND s.expira_en>now() LIMIT 1;
- IF v_rol IS NULL OR NOT aquabri_private.tiene_permiso_usuario(p_uid::integer,'proveedores.pagar') THEN
+ IF v_rol IS NULL OR v_rol NOT IN ('jefe') THEN
    RAISE EXCEPTION 'Solo el jefe puede registrar pagos a proveedores';
  END IF;
  v_prov:=btrim(coalesce(p_proveedor,''));

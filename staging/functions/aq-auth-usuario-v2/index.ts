@@ -71,7 +71,7 @@ Deno.serve(async (request: Request) => {
     // El SMS NO se solicita en el inicio de sesión cotidiano.
     // Se conserva el correo verificado como respaldo para identidades anteriores de staging.
     const phone = identity?.user?.phone || "";
-    const phoneVerified = Boolean(identity?.user?.phone_confirmed_at) && /^\+502\d{8}$/.test(phone);
+    const phoneVerified = Boolean(identity?.user?.phone_confirmed_at) && /^\+?502\d{8}$/.test(phone);
     const email = identity?.user?.email || "";
     const emailVerified = Boolean(identity?.user?.email_confirmed_at);
     if (authError || !identity?.user || (!phoneVerified && !emailVerified)) return invalid();
@@ -79,7 +79,7 @@ Deno.serve(async (request: Request) => {
     const publicAuth = createClient(url, anonKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-    const credentials = phoneVerified ? { phone, password } : { email, password };
+    const credentials = phoneVerified ? { phone: phone.startsWith("+") ? phone : "+" + phone, password } : { email, password };
     const { data: result, error: loginError } = await publicAuth.auth.signInWithPassword(credentials);
     if (loginError || result.user?.id !== record.auth_uid || !result.session) return invalid();
 

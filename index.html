@@ -3880,6 +3880,7 @@ function aqResumenFinanciero(ventas,creditos,caja){
 // El jefe calcula el cierre exacto al solicitarlo, con paginación completa.
 let aqCuadreCompletoCache=null;
 let aqCuadreCompletoCargando=false;
+function aqCuadreEsc(v){return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));}
 function aqPintarCuadreCompleto(){
   const el=document.getElementById('ini-cuadre');
   const dat=aqCuadreCompletoCache;
@@ -3901,7 +3902,7 @@ function aqPintarCuadreCompleto(){
   }
   const porVendedorHtml=Array.from(porVendedor.entries()).map(([uid,d])=>{
     const nombre=(D.usuarios||[]).find(u=>Number(u.id)===uid)?.nombre||('Usuario '+uid);
-    return '<div style="font-size:11px;padding:4px 0;border-bottom:1px solid #ddd">'+esc(nombre)+
+    return '<div style="font-size:11px;padding:4px 0;border-bottom:1px solid #ddd">'+aqCuadreEsc(nombre)+
       ' · Facturado '+fQ(d.total)+' · Crédito originado '+fQ(d.credito)+'</div>';
   }).join('');
   const aviso=(r.sinClasificar||r.desconocidos.length)?
@@ -3958,7 +3959,7 @@ async function aqActualizarCuadreCompleto(fecha){
   }catch(error){
     console.warn('No se pudo conciliar el cuadro completo',error);
     if(el)el.innerHTML='<p style="color:#c62828">No se pudo consultar el cuadre completo: '+
-      esc(error.message||'Error de conexión')+'. No se mostrarán cifras incompletas.</p>'+
+      aqCuadreEsc(error.message||'Error de conexión')+'. No se mostrarán cifras incompletas.</p>'+
       '<button class="btn bs" onclick="aqActualizarCuadreCompleto(hoy())">🔄 Reintentar cuadre</button>';
   }finally{aqCuadreCompletoCargando=false;}
 }

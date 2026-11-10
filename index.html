@@ -181,6 +181,32 @@ html[data-aq-theme="dark"] #page-ventas .aq-master-editar-precio,html[data-aq-th
 #rep-detalles-financieros td.aq-valor-desglose{font-weight:800;text-align:right;white-space:nowrap}
 #rep-detalles-financieros small{color:var(--texto2,#657c90);font-size:11px}
 @media(max-width:768px){#rep-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}#rep-resumen-simple{padding:11px 12px}}
+
+/* Detalle colapsable: tarjetas iguales a las principales, sin repetirlas. */
+#rep-detalles-financieros .aq-rep-extra-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,225px),1fr));
+  gap:11px;align-items:stretch;padding:4px 12px 14px
+}
+#rep-detalles-financieros .aq-report-card{
+  position:relative;display:flex;flex-direction:column;gap:8px;min-width:0;
+  padding:13px 14px;min-height:124px;overflow:hidden;align-items:stretch
+}
+#rep-detalles-financieros .aq-report-card-head{display:flex;align-items:flex-start;gap:8px;min-width:0;min-height:30px}
+#rep-detalles-financieros .aq-report-card-icon{display:block;flex:0 0 23px;font-size:20px;line-height:1.15;text-align:center}
+#rep-detalles-financieros .aq-report-card-label{flex:1 1 auto;min-width:0;font-size:11px;line-height:1.25;font-weight:650}
+#rep-detalles-financieros .aq-report-card-content{display:flex;flex-direction:column;gap:5px;flex:1;min-width:0;width:100%}
+#rep-detalles-financieros .aq-report-card-value{
+  display:block;width:100%;font-size:clamp(17px,1.5vw,23px);font-weight:800;
+  font-variant-numeric:tabular-nums;white-space:nowrap!important;line-height:1.15
+}
+#rep-detalles-financieros .aq-report-card-sub{font-size:10px;color:var(--texto2,#657c90);line-height:1.35}
+@media(max-width:768px){
+ #rep-detalles-financieros .aq-rep-extra-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:4px 9px 10px}
+ #rep-detalles-financieros .aq-report-card{padding:10px 9px;min-height:120px}
+ #rep-detalles-financieros .aq-report-card-value{font-size:clamp(13px,3.75vw,18px)}
+ #rep-detalles-financieros .aq-report-card-label{font-size:10px}
+ #rep-detalles-financieros .aq-report-card-sub{font-size:9px}
+}
 </style>
 </head>
 <body>
@@ -12631,8 +12657,8 @@ async function generarReporte(){
   const bancoYTarjeta=Math.round((importeMedio('transferencia')+importeMedio('otro'))*100)/100;
   const tarjetasPrincipales=[
     {ic:'🛒',lbl:'Ventas del período',val:fQ(tv),c:'#1565c0',sub:'Todo lo vendido, de contado y a crédito.'},
-    {ic:'📝',lbl:'Vendido a crédito',val:fQ(resumenFinanciero.creditoOriginado),c:'#e65100',
-      sub:'Productos dejados al crédito, aunque después se paguen.'},
+    {ic:'📝',lbl:'Crédito pendiente',val:fQ(totalCreditoPendiente),c:'#e65100',
+      sub:'Dinero que todavía deben de las ventas del período seleccionado.'},
     {ic:'💳',lbl:'Abonos recibidos',val:fQ(tvCobrosCred),c:'#1565c0',
       sub:'Efectivo '+fQ(abonoDe('efectivo'))+' · Banco '+fQ(abonoDe('transferencia'))+
           ' · Otros '+fQ(abonoDe('otro'))+(abonoDe('sinClasificar')?' · Sin identificar '+fQ(abonoDe('sinClasificar')):'')},
@@ -12692,11 +12718,23 @@ async function generarReporte(){
       '</b>. No incluye el fondo inicial; confirma el dinero físico en Caja.</div>'+avisoGastos;
   const detallesContainer=document.getElementById('rep-detalles-financieros');
   const detalleAbierto=detallesContainer.querySelector('details')?.open===true;
-  const filas=kpisDetallados.map(k=>'<tr><th>'+k.ic+' '+k.lbl+(k.sub?'<div><small>'+k.sub+'</small></div>':'')+
-      '</th><td class="aq-valor-desglose" style="color:'+k.c+'">'+k.val+'</td></tr>').join('');
-  detallesContainer.innerHTML='<details id="aq-rep-mas-detalles"'+(detalleAbierto?' open':'')+
-    '><summary>Ver detalles: ganancias, créditos pendientes y otros cálculos</summary>'+
-    '<div class="aq-detalles-desglose"><table><tbody>'+filas+'</tbody></table></div></details>';
+  // El detalle es un desplegable de TARJETAS, sin repetir las seis principales.
+  // El crédito originado sigue visible en detalle: NO es el saldo pendiente.
+  const repetidosEnPrincipal=new Set([
+    'Ventas totales','Cobros en efectivo','Tarjeta / otros medios',
+    'Transferencias / depósitos','Abonos recibidos de créditos',
+    'Saldo pendiente del crédito del período'
+  ]);
+  const tarjetasExtra=kpisDetallados.filter(k=>!repetidosEnPrincipal.has(k.lbl));
+  const tarjetasExtraHtml=tarjetasExtra.map(k=>`<div class="kpi-card aq-report-card" style="border-left-color:${k.c}">
+    <div class="aq-report-card-head"><span class="aq-report-card-icon" aria-hidden="true">${k.ic}</span><span class="kpi-lbl aq-report-card-label">${k.lbl}</span></div>
+    <div class="aq-report-card-content"><div class="kpi-val aq-report-card-value" style="color:${k.c}" title="${k.val}">${k.val}</div>
+      ${k.sub?`<div class="aq-report-card-sub">${k.sub}</div>`:''}</div>
+  </div>`).join('');
+  detallesContainer.innerHTML=
+    '<details id="aq-rep-mas-detalles"'+(detalleAbierto?' open':'')+'>'+
+    '<summary>Ver más detalles ('+tarjetasExtra.length+' tarjetas) — ganancias, créditos y otros</summary>'+
+    '<div class="aq-rep-extra-grid">'+tarjetasExtraHtml+'</div></details>';
   requestAnimationFrame(aqAjustarMontosReporte);
 
   // Top productos — excluir canceladas

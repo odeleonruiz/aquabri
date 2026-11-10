@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>AQUABRI | Prueba de acceso seguro</title>
+<style>
+:root{color-scheme:light dark}*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;min-height:100vh;display:grid;place-items:center;margin:0;background:#eaf2fb;color:#172b48}
+main{width:min(430px,calc(100% - 24px));background:#fff;border-radius:18px;box-shadow:0 10px 35px #102f4930;padding:28px}
+h1{color:#1565c0;font-size:24px;margin:4px 0}p{font-size:13px;line-height:1.5;color:#52627a}
+label{font-size:13px;font-weight:700;display:block;margin:16px 0 5px}
+input{width:100%;border:1px solid #aabbd0;border-radius:9px;padding:11px;font:inherit;background:white;color:#172b48}
+button{width:100%;padding:12px;background:#1565c0;color:white;border:0;border-radius:9px;cursor:pointer;font-weight:700;margin-top:18px}
+button[disabled]{opacity:.6;cursor:wait}
+output{display:block;min-height:42px;margin-top:18px;color:#943630;white-space:pre-wrap;font-size:14px}
+small{color:#657487}#salir{background:#51637b}#resultado{display:none}
+</style>
+</head>
+<body>
+<main>
+ <h1>AQUABRI</h1>
+ <p><strong>Acceso seguro — SOLO PRUEBAS</strong></p>
+ <p>Se conserva la misma forma de entrar: usuario y contraseña. Esta página está conectada únicamente a la base de pruebas, no al inventario ni a las ventas reales.</p>
+ <form id="ingresar">
+   <label for="usuario">Usuario</label><input id="usuario" name="usuario" autocomplete="username" required maxlength="100">
+   <label for="contrasena">Contraseña</label><input id="contrasena" name="contrasena" type="password" autocomplete="current-password" required maxlength="256">
+   <button id="entrar" type="submit">Entrar</button>
+ </form>
+ <div id="resultado"><p id="perfil"></p><button id="salir" type="button">Cerrar sesión de pruebas</button></div>
+ <output id="mensaje" role="status"></output>
+ <small>No copies aquí contraseñas reales para hacer pruebas. Usa credenciales de staging. Nunca compartas tu contraseña en el chat.</small>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.min.js"></script>
+<script>
+(()=>{
+'use strict';
+const URL='https://xzbawbkstaqvkwtqlqai.supabase.co';
+const PUBLIC_KEY="sb_publishable_QOGiyV0pqGEYY8tXBaTMag_e_eVQRJw";
+const sb=window.supabase.createClient(URL,PUBLIC_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
+const byId=id=>document.getElementById(id);
+const msg=byId('mensaje'),form=byId('ingresar'),btn=byId('entrar');
+form.addEventListener('submit',async e=>{
+ e.preventDefault();
+ btn.disabled=true;msg.textContent='Verificando acceso...';
+ const usuario=byId('usuario').value.trim();
+ const contrasena=byId('contrasena').value;
+ try{
+  const resp=await fetch(URL+'/functions/v1/aq-auth-usuario-v2',{
+    method:'POST',
+    headers:{'content-type':'application/json','apikey':PUBLIC_KEY},
+    body:JSON.stringify({usuario,contrasena})
+  });
+  const payload=await resp.json().catch(()=>({}));
+  if(!resp.ok)throw new Error(payload.error||'No se pudo verificar la cuenta.');
+  const {error:sessionErr}=await sb.auth.setSession({access_token:payload.access_token,refresh_token:payload.refresh_token});
+  if(sessionErr)throw new Error('No se pudo completar la sesión.');
+  const {data:perfil,error:profileErr}=await sb.rpc('aq_mi_perfil_seguro');
+  if(profileErr||!perfil?.id)throw new Error('La cuenta no está vinculada correctamente.');
+  form.style.display='none';
+  byId('resultado').style.display='block';
+  byId('perfil').textContent='Acceso verificado: '+perfil.rol+' · ID original '+perfil.id;
+  msg.textContent='La identidad y el rol fueron comprobados en Supabase Auth.';
+ }catch(err){
+   msg.textContent=err?.message||'No se pudo verificar el acceso.';
+   await sb.auth.signOut().catch(()=>{});
+ }finally{byId('contrasena').value='';btn.disabled=false;}
+});
+byId('salir').addEventListener('click',async()=>{
+ await sb.auth.signOut().catch(()=>{});
+ form.style.display='block';byId('resultado').style.display='none';msg.textContent='Sesión de pruebas cerrada.';
+});
+})();
+</script>
+</body>
+</html>

@@ -5473,9 +5473,7 @@ async function cobrar(enviarWsp=false){
   }
   let resultado=null,ventaError=null;
   try{
-    const respuesta=await sb.rpc('aq_registrar_venta_completa',{
-      p_token:localStorage.getItem('aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
+    const respuesta=await sb.rpc('aq_vender_auth_v2',{
       p_nonce:window._aqCobroNonce,
       p_venta:datosVenta,
       p_items:detalleVenta
@@ -10826,8 +10824,7 @@ async function aqCobroClienteSeguro({clienteId,monto,medio,notas='',creditoId=nu
   aqCobroCreditoGuardando=true;showLoad(true);
   let data=null,err=null;
   try{
-    const r=await sb.rpc('aq_cobrar_credito_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,
+    const r=await sb.rpc('aq_cobrar_auth_v2',{
       p_nonce:previo.nonce,p_cliente_id:cid,p_monto:payload.monto,
       p_medio:medio,p_notas:payload.notas,p_credito_id:crid
     });data=r.data;err=r.error;
@@ -11861,11 +11858,14 @@ async function saveFactura(){
   window._aqGuardandoFactura=true;showLoad(true);
   let resultado=null,error=null;
   try{
-    const rpc=tipo==='inventario'?'aq_registrar_compra_segura':'aq_registrar_documento_sin_items';
-    const args=tipo==='inventario'
-      ?{p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_nonce:window._aqCompraNonce,p_factura:datos,p_items:lineas}
-      :{p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_nonce:window._aqCompraNonce,p_tipo:tipo,p_documento:datos};
-    const r=await sb.rpc(rpc,args);resultado=r.data;error=r.error;
+    if(tipo!=='inventario'){
+      throw new Error('Los documentos sin inventario requieren migración a una función segura. No se registró el documento.');
+    }
+    const args={
+      p_nonce:window._aqCompraNonce,p_factura:datos,p_items:lineas
+    };
+    const r=await sb.rpc('aq_comprar_auth_v2',args);
+    resultado=r.data;error=r.error;
   }catch(e){error=e;}
   showLoad(false);window._aqGuardandoFactura=false;
   if(error||!resultado?.id){

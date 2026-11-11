@@ -5231,6 +5231,90 @@ function addCart(){
   document.getElementById('v-cant').value=1;document.getElementById('v-desc').value=0;document.getElementById('v-apl-oferta').checked=false;document.getElementById('v-apl-bonif').checked=false;
   renderCart();
 }
+
+/* AQUABRI · bonificación opcional por línea, nunca automática. */
+function aqBonifMinCompra(prod){
+  if(!prod?.bonif_desc)return Infinity;
+  const desc=String(prod.bonif_desc);
+  const regla=desc.match(/(?:compra(?:ndo)?|por cada|lleva|al comprar)\s*(\d+)/i)
+    ||desc.match(/(\d+)\s*(?:\+|x)\s*\d+/i)
+    ||desc.match(/(\d+)\s*(?:garrafones|unidades)\s*(?:y|por|con)/i);
+  if(regla)return Math.max(1,Number(regla[1]));
+  // Referencia 5+1 de garrafones; otros productos requieren regla explícita.
+  return /garraf[oó]n/i.test(String(prod.nombre||''))?5:Infinity;
+}
+function aqBonifElegible(lista,idx){
+  const item=lista[idx];if(!item)return false;
+  const prod=(D.prods||[]).find(p=>String(p.id)===String(item.pid));
+  if(!prod?.bonif_desc)return false;
+  const min=aqBonifMinCompra(prod);
+  return Number.isFinite(min)&&lista.filter(i=>String(i.pid)===String(item.pid)).reduce((n,i)=>n+Number(i.cant||0),0)>=min;
+}
+function aqBonifAccion(destino,idx){
+  const lista=destino==='pos'?posCart:cart,item=lista[idx];
+  if(!aqBonifElegible(lista,idx)){showNotif('La cantidad todavía no cumple la promoción','#e65100');return;}
+  const prod=(D.prods||[]).find(p=>String(p.id)===String(item.pid));
+  const inicial=Number(item.bonifCant)||0;
+  const sugerido=Math.max(1,Number(prod.bonif_cant)||1);
+  let modal=document.getElementById('aq-bonif-modal');
+  if(!modal){modal=document.createElement('div');modal.id='aq-bonif-modal';modal.className='modal-ov';document.body.appendChild(modal);}
+  modal.innerHTML=`<div class="modal" style="max-width:350px;padding:18px">
+    <div class="modal-title" style="margin-bottom:8px">🎁 Bonificación disponible</div>
+    <div style="font-size:12px;color:var(--texto2);margin-bottom:12px">${aqEsc(prod.nombre)} · ${aqEsc(prod.bonif_desc)}<div>Referencia: ${sugerido} unidad(es). Puedes cambiarla.</div></div>
+    <label style="font-size:12px;font-weight:700">Unidades gratis a entregar</label>
+    <div style="display:flex;align-items:center;gap:10px;margin:8px 0 12px">
+      <button type="button" class="btn" onclick="aqBonifCambiar(-1)">−</button>
+      <input type="number" min="0" max="100000" step="1" inputmode="numeric" id="aq-bonif-cantidad" value="${inicial||sugerido}" style="flex:1;min-width:0;text-align:center;font-size:22px;font-weight:800">
+      <button type="button" class="btn" onclick="aqBonifCambiar(1)">+</button>
+    </div>
+    <div style="font-size:11px;color:var(--gris);margin-bottom:10px">Solo se agrega al confirmar. Para quitar una bonificación confirmada, selecciona 0.</div>
+    <div class="mfoot"><button class="btn" onclick="document.getElementById('aq-bonif-modal').classList.remove('open')">Cancelar</button>
+      <button class="btn bp" onclick="aqBonifConfirmar('${destino}',${idx})">Confirmar</button></div>
+  </div>`;
+  modal.classList.add('open');
+}
+function aqBonifCambiar(delta){
+  const x=document.getElementById('aq-bonif-cantidad');if(x)x.value=String(Math.max(0,(parseInt(x.value,10)||0)+delta));
+}
+function aqBonifConfirmar(destino,idx){
+  const lista=destino==='pos'?posCart:cart,item=lista[idx];
+  if(!item||!aqBonifElegible(lista,idx))return;
+  const val=Number(document.getElementById('aq-bonif-cantidad')?.value);
+  if(!Number.isSafeInteger(val)||val<0||val>100000){showNotif('Cantidad bonificada inválida','#c62828');return;}
+  const prod=(D.prods||[]).find(p=>String(p.id)===String(item.pid));
+  item.bonifCant=val;
+  item.bonifProdId=val>0&&prod.bonif_prod?Number(prod.bonif_prod):null;
+  item.bonifNombre=val>0?val+' bonif. ('+prod.bonif_desc+')':'';
+  document.getElementById('aq-bonif-modal')?.classList.remove('open');
+  if(destino==='pos'){posRenderCart();posRenderGrid();posUpdateBar();}else renderCart();
+  showNotif(val>0?'🎁 '+val+' unidad(es) bonificadas · confirmadas':'Bonificación eliminada','#2e7d32');
+}
+function aqBonifBoton(lista,idx,destino){
+  const item=lista[idx];
+  if(!aqBonifElegible(lista,idx))return '';
+  return `<button type="button" onclick="aqBonifAccion('${destino}',${idx})"
+    style="display:inline-block;margin-top:5px;border:1px solid #ffb74d;background:var(--naranjac);color:var(--naranja);border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer">🎁 ${Number(item.bonifCant)>0?'Editar '+item.bonifCant+' gratis':'Bonificación disponible · Aplicar'}</button>`;
+}
+function aqEnvasesTotalCarrito(lista){
+  return lista.reduce((sum,item)=>{
+    const p=(D.prods||[]).find(x=>String(x.id)===String(item.pid));
+    const ret=String(p?.retornable??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    const retornable=!!p&&(['si','true','1'].includes(ret)||/garraf[oó]n/i.test(p.nombre||''));
+    const bp=(D.prods||[]).find(x=>String(x.id)===String(item.bonifProdId));
+    const bret=String(bp?.retornable??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    const bonifRet=!item.bonifProdId?retornable:(!!bp&&(['si','true','1'].includes(bret)||/garraf[oó]n/i.test(bp.nombre||'')));
+    return sum+(retornable?Number(item.cant)||0:0)+(bonifRet?Number(item.bonifCant)||0:0);
+  },0);
+}
+function aqSyncEnvasesCarrito(destino){
+  const id=destino==='pos'?'pos-env-llevan':'v-env-llevan';
+  const x=document.getElementById(id);if(!x)return;
+  const total=aqEnvasesTotalCarrito(destino==='pos'?posCart:cart);
+  // Mantener posible ajuste manual de envases; se recalcula al modificar los productos.
+  x.value=String(total);
+  if(destino==='pos')calcEnvasesDiffPos();else calcEnvasesDiff();
+}
+
 function renderCart(){
   aqActualizarPermisosDescuento();
   const dg=parseFloat(document.getElementById('v-descg')?.value)||0;
@@ -5241,6 +5325,7 @@ function renderCart(){
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:700">${item.nombre}</div>
         ${item.bonifNombre?`<div style="font-size:11px;background:#fff3e0;color:#e65100;border-radius:4px;padding:2px 6px;margin-top:2px;font-weight:600">🎁 ${item.bonifNombre}</div>`:''}
+        ${aqBonifBoton(cart,idx,'venta')}
         <div style="font-size:10px;color:var(--gris)">${fQ(item.precio)}${item.desc>0?' − '+fQ(item.desc)+' oferta':''}</div>
         ${aqPuedeCambiarPrecioVenta()?`<button type="button" class="aq-master-editar-precio" onclick="aqEditarPrecioCarrito('venta',${idx})">✏️ Cambiar precio</button>`:''}
       </div>
@@ -5266,7 +5351,8 @@ function renderCart(){
   const cambio=pag-total;
   const cel=document.getElementById('v-cambio');
   if(pag>0)cel.textContent=cambio>=0?`Cambio: ${fQ(cambio)}`:`Falta: ${fQ(-cambio)}`;else cel.textContent='';
-  // Actualizar badges en grilla
+  // Actualizar badges en grilla y envases entregados (venta + bonificación).
+  aqSyncEnvasesCarrito('venta');
   deskRenderGrid();
 }
 function removeCart(idx){const x=cart[idx];if(x?.promoGrupo)cart=cart.filter(i=>i.promoGrupo!==x.promoGrupo);else cart.splice(idx,1);renderCart();}
@@ -15407,14 +15493,14 @@ async function agregarProdRapido(pid){
   if(!(await aqEsperarPrecioHabitual(prod,'venta')))return;
   const input=document.getElementById('v-buscar-prod');if(input){input.value='';input.focus();}
   const dd=document.getElementById('v-prod-dropdown');if(dd)dd.style.display='none';
-  if(!!aqOfertaInfo(prod)||!!prod.bonif_desc){abrirFormAvanzado(pid);return;}
+  if(!!aqOfertaInfo(prod)){abrirFormAvanzado(pid);return;}
   aqAgregarProductoNormal(prod,'venta');
 }
 function abrirFormAvanzado(pid){
   const prod=D.prods.find(p=>p.id===pid);if(!prod)return;
   const dd=document.getElementById('v-prod-dropdown');if(dd)dd.style.display='none';
   const input=document.getElementById('v-buscar-prod');if(input)input.value='';
-  if(!(Number(prod.oferta_precio)>0||!!prod.bonif_desc)){
+  if(!aqOfertaInfo(prod)){
     aqAgregarProductoNormal(prod,'venta');return;
   }
   abrirModalConfigProd(prod);
@@ -15452,18 +15538,7 @@ function abrirModalConfigProd(prod, destino='venta', forzarAjuste=false){
         <button type="button" id="mcp-oferta-btn" onclick="toggleMcpOferta(${Number(prod.oferta_precio)},${Number(prod.precio)})"
           style="background:#fff;color:var(--verde);border:1.5px solid var(--verde);border-radius:20px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer">Aplicar oferta</button>
       </div>`:''}
-      ${tieneBonus?`<div class="aq-mcp-bonif" style="background:var(--naranjac);border-radius:10px;padding:12px 14px;margin-bottom:8px;border:1.5px solid #ffcc80">
-        <div style="font-size:12px;font-weight:700;color:var(--naranja);margin-bottom:8px">🎁 Bonificación: ${aqEsc(prod.bonif_desc)}</div>
-        <label style="font-size:12px;color:var(--naranja);font-weight:700;display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="mcp-bonif-manual" onchange="mcpToggleBonifManual()" style="width:17px;height:17px;accent-color:#e65100"> Agregar bonificación MANUAL (opcional)</label>
-        <label style="font-size:11px;color:var(--naranja);font-weight:600">Unidades gratis (solo si tú decides regalarlas)</label>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
-          <button type="button" id="mcp-bonif-menos" onclick="mcpCambiarBonif(-1)" class="aq-mcp-step" disabled>−</button>
-          <input type="number" id="mcp-bonif-cant" value="0" min="0" disabled style="font-size:18px;font-weight:700;text-align:center;flex:1;border:1.5px solid #ffcc80;border-radius:8px;padding:6px" oninput="mcpActualizarResumen()">
-          <button type="button" id="mcp-bonif-mas" onclick="mcpCambiarBonif(1)" class="aq-mcp-step aq-mcp-step-plus" disabled>+</button>
-        </div>
-        ${Number(prod.bonif_cant)>0?`<div class="aq-mcp-regla">Referencia de Inventario: ${Number(prod.bonif_cant)} unidad(es). No se regalan automáticamente.</div>`:''}
-        <div id="mcp-bonif-preview" style="font-size:12px;font-weight:700;color:var(--naranja);margin-top:8px;text-align:center;background:#fff;border-radius:8px;padding:6px"></div>
-      </div>`:''}
+      <!-- Bonificaciones: solo se ofrecen en el carrito cuando la cantidad califica. -->
       <div id="mcp-resumen-final" style="background:var(--azulc);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:700;color:var(--azul);text-align:center;margin-bottom:10px;display:none"></div>
       <div class="mfoot">
         <button class="btn" onclick="cerrarModalConfigProd()" style="background:var(--grisc);color:var(--gris)">Cancelar</button>
@@ -15737,7 +15812,7 @@ async function posTapProd(pid){
   const prod=(D.prods||[]).find(p=>String(p.id)===String(pid));if(!prod)return;
   if(!(await aqEsperarPrecioHabitual(prod,'pos')))return;
   // Los productos normales se agregan directamente. El modal es exclusivo de promociones.
-  if(!!aqOfertaInfo(prod)||!!prod.bonif_desc)posAbrirModalConfig(prod);
+  if(!!aqOfertaInfo(prod))posAbrirModalConfig(prod);
   else aqAgregarProductoNormal(prod,'pos');
 }
 
@@ -15775,13 +15850,14 @@ function posRenderCart(){
   const pag=parseFloat(document.getElementById('pos-pagado')?.value)||0;
   const el=document.getElementById('pos-cart-items');
   if(!el)return;
-  if(!posCart.length){el.innerHTML='<p class="tmuted" style="text-align:center;padding:20px">Carrito vacío</p>';posUpdateTotales(0,0,dg,pag);actualizarVisibilidadEnvasesVenta();return;}
+  if(!posCart.length){el.innerHTML='<p class="tmuted" style="text-align:center;padding:20px">Carrito vacío</p>';posUpdateTotales(0,0,dg,pag);actualizarVisibilidadEnvasesVenta();aqSyncEnvasesCarrito('pos');return;}
   el.innerHTML=posCart.map((item,idx)=>{
     const sub=aqLineaCentavos(item)/100;
     return`<div style="display:flex;align-items:center;gap:8px;padding:10px;background:#fff;border-radius:10px;margin-bottom:8px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:700">${item.nombre}</div>
-        ${item.bonifNombre?`<div style="font-size:10px;color:var(--naranja)">🎁 ${item.bonifNombre}</div>`:''}${item.promoGrupo?'<div style="font-size:10px;color:#2563eb">🏷 Paquete · Quitar para modificar cantidad</div>':''}
+        ${item.bonifNombre?`<div style="font-size:10px;color:var(--naranja)">🎁 ${item.bonifNombre}</div>`:''}
+        ${aqBonifBoton(posCart,idx,'pos')}${item.promoGrupo?'<div style="font-size:10px;color:#2563eb">🏷 Paquete · Quitar para modificar cantidad</div>':''}
         <div style="font-size:11px;color:var(--gris);margin-top:2px">${fQ(item.precio)} × ${item.cant}${item.desc>0?' − '+fQ(item.desc)+' oferta':''}</div>
         ${aqPuedeCambiarPrecioVenta()?`<button type="button" class="aq-master-editar-precio" onclick="aqEditarPrecioCarrito('pos',${idx})">✏️ Cambiar precio</button>`:''}
       </div>
@@ -15800,6 +15876,7 @@ function posRenderCart(){
   const costoTotal=posCart.reduce((s,i)=>s+i.costoUnit*i.cant,0);
   posUpdateTotales(sub,costoTotal,dg,pag);
   actualizarVisibilidadEnvasesVenta();
+  aqSyncEnvasesCarrito('pos');
 }
 
 function posUpdateTotales(sub,costoTotal,dg,pag){

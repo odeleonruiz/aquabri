@@ -20735,7 +20735,7 @@ async function aqCrearClienteConCaptacion(datos){
 /* Nuevos módulos: guardan por RPC (token personalizado); sin tablas de comisiones expuestas directamente. */
 let aqIncCache={equipos:[],incentivos:[]};
 let aqIncMovimientos=[];
-function aqIncAuth(){throw new Error('Operación de incentivos pendiente de migración segura a Supabase Auth');}
+// Los módulos de incentivos usan identidad de Supabase Auth; no tokens legacy en cliente.
 function aqIncNombreEmp(id){return D.empleados.find(e=>Number(e.id)===Number(id))?.nombre||'Empleado #'+id;}
 function aqIncNombreCli(id){return D.clientes.find(e=>Number(e.id)===Number(id))?.nombre||'Cliente #'+id;}
 function aqIncFmt(x){return fQ(Number(x)||0);}
@@ -20909,7 +20909,7 @@ function aqIncRenderSugeridos(){
 async function aqCrearEquipo(){
  const nombre=document.getElementById('aq-equipo-nombre').value.trim();const a=Number(document.getElementById('aq-equipo-a').value);const b=Number(document.getElementById('aq-equipo-b').value);
  if(!nombre||!a||!b||a===b){showNotif('Pon nombre y dos empleados distintos','#c62828');return;}
- const {error}=await sb.rpc('aq_guardar_equipo',{...aqIncAuth(),p_nombre:nombre,p_empleado_a:a,p_empleado_b:b});
+ const {error}=await sb.rpc('aq_guardar_equipo_auth_v1',{p_nombre:nombre,p_empleado_a:a,p_empleado_b:b});
  if(error){showNotif(error.message,'#c62828');return;}
  document.getElementById('aq-equipo-nombre').value='';await aqIncRecargar();showNotif('Equipo creado ✅');
 }
@@ -20920,13 +20920,13 @@ async function aqGuardarIncentivo(){
  const confirmado=document.getElementById('aq-inc-confirmar').checked;
  if(!cliente||!producto||!captador||!Number.isFinite(importe)||importe<0||!confirmado){showNotif('Selecciona cliente, garrafón, captador y confirma la captación','#c62828');return;}
  const modalidad=reparto==='equipo'?'equipo':'individual';const beneficiario=modalidad==='individual'?Number(reparto.split(':')[1]):null;
- const {error}=await sb.rpc('aq_guardar_incentivo',{...aqIncAuth(),p_cliente:cliente,p_producto:producto,p_captador:captador,p_equipo:equipo,p_modalidad:modalidad,p_beneficiario:beneficiario,p_importe:importe,p_confirmado:true});
+ const {error}=await sb.rpc('aq_guardar_incentivo_auth_v1',{p_cliente:cliente,p_producto:producto,p_captador:captador,p_equipo:equipo,p_modalidad:modalidad,p_beneficiario:beneficiario,p_importe:importe,p_confirmado:true});
  if(error){showNotif(error.message,'#c62828');return;}
  document.getElementById('aq-inc-confirmar').checked=false;await aqIncRecargar();showNotif('Incentivo autorizado ✅');
 }
 async function aqFinalizarIncentivo(id){
  if(!confirm('¿Finalizar este incentivo? No modifica ventas anteriores.'))return;
- const {error}=await sb.rpc('aq_finalizar_incentivo',{...aqIncAuth(),p_incentivo:id});
+ const {error}=await sb.rpc('aq_finalizar_incentivo_auth_v1',{p_incentivo:id});
  if(error){showNotif(error.message,'#c62828');return;}
  await aqIncRecargar();showNotif('Incentivo finalizado');
 }
@@ -20936,7 +20936,7 @@ async function aqConsultarMovimientos(desde,hasta){
     let permisos=[];try{permisos=JSON.parse(CU?.permisos_custom||'null')||PERMS[CU?.rol]||[];}catch(e){}
     if(!permisos.includes('comisiones')&&!permisos.includes('rrhh'))return [];
   }
-  const {data,error}=await sb.rpc('aq_movimientos_incentivos',{...aqIncAuth(),p_desde:desde,p_hasta:hasta});
+  const {data,error}=await sb.rpc('aq_movimientos_incentivos_auth_v1',{p_desde:desde,p_hasta:hasta});
   if(error)throw error;
   return data||[];
  }catch(e){console.warn('No se pudieron consultar incentivos',e);return [];}
@@ -20983,6 +20983,9 @@ async function aqReporteIncentivos(){
  '<p class="tmuted">Las ventas de crédito aún sin cobrar y las anuladas no están disponibles para liquidación. Los importes se guardan al momento de vender, no cambian si termina el incentivo.</p>';
 }
 async function aqPagarIncentivo(empleadoId){
+  showNotif('Liquidación de incentivos pendiente de una RPC Auth que concilie planilla, gastos y caja. No se ha registrado ningún pago.','#e65100');
+  return;
+
  const desde=document.getElementById('aq-inc-desde').value,hasta=document.getElementById('aq-inc-hasta').value;
  const nombre=aqIncNombreEmp(empleadoId);
  if(!confirm('¿Registrar liquidación de incentivos especiales a '+nombre+' del '+desde+' al '+hasta+'? Solo se liquidarán movimientos no pagados y cobrados.'))return;
@@ -21262,7 +21265,7 @@ async function aqCeCargarAtribuciones(){
   aqCePromesaAtribuciones=(async()=>{
     const mensaje=document.getElementById('aq-ce-asignaciones-estado');
     try{
-      const {data,error}=await sb.rpc('aq_clientes_atribucion_listar',aqIncAuth());
+      const {data,error}=await sb.rpc('aq_clientes_atribucion_listar_auth_v1');
       if(error)throw error;
       aqCeAtribuciones=new Map((Array.isArray(data)?data:[]).map(a=>[Number(a.cliente_id),a]));
       aqCeAtribucionesDisponibles=true;
@@ -21411,8 +21414,7 @@ async function aqCeGuardarAsignacion(){
  if(!usuario&&!actual){showNotif('Selecciona un usuario para asignar','#c62828');return;}
  const btn=document.getElementById('aq-ce-modal-guardar');btn.disabled=true;
  try{
-   const {data,error}=await sb.rpc('aq_cliente_asignar_responsable',{
-     ...aqIncAuth(),p_cliente:aqCeAsignacionClienteId,p_usuario:usuario,p_nota:nota||null
+   const {data,error}=await sb.rpc('aq_cliente_asignar_responsable_auth_v1',{p_cliente:aqCeAsignacionClienteId,p_usuario:usuario,p_nota:nota||null
    });
    if(error)throw error;
    if(usuario){aqCeAtribuciones.set(aqCeAsignacionClienteId,{

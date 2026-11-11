@@ -4,7 +4,7 @@ Fecha: 2026-11-11. Rama: `prueba-supabase-auth-20261110`. PR #17.
 
 ## Cambios reales instalados
 1. `sql/aq_liquidacion_incentivos_auth_v2_staging.sql`: función `aq_liquidar_incentivos_auth_v2`, exige jefe vía Supabase Auth, idempotencia por nonce, pago atómico y trazabilidad privada. Origen caja genera una sola salida con etiqueta `AQ-LIQ-INCENTIVO` y `AQ-MP:EFECTIVO`; origen externo no mueve caja. No añade otro registro a `gastos` (el incentivo ya se devenga en su tabla).
-2. `sql/aq_liquidacion_incentivos_caja_saldo_v3_staging.sql`: misma función, revisada para impedir pagar más que el saldo físico efectivo del turno activo. Excluye movimientos etiquetados transferencia/otro, y requiere revisión si hay tipos de movimiento desconocidos. Ejecutar **después** del script v2 si se reconstruye staging.
+2. `sql/aq_liquidacion_incentivos_caja_saldo_v3_staging.sql`: misma función, revisada para impedir pagar más que el saldo físico efectivo del turno activo. Excluye movimientos etiquetados transferencia/otro, requiere revisión si hay tipos de movimiento desconocidos y **bloquea pagos de incentivos si la caja activa no pertenece al usuario jefe**. Ejecutar **después** del script v2 si se reconstruye staging.
 3. `sql/aq_incentivos_auth_nativo_v2_staging.sql`: seis RPC de equipos, incentivo, asignación y movimientos con contexto Auth nativo, sin `contexto_auth_legacy()`.
 4. `sql/aq_incentivos_lecturas_auth_nativo_v2_staging.sql`: tres RPC de reporte/lectura nativas, incluyendo detalle de incentivos limitado al empleado vinculado cuando no es jefe.
 5. `sql/aq_auditoria_pagos_incentivos_auth_v1_staging.sql`: RPC de conciliación **solo para jefe**, detecta pagos sin devengos, diferencias de importe, caja faltante/alterada, salidas duplicadas y pagos externos con impacto indebido en efectivo. No modifica datos.
@@ -26,6 +26,11 @@ Todas las pruebas financieras se ejecutaron con `BEGIN ... ROLLBACK`; tras cada 
 | Caja con Q1 efectivo + Q100 transferencia y pago Q3 | Rechazado (transferencia no cuenta como efectivo) |
 | Caja con Q3 efectivo y pago Q3 | Una única salida -Q3 |
 | Resumen de caja con transferencia + salida efectivo | Resumen calcula correctamente |
+| Caja del vendedor abierta, jefe intenta pagar desde esa caja | Rechazado; sin pago ni movimiento |
+| Caja propia del jefe abierta tras rechazo anterior | Pago exitoso, debitado solo desde caja propia |
+| Equipo autorizado, venta registrada por socio A | Devenga dos mitades, total 100% del incentivo |
+| Equipo autorizado, venta registrada por socio B | Mismo reparto 50/50 |
+| Venta registrada por el jefe ajeno al equipo | No genera incentivo de equipo |
 | Auditoría de pago reconciliado | 0 inconsistencias |
 | Manipulación QA de salida -Q3 -> -Q4 | Detecta anomalía de importe |
 | Vendedor intenta ejecutar auditoría | Rechazado |

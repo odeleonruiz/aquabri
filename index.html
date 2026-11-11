@@ -6959,6 +6959,10 @@ function evConfirmarAgregar(){
   evRenderItems();
 }
 async function saveEditVenta(){
+  // Bloqueo explícito hasta contar con RPC transaccional Auth para modificar/cancelar.
+  showNotif('Edición y cancelación de ventas en preparación: operación bloqueada para proteger caja e inventario.','#e65100');
+  return;
+
   const id=document.getElementById('ev-id').value;
   const et=document.getElementById('ev-entrega').value;
   const entTexto=et==='domicilio'?'A Domicilio':et==='inmediata'?'Entrega Inmediata':'Recolección en tienda';
@@ -7011,6 +7015,10 @@ async function saveEditVenta(){
   showNotif('✅ Venta actualizada','#2e7d32');
 }
 async function delVenta(id){
+  // Bloqueo explícito hasta contar con RPC transaccional Auth para modificar/cancelar.
+  showNotif('Edición y cancelación de ventas en preparación: operación bloqueada para proteger caja e inventario.','#e65100');
+  return;
+
   const esVendedorRol=['vendedor','vendedor_editor'].includes(CU.rol);
   const esJefeRol=SOLO_JEFE.includes(CU.rol);
   if(!esJefeRol&&!esVendedorRol){showNotif('No tienes permiso para cancelar','#c62828');return;}
@@ -20775,7 +20783,7 @@ async function aqCrearClienteConCaptacion(datos){
 /* Nuevos módulos: guardan por RPC (token personalizado); sin tablas de comisiones expuestas directamente. */
 let aqIncCache={equipos:[],incentivos:[]};
 let aqIncMovimientos=[];
-function aqIncAuth(){return {p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0};}
+function aqIncAuth(){throw new Error('Operación de incentivos pendiente de migración segura a Supabase Auth');}
 function aqIncNombreEmp(id){return D.empleados.find(e=>Number(e.id)===Number(id))?.nombre||'Empleado #'+id;}
 function aqIncNombreCli(id){return D.clientes.find(e=>Number(e.id)===Number(id))?.nombre||'Cliente #'+id;}
 function aqIncFmt(x){return fQ(Number(x)||0);}
@@ -20884,7 +20892,7 @@ async function aqIncInit(){
 async function aqIncRecargar(){
  const estado=document.getElementById('aq-inc-status');if(estado)estado.textContent='⏳ Consultando configuración…';
  try{
-  const {data,error}=await sb.rpc('aq_estado_incentivos',aqIncAuth());
+  const {data,error}=await sb.rpc('aq_estado_incentivos_auth_v1');
   if(error)throw error;
   aqIncCache=data||{equipos:[],incentivos:[]};
   aqIncPintar();

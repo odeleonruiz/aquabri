@@ -20716,20 +20716,11 @@ async function aqActualizarCierreReportes(){
 /* Solo las altas nuevas realizadas por un vendedor asociado a un equipo generan incentivos automáticos.
    La RPC verifica la sesión y la pertenencia al equipo antes de insertar el cliente y el incentivo. */
 async function aqCrearClienteConCaptacion(datos){
-  const esVendedor=['vendedor','vendedor_editor'].includes(CU?.rol);
-  if(!esVendedor){
-    const {data,error}=await sb.from('clientes').insert({...datos,creado_por:CU?.nombre||'Jefe'}).select().single();
-    if(error)throw error;
-    return {cliente:data,incentivos:0};
-  }
-  const {data,error}=await sb.rpc('aq_crear_cliente_autocaptacion',{
-    p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_cliente:datos
-  });
-  if(error)throw new Error('La captación automática requiere instalar 03_activar_incentivos_automaticos.sql. '+error.message);
-  const id=Number(data?.cliente_id||0);
-  if(!id)throw new Error('La base de datos no devolvió el cliente creado');
-  return {cliente:{...datos,id,creado_por:CU?.nombre||''},incentivos:Number(data?.incentivos_creados||0),mensaje:data?.mensaje||null};
+  // No crear clientes sin transacción Auth y atribución de incentivos auditada.
+  // El endpoint legacy de captación no existe en staging y no se autoriza fallback INSERT.
+  throw new Error('La captación automática requiere migración de identidad, equipos e incentivos. No se creó el cliente.');
 }
+
 </script>
 <script id="aq-incentivos-migracion-2026">
 /* Nuevos módulos: guardan por RPC (token personalizado); sin tablas de comisiones expuestas directamente. */

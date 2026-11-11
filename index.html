@@ -5693,16 +5693,20 @@ async function cobrar(enviarWsp=false){
   document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
   document.getElementById('loading-screen').style.display='none';
   showNotif('✅ Venta #'+venta.id+' registrada');
-  // Limpiar caché de días para que el mapa refleje la venta nueva
-  // Procesar envases automáticamente
-  const llevanEnv=usuarioPuedeGestionarEnvases()?(parseInt(document.getElementById('v-env-llevan')?.value)||0):0;
-  const devuelvenEnv=usuarioPuedeGestionarEnvases()?(parseInt(document.getElementById('v-env-devuelven')?.value)||0):0;
-  if(cid&&(llevanEnv>0||devuelvenEnv>0)){
-    await procesarEnvasesVenta(cid,llevanEnv,devuelvenEnv);
-    document.getElementById('v-env-llevan').value=0;
-    document.getElementById('v-env-devuelven').value=0;
-    document.getElementById('v-env-resumen').textContent='';
-    actualizarVisibilidadEnvasesVenta();
+  // Asociar los envases a esta factura; no registrar préstamo por el total entregado.
+  const llevanEnv=usuarioPuedeGestionarEnvases()?Number(document.getElementById('v-env-llevan')?.value||0):0;
+  const devuelvenEnv=usuarioPuedeGestionarEnvases()?Number(document.getElementById('v-env-devuelven')?.value||0):0;
+  if(cid&&(llevanEnv>0||devuelvenEnv>0)&&estado==='Entregado'){
+    try{
+      await procesarEnvasesVenta(cid,llevanEnv,devuelvenEnv,venta.id);
+      document.getElementById('v-env-llevan').value=0;
+      document.getElementById('v-env-devuelven').value=0;
+      document.getElementById('v-env-resumen').textContent='';
+      actualizarVisibilidadEnvasesVenta();
+    }catch(e){
+      console.error('AQUABRI venta guardada, préstamo de envases pendiente',e);
+      alert('⚠️ La venta #'+venta.id+' SÍ quedó registrada, pero NO se guardó su movimiento de envases. No vuelvas a facturar. Revisa el control de envases y el error: '+(e.message||'sin detalle'));
+    }
   }
   Object.keys(_diasCache).forEach(k=>delete _diasCache[k]);
   renderHistorial();
@@ -6967,60 +6971,38 @@ async function saveEditVenta(){
   showNotif('✅ Venta actualizada','#2e7d32');
 }
 async function delVenta(id){
-  const esVendedorRol=['vendedor','vendedor_editor'].includes(CU.rol);
-  const esJefeRol=SOLO_JEFE.includes(CU.rol);
+  const esVendedorRol=['vendedor','vendedor_editor'].includes(CU?.rol);
+  const esJefeRol=SOLO_JEFE.includes(CU?.rol);
   if(!esJefeRol&&!esVendedorRol){showNotif('No tienes permiso para cancelar','#c62828');return;}
+  const venta=D.ventas?.find(v=>Number(v.id)===Number(id));
   if(esVendedorRol&&!esJefeRol){
-    const venta=D.ventas?.find(v=>v.id===id);
-    if(!venta||venta.fecha!==hoy()){showNotif('Solo puedes cancelar ventas del día de hoy','#e65100');return;}
-    if(venta.usuario_id&&venta.usuario_id!==CU.id){showNotif('Solo puedes cancelar tus propias ventas','#e65100');return;}
+    if(!venta||venta.fecha!==hoy()||Number(venta.usuario_id)!==Number(CU?.id)){
+      showNotif('Solo puedes cancelar tus propias ventas de hoy','#e65100');return;
+    }
   }
-  if(!confirm('¿Cancelar venta? El stock será devuelto y quedará registro de la cancelación.'))return;
-  const {data:aqPuedeBorrar,error:aqErrBorrar}=await sb.rpc('aq_venta_puede_modificar',{p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_venta:Number(id)});
-  if(aqErrBorrar||aqPuedeBorrar!==true){showNotif('No se puede cancelar: hay incentivos ya liquidados o falta instalar la actualización SQL.','#c62828');return;}
+  if(!confirm('¿Anular esta factura? Se devolverá el stock y se revertirá el préstamo de envases asociado a ESTA venta.'))return;
   showLoad(true);
-  // Devolver stock
-  const{data:items}=await sb.from('venta_items').select('*').eq('venta_id',id);
-  if(items?.length){
-    for(const item of items){
-      if(!item.producto_id)continue;
-      const prod=D.prods.find(p=>p.id===item.producto_id);
-      if(!prod)continue;
-      const bonifMismo=(!item.bonif_prod_id&&item.bonif_cant>0)?parseInt(item.bonif_cant):0;
-      const totalDevolver=parseFloat(item.cant||1)+bonifMismo;
-      const nuevoStock=parseFloat(prod.stock||0)+totalDevolver;
-      await sb.from('productos').update({stock:nuevoStock}).eq('id',item.producto_id);
-      prod.stock=nuevoStock;
-      if(item.bonif_prod_id&&item.bonif_cant>0){
-        const bp=D.prods.find(p=>p.id===item.bonif_prod_id);
-        if(bp){const ns=parseFloat(bp.stock||0)+parseInt(item.bonif_cant);await sb.from('productos').update({stock:ns}).eq('id',item.bonif_prod_id);bp.stock=ns;}
-      }
-    }
-  }
-  // Restar puntos acumulados
-  const{data:ptHist}=await sb.from('puntos_historial').select('*').eq('venta_id',id);
-  if(ptHist?.length){
-    for(const ph of ptHist){
-      if(ph.tipo==='acumulacion'&&ph.cliente_id&&parseFloat(ph.puntos||0)>0){
-        const ptsCli=D.puntosClientes.find(p=>p.cliente_id===ph.cliente_id);
-        if(ptsCli){const nuevoTotal=Math.max(0,parseFloat(ptsCli.puntos_totales||0)-parseFloat(ph.puntos));await sb.from('puntos_clientes').update({puntos_totales:nuevoTotal}).eq('cliente_id',ph.cliente_id);}
-      }
-    }
-    await sb.from('puntos_historial').delete().eq('venta_id',id);
-  }
-  // Eliminar crédito y caja asociados
-  await sb.from('creditos').delete().eq('concepto','Venta #'+id);
-  await sb.from('creditos').delete().eq('venta_id',id);
-  await sb.from('caja').delete().eq('tipo','cobro_credito').ilike('notas','%'+id+'%');
-  await sb.from('caja').delete().eq('venta_id',id);
-  // Marcar venta como Cancelada (no se elimina)
-  await sb.from('ventas').update({estado:'Cancelada',cancelado_por:CU?.nombre||'—',fecha_cancelacion:hoy()}).eq('id',id);
-  await loadLight();
-  showLoad(false);
-  renderHistorial();
-  clearCart();fillVSelects();
-  posInit();
-  showNotif('Venta cancelada — stock devuelto ✅','#c62828');
+  try{
+    // Una sola transacción en Supabase: stock, puntos, créditos, caja, FIFO e inventario de envases.
+    // El servidor ignora una segunda cancelación y no restaura stock dos veces.
+    const {data,error}=await sb.rpc('aq_cancelar_venta_segura',{
+      p_token:localStorage.getItem('aqb_token')||'',
+      p_uid:Number(CU?.id)||0,
+      p_venta:Number(id)
+    });
+    if(error)throw error;
+    if(data?.ok!==true)throw new Error('Supabase no confirmó la anulación');
+    await loadLight();
+    const {data:eb,error:ebErr}=await sb.from('envases_bodega').select('cantidad').eq('id',1).maybeSingle();
+    if(!ebErr&&eb)D.envBod=Number(eb.cantidad);
+    renderHistorial();
+    if(typeof renderEnvPrestados==='function')renderEnvPrestados();
+    clearCart();fillVSelects();posInit();
+    showNotif(data.repetida?'Esta factura ya estaba anulada':'✅ Factura anulada · stock y préstamo neto revertidos','#2e7d32');
+  }catch(e){
+    console.error('AQUABRI error anulando factura',e);
+    showNotif('No se anuló la factura: '+(e.message||'revisa permisos y movimientos posteriores'),'#c62828');
+  }finally{showLoad(false);}
 }
 
 function toggleExhibDesc(){document.getElementById('cexhib-desc-box').style.display=document.getElementById('cexhib').checked?'':'none';}
@@ -11392,7 +11374,7 @@ function renderEnvases(){
   const tipoActual=tipos[tabActiva];
   if(!tipoActual){tbody.innerHTML='';return;}
   const normalizar=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
-  const movimientos=(D.envases||[]).filter(e=>normalizar(e.tipo)===normalizar(tipoActual));
+  const movimientos=(D.envases||[]).filter(e=>e.anulado!==true&&normalizar(e.tipo)===normalizar(tipoActual));
   const tipoColor={'Préstamo':'bn','Devolución':'bv','Venta':'bmo','Entrada':'baz'};
   tbody.innerHTML=movimientos.length?movimientos.map(e=>`
     <tr>
@@ -17267,31 +17249,24 @@ function calcEnvasesDiffPos(){
   else{el.style.color='#2e7d32';el.textContent='✅ Quedan igual';}
 }
 
-async function procesarEnvasesVenta(cid, llevan, devuelven){
+async function procesarEnvasesVenta(cid, llevan, devuelven, ventaId){
   if(!cid||(llevan===0&&devuelven===0))return;
-  const cli=D.clientes.find(c=>c.id===parseInt(cid));
-  if(!cli)return;
-  const prestamosActuales=parseInt(cli.envases||0);
-  const nuevoPrestamo=Math.max(0,prestamosActuales+llevan-devuelven);
-  const promesas=[];
-  // Actualizar contador de envases del cliente
-  promesas.push(sb.from('clientes').update({envases:nuevoPrestamo}).eq('id',parseInt(cid)));
-  // Actualizar bodega
-  const nuevaBodega=Math.max(0,D.envBod-llevan+devuelven);
-  promesas.push(sb.from('envases_bodega').update({cantidad:nuevaBodega}).eq('id',1));
-  // Registrar movimientos
-  if(llevan>0){
-    promesas.push(sb.from('envases').insert({fecha:hoy(),cliente_id:parseInt(cid),cant:llevan,tipo:'Préstamo',notas:'Auto desde venta',precio:0}));
+  if(!ventaId)throw new Error('Falta número de factura para vincular el movimiento de envases');
+  if(!Number.isSafeInteger(llevan)||!Number.isSafeInteger(devuelven)||llevan<0||devuelven<0){
+    throw new Error('Cantidades de envases inválidas');
   }
-  if(devuelven>0){
-    promesas.push(sb.from('envases').insert({fecha:hoy(),cliente_id:parseInt(cid),cant:devuelven,tipo:'Devolución',notas:'Auto desde venta',precio:0}));
-  }
-  const resultados=await Promise.all(promesas);
-  const fallo=resultados.find(r=>r.error);
-  if(fallo){showNotif('⚠️ Error al guardar envases: '+fallo.error.message,'#c62828');throw fallo.error;}
-  // Actualizar local
-  cli.envases=nuevoPrestamo;
-  D.envBod=nuevaBodega;
+  // El servidor guarda solo el préstamo neto, enlazado a la factura, en una operación atómica.
+  const {data,error}=await sb.rpc('aq_registrar_envases_venta',{
+    p_token:localStorage.getItem('aqb_token')||'',
+    p_uid:Number(CU?.id)||0,
+    p_venta_id:Number(ventaId),p_entregados:llevan,p_devueltos:devuelven
+  });
+  if(error||data?.ok!==true)throw error||new Error('No se registró el préstamo de envases');
+  const cli=D.clientes.find(c=>Number(c.id)===Number(cid));
+  if(cli&&data.saldo_final!==undefined)cli.envases=Number(data.saldo_final);
+  if(!data.repetida)D.envBod=(Number(D.envBod)||0)-Number(data.neto||0);
+  if(typeof updateEnvStats==='function'&&document.getElementById('ev-bod'))updateEnvStats();
+  return data;
 }
 
 // ══════════════════════════════════════════

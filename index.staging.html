@@ -20937,8 +20937,15 @@ async function aqPagarIncentivo(empleadoId){
  if(CU?.rol!=='jefe'){
   showNotif('Solo el jefe puede liquidar incentivos.','#e65100');return;
  }
- const desde=document.getElementById('aq-inc-desde')?.value||'2000-01-01';
- const hasta=document.getElementById('aq-inc-hasta')?.value||hoy();
+ const desde=document.getElementById('aq-inc-desde')?.value||'';
+ const hasta=document.getElementById('aq-inc-hasta')?.value||'';
+ if(!desde||!hasta){
+  showNotif('Selecciona las fechas de inicio y fin antes de liquidar.','#e65100');return;
+ }
+ const dias=(Date.parse(hasta+'T00:00:00Z')-Date.parse(desde+'T00:00:00Z'))/86400000;
+ if(!Number.isFinite(dias)||dias<0||dias>365){
+  showNotif('El período a liquidar debe estar entre 1 y 366 días.','#e65100');return;
+ }
  const origen=document.getElementById('aq-inc-origen')?.value||'externo';
  const emp=Number(empleadoId);
  if(!Number.isSafeInteger(emp)||emp<=0||!['externo','caja'].includes(origen)){

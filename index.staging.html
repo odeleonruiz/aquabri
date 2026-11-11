@@ -3338,7 +3338,7 @@ async function loadAll(){
   // Cargar todo en paralelo — simple y directo
   const[r_cfg,r_usr,r_cats,r_prods,r_ins,r_clis,r_ventas,r_creds,r_emps,r_gas,r_veh,r_metas,r_pts,r_ptsp,r_liq,r_rutcli,r_cred2,r_visitas,r_comisiones,r_insumos,r_pagos,r_vales,r_deudasProv,r_facturas,r_actCat,r_actPres,r_actItems,r_aus,r_grupos,r_envases,r_envBod]=await Promise.all([
     sb.from('config').select('*').single(),
-    sb.from('usuarios').select('id,nombre,usuario,rol,foto,permisos_custom,empleado_id,auth_uid'),
+    sb.rpc('aq_usuarios_resumen_auth_v1'),
     sb.from('categorias').select('*'),
     sb.from('productos').select('*'),
     sb.from('producto_insumos').select('*'),

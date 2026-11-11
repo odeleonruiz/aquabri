@@ -2272,10 +2272,10 @@ document.addEventListener('DOMContentLoaded',()=>{
       <div id="np-prod-info" style="display:none;margin-top:6px;padding:6px 10px;border-radius:7px;font-size:11px"></div>
       <!-- Opción de bonificación -->
       <div id="np-bonif-box" style="display:none;margin-top:6px;background:#fff3e0;border-radius:8px;padding:8px 10px;border:1px solid #ffcc80">
-        <div style="font-size:11px;font-weight:700;color:#e65100;margin-bottom:6px">🎁 Bonificación disponible</div>
+        <label style="display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;color:#e65100;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="np-bonif-manual" onchange="npToggleBonifManual()" style="accent-color:#e65100"> Agregar bonificación MANUAL</label>
         <div style="display:flex;align-items:center;gap:8px">
           <label style="font-size:11px">Unidades a bonificar:</label>
-          <input type="number" id="np-bonif-cant" value="0" min="0" style="width:60px;font-size:12px">
+          <input type="number" id="np-bonif-cant" value="0" min="0" disabled style="width:60px;font-size:12px">
           <span id="np-bonif-desc" style="font-size:11px;color:#e65100"></span>
         </div>
       </div>
@@ -5222,7 +5222,7 @@ function addCart(){
   const precio=parseFloat(document.getElementById('v-precio').value)||0;
   const desc=parseFloat(document.getElementById('v-desc').value)||0;
   const prod=D.prods.find(p=>p.id===pid);if(!prod){showNotif('Selecciona un producto','#c62828');return;}
-  const aplBonif=document.getElementById('v-apl-bonif').checked&&prod.bonif_desc;
+  const aplBonif=false; // La venta rápida no incluye bonificaciones: aprobación manual en el modal.
   let bonifProdId=null,bonifCant=0,bonifNombre='';
   if(aplBonif){bonifProdId=prod.bonif_prod?parseInt(prod.bonif_prod):null;bonifCant=parseInt(prod.bonif_cant)||1;bonifNombre=prod.bonif_desc;}
   const{total:costoUnit}=calcCostoProducto(prod);
@@ -15454,13 +15454,14 @@ function abrirModalConfigProd(prod, destino='venta', forzarAjuste=false){
       </div>`:''}
       ${tieneBonus?`<div class="aq-mcp-bonif" style="background:var(--naranjac);border-radius:10px;padding:12px 14px;margin-bottom:8px;border:1.5px solid #ffcc80">
         <div style="font-size:12px;font-weight:700;color:var(--naranja);margin-bottom:8px">🎁 Bonificación: ${aqEsc(prod.bonif_desc)}</div>
-        <label style="font-size:11px;color:var(--naranja);font-weight:600">Unidades a bonificar (gratis)</label>
+        <label style="font-size:12px;color:var(--naranja);font-weight:700;display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="mcp-bonif-manual" onchange="mcpToggleBonifManual()" style="width:17px;height:17px;accent-color:#e65100"> Agregar bonificación MANUAL (opcional)</label>
+        <label style="font-size:11px;color:var(--naranja);font-weight:600">Unidades gratis (solo si tú decides regalarlas)</label>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
-          <button type="button" onclick="mcpCambiarBonif(-1)" class="aq-mcp-step">−</button>
-          <input type="number" id="mcp-bonif-cant" value="0" min="0" style="font-size:18px;font-weight:700;text-align:center;flex:1;border:1.5px solid #ffcc80;border-radius:8px;padding:6px" oninput="mcpActualizarResumen()">
-          <button type="button" onclick="mcpCambiarBonif(1)" class="aq-mcp-step aq-mcp-step-plus">+</button>
+          <button type="button" id="mcp-bonif-menos" onclick="mcpCambiarBonif(-1)" class="aq-mcp-step" disabled>−</button>
+          <input type="number" id="mcp-bonif-cant" value="0" min="0" disabled style="font-size:18px;font-weight:700;text-align:center;flex:1;border:1.5px solid #ffcc80;border-radius:8px;padding:6px" oninput="mcpActualizarResumen()">
+          <button type="button" id="mcp-bonif-mas" onclick="mcpCambiarBonif(1)" class="aq-mcp-step aq-mcp-step-plus" disabled>+</button>
         </div>
-        ${Number(prod.bonif_cant)>0?`<div class="aq-mcp-regla">Configurado en Inventario: ${Number(prod.bonif_cant)} unidad(es) como referencia.</div>`:''}
+        ${Number(prod.bonif_cant)>0?`<div class="aq-mcp-regla">Referencia de Inventario: ${Number(prod.bonif_cant)} unidad(es). No se regalan automáticamente.</div>`:''}
         <div id="mcp-bonif-preview" style="font-size:12px;font-weight:700;color:var(--naranja);margin-top:8px;text-align:center;background:#fff;border-radius:8px;padding:6px"></div>
       </div>`:''}
       <div id="mcp-resumen-final" style="background:var(--azulc);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:700;color:var(--azul);text-align:center;margin-bottom:10px;display:none"></div>
@@ -15497,6 +15498,7 @@ function mcpCambiarCant(delta){
   inp.value=Math.max(1,(parseInt(inp.value)||1)+delta);mcpActualizarResumen();
 }
 function mcpCambiarBonif(delta){
+  if(document.getElementById('mcp-bonif-manual')?.checked!==true)return;
   const inp=document.getElementById('mcp-bonif-cant');if(!inp)return;
   inp.value=Math.max(0,(parseInt(inp.value)||0)+delta);mcpActualizarResumen();
 }
@@ -15504,7 +15506,7 @@ function mcpActualizarBonif(){mcpActualizarResumen();}
 function mcpActualizarResumen(){
   const prod=window._mcpProd;if(!prod)return;
   const cant=Number(document.getElementById('mcp-cant')?.value)||0;
-  const bonus=Number(document.getElementById('mcp-bonif-cant')?.value)||0;
+  const bonus=document.getElementById('mcp-bonif-manual')?.checked===true?(Number(document.getElementById('mcp-bonif-cant')?.value)||0):0;
   const preview=document.getElementById('mcp-bonif-preview');
   if(preview)preview.textContent=bonus>0?'🎁 '+bonus+' unidad(es) gratis':'Sin bonificación aplicada';
   const promo=aqCalcularOferta(prod,cant,window._mcpOfertaActiva);
@@ -15520,7 +15522,14 @@ function mcpActualizarResumen(){
   }
   const btn=document.getElementById('mcp-btn-agregar');if(btn)btn.textContent=bonus>0?'✅ Agregar '+cant+' + '+bonus+' al carrito':'✅ Agregar al carrito';
 }
-function toggleMcpBonif(){window._mcpBonifActiva=!window._mcpBonifActiva;}
+function mcpToggleBonifManual(){
+  const activo=document.getElementById('mcp-bonif-manual')?.checked===true;
+  ['mcp-bonif-menos','mcp-bonif-cant','mcp-bonif-mas'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=!activo;});
+  const inp=document.getElementById('mcp-bonif-cant');if(inp&&!activo)inp.value='0';
+  window._mcpBonifActiva=activo;
+  mcpActualizarResumen();
+}
+function toggleMcpBonif(){mcpToggleBonifManual();}
 function confirmarModalConfigProd(pid){
   const prod=window._mcpProd||(D.prods||[]).find(p=>String(p.id)===String(pid));if(!prod)return;
   const cant=Number(document.getElementById('mcp-cant')?.value);
@@ -15531,7 +15540,7 @@ function confirmarModalConfigProd(pid){
   const calculo=aqCalcularOferta(prod,cant,aplicaOferta);
   const precioEfectivo=aplicaOferta?precioNormal:Number(document.getElementById('mcp-precio')?.value);
   if(!Number.isFinite(precioEfectivo)||precioEfectivo<0||precioEfectivo>100000){showNotif('Precio inválido','#c62828');return;}
-  const bonifCant=Number(document.getElementById('mcp-bonif-cant')?.value||0);
+  const bonifCant=document.getElementById('mcp-bonif-manual')?.checked===true?Number(document.getElementById('mcp-bonif-cant')?.value||0):0;
   if(!Number.isSafeInteger(bonifCant)||bonifCant<0||bonifCant>100000){showNotif('Bonificación inválida','#c62828');return;}
   if(bonifCant>0&&!prod.bonif_desc){showNotif('Este producto no tiene bonificación configurada','#c62828');return;}
   const destino=window._mcpDestino==='pos'?'pos':'venta';
@@ -16898,7 +16907,11 @@ function npOnProdChange(){
     window._npPrecioSeleccionado=prod.precio;
     window._npEsOferta=false;
   }
-  // Bonificación
+  // Cada cambio de producto borra bonificaciones antiguas aunque estuvieran ocultas.
+  const bonifInput=document.getElementById('np-bonif-cant'),bonifManual=document.getElementById('np-bonif-manual');
+  if(bonifInput){bonifInput.value='0';bonifInput.disabled=true;}
+  if(bonifManual)bonifManual.checked=false;
+  // El sistema solo muestra la opción; no entrega unidades gratis automáticamente.
   if(prod.bonif_desc&&prod.bonif_cant>0){
     bonifBox.style.display='';
     bonifDesc.textContent=prod.bonif_desc;
@@ -16929,16 +16942,13 @@ function npToggleOferta(precioNormal, precioOferta){
   }
 }
 
+function npToggleBonifManual(){
+  const activo=document.getElementById('np-bonif-manual')?.checked===true;
+  const inp=document.getElementById('np-bonif-cant');
+  if(inp){inp.disabled=!activo;if(!activo)inp.value='0';}
+}
 function npOnCantChange(){
-  const pid=parseInt(document.getElementById('np-prod')?.value);
-  const prod=D.prods.find(p=>p.id===pid);
-  const cant=parseInt(document.getElementById('np-cant')?.value)||1;
-  if(!prod)return;
-  // Solo mostrar la caja de bonif si aplica, pero dejar en 0
-  if(prod.bonif_cant>0&&cant>=prod.bonif_cant){
-    const bonifBox=document.getElementById('np-bonif-box');
-    if(bonifBox)bonifBox.style.display='';
-  }
+  // Comprar 5, 10 o más unidades NO activa una bonificación.
 }
 
 function buscarClienteNuevoPedido(q){
@@ -16972,7 +16982,7 @@ function npAgregarProd(){
   const info=aqOfertaInfo(prod);
   if(esOferta&&info?.tipo==='paquete'&&calc.paquetes<1){showNotif('Oferta disponible desde '+info.cant+' unidades','#c62828');return;}
   // Ofertas por paquete se reparten en céntimos exactos también en pedidos programados.
-  const bonifCant=parseInt(document.getElementById('np-bonif-cant')?.value)||0;
+  const bonifCant=document.getElementById('np-bonif-manual')?.checked===true?(parseInt(document.getElementById('np-bonif-cant')?.value)||0):0;
   const bonifNombre=bonifCant>0?prod.bonif_desc||'':'' ;
   let lineas=[];
   if(esOferta&&info?.tipo==='paquete'){
@@ -16995,6 +17005,8 @@ function npAgregarProd(){
   // Reset
   document.getElementById('np-cant').value=1;
   document.getElementById('np-bonif-cant').value=0;
+  const cb=document.getElementById('np-bonif-manual');if(cb)cb.checked=false;
+  npToggleBonifManual();
   window._npPrecioSeleccionado=null;
   window._npEsOferta=false;
   npOnProdChange();

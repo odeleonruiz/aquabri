@@ -12317,9 +12317,7 @@ async function saveGasto(){
   const btn=el('g-guardar');if(btn){btn.disabled=true;btn.textContent='⏳ Guardando…';}
   let confirmado=null;
   try{
-    const resp=await sb.rpc('aq_registrar_gasto_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
+    const resp=await sb.rpc('aq_registrar_gasto_auth_v2',{
       p_nonce:window._aqGastoPendiente.nonce,
       p_gasto:datos
     });
@@ -12408,9 +12406,7 @@ function syncFiltroGastos(val,tipo){
 async function delGasto(id){
   if(!confirm('¿Eliminar este gasto? Si tiene una salida de Caja vinculada y todavía no se cerró, se eliminarán ambos registros juntos.'))return;
   try{
-    const resp=await sb.rpc('aq_eliminar_gasto_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
+    const resp=await sb.rpc('aq_eliminar_gasto_auth_v2',{
       p_gasto_id:Number(id)
     });
     if(resp.error)throw resp.error;

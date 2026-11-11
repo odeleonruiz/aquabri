@@ -6701,11 +6701,18 @@ async function agregarPuntoMapa(clienteId){
   navigator.geolocation.getCurrentPosition(async pos=>{
     const lat=pos.coords.latitude;
     const lng=pos.coords.longitude;
-    await sb.from('clientes').update({lat,lng}).eq('id',clienteId);
-    const c=D.clientes.find(c=>c.id===clienteId);
-    if(c){c.lat=lat;c.lng=lng;}
-    renderHistorial();
-    showNotif('📍 '+cli.nombre+' agregado al mapa ✅','#2e7d32');
+    try{
+      const {data,error}=await sb.from('clientes').update({lat,lng}).eq('id',clienteId).select('id,lat,lng').maybeSingle();
+      if(error)throw error;
+      if(!data)throw new Error('No se pudo actualizar el cliente. Revisa permisos de edición de clientes.');
+      const c=D.clientes.find(c=>c.id===clienteId);
+      if(c){c.lat=Number(data.lat);c.lng=Number(data.lng);}
+      renderHistorial();
+      showNotif('📍 '+cli.nombre+' agregado al mapa ✅','#2e7d32');
+    }catch(e){
+      console.error('AQUABRI error al guardar ubicación de cliente desde Ventas',e);
+      showNotif('No se guardó la ubicación: '+(e.message||'Error de permisos o conexión'),'#c62828');
+    }
   },err=>{
     showNotif('No se pudo obtener el GPS. Activa la ubicación.','#c62828');
   },{enableHighAccuracy:true,timeout:10000});
@@ -7869,10 +7876,17 @@ async function guardarNuevoCliMapa(){
 
 async function guardarPosCliente(){
   const cid=parseInt(document.getElementById('mk-cli').value);if(!cid)return;
-  await sb.from('clientes').update({lat:parseFloat(mkLat),lng:parseFloat(mkLng)}).eq('id',cid);
-  closeModal('modal-marcar-cli');cancelarModoMarcar();
-  await loadAll();const c=D.clientes.find(x=>x.id===cid);
-  if(c&&gmMap)addGmMarker(c);showNotif('✅ Posición guardada');
+  try{
+    const {data,error}=await sb.from('clientes').update({lat:parseFloat(mkLat),lng:parseFloat(mkLng)}).eq('id',cid).select('id').maybeSingle();
+    if(error)throw error;
+    if(!data)throw new Error('Sin permiso para modificar la ubicación de este cliente');
+    closeModal('modal-marcar-cli');cancelarModoMarcar();
+    await loadAll();const c=D.clientes.find(x=>x.id===cid);
+    if(c&&gmMap)addGmMarker(c);showNotif('✅ Posición guardada');
+  }catch(e){
+    console.error('AQUABRI error al guardar posición desde mapa',e);
+    showNotif('No se guardó la posición: '+(e.message||'Error de permisos o conexión'),'#c62828');
+  }
 }
 
 function navegarA(lat,lng,nombre){

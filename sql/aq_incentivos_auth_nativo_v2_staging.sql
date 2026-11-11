@@ -11,7 +11,7 @@ BEGIN
  IF v_auth IS NULL OR coalesce((auth.jwt()->>'is_anonymous')::boolean,false) THEN
    RAISE EXCEPTION 'Debes iniciar sesión con Supabase Auth' USING ERRCODE='28000';
  END IF;
- SELECT u.id,u.rol,u.empleado_id INTO usuario_id,rol_usuario,empleado_id
+ SELECT u.id,u.rol,coalesce(u.empleado_id,(SELECT e.id FROM public.empleados e WHERE e.usuario_id=u.id ORDER BY e.id LIMIT 1)) INTO usuario_id,rol_usuario,empleado_id
  FROM public.usuarios u JOIN auth.users a ON a.id=u.auth_uid
  WHERE u.auth_uid=v_auth
    AND u.rol IN ('jefe','vendedor','vendedor_editor','inventario');
@@ -206,7 +206,7 @@ BEGIN
  IF p_desde IS NULL OR p_hasta IS NULL OR p_desde>p_hasta OR p_hasta>p_desde+1826 THEN
    RAISE EXCEPTION 'Rango inválido' USING ERRCODE='22023';
  END IF;
- SELECT empleado_id INTO v_emp FROM public.usuarios WHERE id=ctx.usuario_id;
+ v_emp:=ctx.empleado_id;
  RETURN coalesce((
  SELECT jsonb_agg(to_jsonb(m) ORDER BY m.fecha DESC,m.id DESC)
  FROM public.aq_incentivos_devengados m

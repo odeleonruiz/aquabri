@@ -19692,32 +19692,10 @@ function aqMostrarFotoProducto(id){aqFotoQuitar=false;const f=document.getElemen
 function aqQuitarProdFoto(){aqFotoQuitar=true;document.getElementById('aq-prod-file').value='';document.getElementById('aq-prod-preview').style.display='none';document.getElementById('aq-prod-foto-status').textContent='La imagen se quitará al guardar.';}
 function aqLimpiarFotoProducto(){aqFotoQuitar=false;const f=document.getElementById('aq-prod-file');if(f)f.value='';const img=document.getElementById('aq-prod-preview');if(img){img.removeAttribute('src');img.style.display='none';}const st=document.getElementById('aq-prod-foto-status');if(st)st.textContent='';}
 async function aqGuardarFotoProducto(id){
-  // La Edge Function anterior exige token personalizado; no usarla con Supabase Auth.
-  const archivo=document.getElementById('aq-prod-file')?.files?.[0];
-  if(!archivo&&!aqFotoQuitar)return true;
-  showNotif('La carga de fotos requiere autorización Auth en Storage. No se modificó la imagen.','#e65100');
+  // Bloqueada hasta implantar carga segura con Supabase Auth y autorización de Storage.
+  if(!document.getElementById('aq-prod-file')?.files?.[0]&&!aqFotoQuitar)return true;
+  showNotif('Para modificar fotos falta migrar el permiso del almacenamiento a Supabase Auth. Ninguna imagen fue modificada.','#e65100');
   return false;
-
- const file=document.getElementById('aq-prod-file')?.files?.[0];
- const status=document.getElementById('aq-prod-foto-status');
- if(!file&&!aqFotoQuitar)return true;
- try{
-  if(!CU||!['jefe','inventario'].includes(CU.rol))throw Error('No tienes permiso para modificar imágenes');
-  const payload={token:localStorage.getItem('aqb_token'),usuario_id:Number(localStorage.getItem('aqb_uid')),producto_id:Number(id),accion:aqFotoQuitar?'eliminar':'subir'};
-  if(!aqFotoQuitar){
-   if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Usa JPG, PNG o WebP');
-   if(file.size>8*1024*1024)throw Error('Imagen mayor a 8 MB');
-   const bitmap=await createImageBitmap(file);const scale=Math.min(1,720/Math.max(bitmap.width,bitmap.height));
-   const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
-   const blob=await new Promise(res=>canvas.toBlob(res,'image/webp',.75));if(!blob)throw Error('No se pudo convertir la imagen');
-   if(blob.size>1500000)throw Error('La imagen comprimida supera 1.5 MB');
-   payload.imagen=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob);});
-  }
-  const r=await fetch(SURL+'/functions/v1/subir-imagen-producto',{method:'POST',headers:{'Content-Type':'application/json','apikey':SKEY,'Authorization':'Bearer '+SKEY},body:JSON.stringify(payload)});
-  const data=await r.json().catch(()=>({}));if(!r.ok||!data.ok)throw Error(data.error||'Error '+r.status);
-  aqFotoVersiones[id]=Date.now();const g=document.getElementById('pos-grid');if(g)g._cacheKey2='';if(typeof posRenderGrid==='function')posRenderGrid();
-  if(status)status.textContent='Imagen guardada correctamente';return true;
- }catch(e){alert('El producto se guardó, pero la imagen no: '+(e.message||e)+'\nVerifica que la Edge Function esté desplegada.');if(status)status.textContent='Error al guardar imagen';return false;}
 }
 
 function aqMoverFechaVenta(){const f=document.getElementById('pos-fecha-venta'),dest=document.getElementById('aq-fecha-top'),orig=document.getElementById('aq-fecha-original');if(!f||!dest||!orig)return;if(f.parentElement!==dest)dest.appendChild(f);}

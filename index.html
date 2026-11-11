@@ -6971,7 +6971,7 @@ async function saveEditVenta(){
     nuevoTotal=parseFloat(document.getElementById('ev-total-simple').value)||0;
     nuevoPagado=parseFloat(document.getElementById('ev-pagado2-simple').value)||0;
   }
-  const {data:aqPuedeEditar,error:aqErrorEditar}=await sb.rpc('aq_venta_puede_modificar',{p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_venta:Number(id)});
+  const {data:aqPuedeEditar,error:aqErrorEditar}=await sb.rpc('aq_venta_puede_modificar_auth_v1',{p_venta:Number(id)});
   if(aqErrorEditar||aqPuedeEditar!==true){showNotif('Esta venta tiene incentivos liquidados o falta instalar el módulo SQL; no puede editarse de forma directa.','#c62828');return;}
   const estadoNuevo=document.getElementById('ev-estado').value;
   if(estadoNuevo==='Cancelada'||estadoNuevo==='Anulado'){
@@ -7020,7 +7020,7 @@ async function delVenta(id){
     if(venta.usuario_id&&venta.usuario_id!==CU.id){showNotif('Solo puedes cancelar tus propias ventas','#e65100');return;}
   }
   if(!confirm('¿Cancelar venta? El stock será devuelto y quedará registro de la cancelación.'))return;
-  const {data:aqPuedeBorrar,error:aqErrBorrar}=await sb.rpc('aq_venta_puede_modificar',{p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_venta:Number(id)});
+  const {data:aqPuedeBorrar,error:aqErrBorrar}=await sb.rpc('aq_venta_puede_modificar_auth_v1',{p_venta:Number(id)});
   if(aqErrBorrar||aqPuedeBorrar!==true){showNotif('No se puede cancelar: hay incentivos ya liquidados o falta instalar la actualización SQL.','#c62828');return;}
   showLoad(true);
   // Devolver stock
@@ -12814,8 +12814,8 @@ async function generarReporte(){
   // Costo de ventas por LOTES: costo histórico capturado al vender; no vuelve a descontar la factura.
   let costosLote={};
   try{
-    const {data:aqCostos,error:aqCostErr}=await sb.rpc('aq_costos_lotes_reporte',{
-      p_token:localStorage.getItem('aqb_token'),p_uid:Number(CU?.id),
+    const {data:aqCostos,error:aqCostErr}=await sb.rpc('aq_costos_lotes_auth_v1',{
+      
       p_desde:desde||'2000-01-01',p_hasta:hasta||hoy()
     });
     if(aqCostErr)throw aqCostErr;
@@ -12838,8 +12838,8 @@ async function generarReporte(){
   const gananciaBruta=tv-costoTotal;
   let devengadosEspeciales=0;
   try{
-    const {data,error}=await sb.rpc('aq_total_incentivos_reporte',{
-      p_token:localStorage.getItem('aqb_token'),p_uid:Number(CU?.id),
+    const {data,error}=await sb.rpc('aq_total_incentivos_auth_v1',{
+      
       p_desde:desde||'2000-01-01',p_hasta:hasta||hoy()
     });
     if(error)throw error;
@@ -12861,8 +12861,8 @@ async function generarReporte(){
     let tipificados=new Map();
     if(ids.length){
       for(let i=0;i<ids.length;i+=500){
-        const{data:tipos,error:et}=await sb.rpc('aq_facturas_tipos_listar',{
-          p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_factura_ids:ids.slice(i,i+500)
+        const{data:tipos,error:et}=await sb.rpc('aq_facturas_tipos_auth_v1',{
+          p_factura_ids:ids.slice(i,i+500)
         });
         if(et)throw et;
         (tipos||[]).forEach(x=>tipificados.set(Number(x.factura_id),x.tipo));
@@ -17324,8 +17324,8 @@ let aqLiqExclusionOK=false;
 async function aqLiqPrepararExclusion(ventasEmp,fecha,productos){
   aqLiqExclusionOK=false;aqLiqExclusionMonto=0;
   try{
-    const {data,error}=await sb.rpc('aq_items_incentivados',{
-      p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,
+    const {data,error}=await sb.rpc('aq_items_incentivados_auth_v1',{
+      
       p_desde:fecha,p_hasta:hoy()
     });
     if(error)throw error;
@@ -21054,7 +21054,7 @@ async function aqVerLotes(){
   box.innerHTML='<p class="tmuted">Consultando lotes…</p>';
   if(CU?.rol!=='jefe'){box.innerHTML='<p class="tmuted">Solo el jefe puede consultar los costos por lote.</p>';return;}
   try{
-    const {data,error}=await sb.rpc('aq_lotes_resumen',{p_token:localStorage.getItem('aqb_token'),p_uid:Number(CU?.id)});
+    const {data,error}=await sb.rpc('aq_lotes_resumen_auth_v1');
     if(error)throw error;
     const filas=data||[];
     const prodId=Number(document.getElementById('aq-lotes-producto')?.value)||0;

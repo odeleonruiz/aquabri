@@ -31,6 +31,30 @@
 input[type="date"]{-webkit-appearance:none;appearance:none;min-height:36px;}
 .fge{flex-wrap:wrap;}
 .fge .fg{min-width:120px;}#main-wrap{margin-left:0!important;max-width:100vw;}main{max-width:100vw;}.g2,.g3{grid-template-columns:1fr!important;}.gf{grid-template-columns:1fr 1fr!important;}.kpi-grid{grid-template-columns:1fr 1fr!important;}table{font-size:10px;}th,td{padding:5px 6px!important;}main{padding:10px;}#map-clientes{height:350px;}#cred-tbody td,#cred-tbody th{white-space:nowrap;}.tbl-wrap{border-radius:8px;}.tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:4px;}.tab{text-align:center;padding:10px 6px;border-radius:8px;font-size:11px;white-space:normal;line-height:1.3;min-width:0;justify-content:center;display:flex;align-items:center;word-break:break-word;}}@keyframes chatPop{from{opacity:0;transform:scale(.9) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}@media print{body *{visibility:hidden;}#ticket-print-area,#ticket-print-area *{visibility:visible;}#ticket-print-area{position:fixed;left:0;top:0;width:100%;padding:20px;}}.gm-style .gm-style-iw-c{border-radius:10px!important;padding:0!important;}.gm-style .gm-style-iw-d{overflow:hidden!important;padding:12px!important;}.gm-style .gm-style-iw button.gm-ui-hover-effect{top:4px!important;right:4px!important;}  @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
+
+/* Tarjetas de envases pendientes: separadas, responsivas y compatibles con temas. */
+.aq-env-prest-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:12px;margin-top:12px}
+.aq-env-prest-card{display:flex;flex-direction:column;gap:12px;min-width:0;background:var(--card);border:1px solid var(--borde);border-radius:14px;padding:14px;box-shadow:var(--sombra)}
+.aq-env-prest-persona{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.aq-env-prest-avatar{display:flex;align-items:center;justify-content:center;flex:0 0 38px;height:38px;background:var(--azulc);border-radius:10px;font-size:18px}
+.aq-env-prest-info{flex:1;min-width:0}
+.aq-env-prest-nombre{font-size:14px;font-weight:750;line-height:1.35;color:var(--texto2);overflow-wrap:anywhere}
+.aq-env-prest-detalle{font-size:11px;line-height:1.5;color:var(--gris);margin-top:3px;overflow-wrap:anywhere}
+.aq-env-prest-saldo{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--naranjac);border-radius:9px;padding:11px;color:var(--naranja)}
+.aq-env-prest-saldo span{font-size:11px;font-weight:700}
+.aq-env-prest-saldo strong{font-size:25px;white-space:nowrap;line-height:1;font-variant-numeric:tabular-nums}
+.aq-env-prest-saldo small{font-size:10px}
+.aq-env-prest-action{width:100%;justify-content:center;margin-top:auto}
+.aq-env-prest-devolver{background:var(--verdec);border:1px solid var(--borde);border-radius:9px;padding:10px}
+.aq-env-prest-pregunta{font-size:12px;color:var(--verde);font-weight:700;margin-bottom:9px}
+.aq-env-prest-cantidad{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:10px}
+.aq-env-prest-cantidad button{border:none;border-radius:7px;background:var(--azul);color:#fff;width:36px;height:36px;font-size:20px;font-weight:700;cursor:pointer}
+.aq-env-prest-cantidad span{min-width:28px;text-align:center;font-size:21px;color:var(--texto2);font-weight:800}
+.aq-env-prest-cantidad small{color:var(--gris)}
+.aq-env-prest-confirm{display:flex;gap:7px}
+.aq-env-prest-confirm button{flex:1;border:0;border-radius:8px;padding:9px 7px;font-size:12px;font-weight:700;cursor:pointer}
+.aq-env-ok{background:#2e7d32;color:white}.aq-env-cancel{background:var(--grisc);color:var(--texto2)}
+@media(max-width:610px){.aq-env-prest-grid{grid-template-columns:minmax(0,1fr);gap:10px}}
 </style>
 
 <style id="aq-carrito-rapido-precios-2026">
@@ -11261,9 +11285,16 @@ async function prestarEnv(){
     if(e2||!bodegaGuardada)throw e2||new Error('No se pudo actualizar bodega; revisa el saldo del cliente antes de repetir');
     const {error:e3}=await sb.from('envases').insert({fecha,cliente_id:cid,cant,tipo:'Préstamo',notas:document.getElementById('envp-notas').value,precio:0});
     if(e3)throw e3;
+    // No dejar seleccionado al cliente anterior después de guardar.
+    const buscador=document.getElementById('envp-buscar');
+    const selector=document.getElementById('envp-cli');
+    if(buscador)buscador.value='';
+    if(selector)selector.value='';
     await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();
+    if(selector)selector.value='';
     document.getElementById('ev-cant').value='1';
     document.getElementById('envp-notas').value='';
+    document.getElementById('envp-fecha').value=hoy();
     showNotif('✅ Préstamo registrado');
   }catch(error){
     console.error('Error registrando préstamo de envases:',error);
@@ -11306,29 +11337,41 @@ async function venderEnvase(){
 
 function renderEnvPrestados(){
   const el=document.getElementById('env-prestados-lista');if(!el)return;
-  const prest=D.clientes.filter(c=>c.envases>0).sort((a,b)=>b.envases-a.envases);
-  if(!prest.length){el.innerHTML='<p class="tmuted">✅ Ningún cliente tiene envases prestados actualmente</p>';return;}
-  el.innerHTML=prest.map(c=>`
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee">
-      <div><b style="font-size:13px">${c.nombre}</b><br><span style="font-size:11px;color:var(--gris)">${c.telefono||'—'} · ${c.ruta||'—'}</span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-size:18px;font-weight:700;color:var(--naranja)">${c.envases}</span>
-        <span style="font-size:11px;color:var(--gris)">envases</span>
-        <button class="btn bs bsm" onclick="mostrarDevRapido(${c.id},${c.envases},this)">📥 Devolver</button>
+  const prest=(D.clientes||[]).filter(c=>Number(c.envases)>0)
+    .sort((a,b)=>Number(b.envases)-Number(a.envases)||String(a.nombre||'').localeCompare(String(b.nombre||''),'es'));
+  if(!prest.length){el.innerHTML='<p class="tmuted" style="padding:14px 4px">✅ Ningún cliente tiene envases pendientes de devolución.</p>';return;}
+  el.innerHTML='<div class="aq-env-prest-grid">'+prest.map(c=>{
+    const id=Number(c.id),pendientes=Number(c.envases)||0;
+    const detalle=[c.ruta,c.telefono].filter(Boolean).map(aqEsc).join(' · ')||'Cliente registrado';
+    return `<article class="aq-env-prest-card">
+      <div class="aq-env-prest-persona">
+        <div class="aq-env-prest-avatar" aria-hidden="true">👤</div>
+        <div class="aq-env-prest-info">
+          <div class="aq-env-prest-nombre">${aqEsc(c.nombre||'Cliente')}</div>
+          <div class="aq-env-prest-detalle">${detalle}</div>
+        </div>
       </div>
-      <div id="dev-rapido-${c.id}" style="display:none;margin-top:8px;background:#e8f5e9;border-radius:10px;padding:10px 12px">
-        <div style="font-size:12px;font-weight:600;color:#2e7d32;margin-bottom:8px">¿Cuántos envases devuelve?</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <button onclick="cambiarCantDev(${c.id},-1)" style="background:#e0e0e0;border:none;border-radius:6px;width:32px;height:32px;font-size:18px;font-weight:700;cursor:pointer">−</button>
-          <span id="cant-dev-${c.id}" style="font-size:18px;font-weight:900;min-width:30px;text-align:center">1</span>
-          <button onclick="cambiarCantDev(${c.id},1,${c.envases})" style="background:#1565c0;color:#fff;border:none;border-radius:6px;width:32px;height:32px;font-size:18px;font-weight:700;cursor:pointer">+</button>
-          <span style="font-size:11px;color:var(--gris)">/ ${c.envases}</span>
+      <div class="aq-env-prest-saldo">
+        <span>Envases pendientes</span>
+        <strong>${pendientes} <small>${pendientes===1?'envase':'envases'}</small></strong>
+      </div>
+      <button type="button" class="btn bs bsm aq-env-prest-action"
+       onclick="mostrarDevRapido(${id},${pendientes},this)">📥 Registrar devolución</button>
+      <div id="dev-rapido-${id}" class="aq-env-prest-devolver" style="display:none">
+        <div class="aq-env-prest-pregunta">¿Cuántos envases devuelve?</div>
+        <div class="aq-env-prest-cantidad">
+          <button type="button" onclick="cambiarCantDev(${id},-1)" aria-label="Restar">−</button>
+          <span id="cant-dev-${id}">1</span>
+          <button type="button" onclick="cambiarCantDev(${id},1,${pendientes})" aria-label="Sumar">+</button>
+          <small>de ${pendientes}</small>
         </div>
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <button onclick="confirmarDevRapido(${c.id},${c.envases})" style="flex:1;background:#2e7d32;color:#fff;border:none;border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer">✅ Confirmar</button>
-          <button onclick="document.getElementById('dev-rapido-${c.id}').style.display='none'" style="background:#e0e0e0;color:#546e7a;border:none;border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer">✕</button>
+        <div class="aq-env-prest-confirm">
+          <button type="button" class="aq-env-ok" onclick="confirmarDevRapido(${id},${pendientes})">Confirmar</button>
+          <button type="button" class="aq-env-cancel" onclick="document.getElementById('dev-rapido-${id}').style.display='none'">Cancelar</button>
         </div>
-    </div>`).join('');
+      </div>
+    </article>`;
+  }).join('')+'</div>';
 }
 
 function mostrarDevRapido(cid,maximo,btn){

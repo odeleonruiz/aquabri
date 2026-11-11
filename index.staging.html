@@ -20927,12 +20927,58 @@ async function aqReporteIncentivos(){
   d.movs.push(m);
  });
  const rows=Object.entries(agrupados).filter(([,d])=>d.cant>0);
- el.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Empleado</th><th>Garrafones</th><th>Clientes</th><th>Ganado</th><th>Pagado</th><th>Pendiente</th><th>Acción</th></tr></thead><tbody>'+rows.map(([id,d])=>`<tr><td>${aqIncHtml(aqIncNombreEmp(id))}</td><td>${d.cant}</td><td>${d.clientes.size}</td><td>${aqIncFmt(d.monto)}</td><td>${aqIncFmt(d.pagado)}</td><td><b>${aqIncFmt(d.pendiente)}</b></td><td>${d.pendiente>0?`<button class="btn bs bsm" onclick="aqPagarIncentivo(${id})">Liquidar</button>`:'✅'}</td></tr>`).join('')+'</tbody></table></div>'+
+ el.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Empleado</th><th>Garrafones</th><th>Clientes</th><th>Ganado</th><th>Pagado</th><th>Pendiente</th><th>Acción</th></tr></thead><tbody>'+rows.map(([id,d])=>`<tr><td>${aqIncHtml(aqIncNombreEmp(id))}</td><td>${d.cant}</td><td>${d.clientes.size}</td><td>${aqIncFmt(d.monto)}</td><td>${aqIncFmt(d.pagado)}</td><td><b>${aqIncFmt(d.pendiente)}</b></td><td>${d.pendiente>0?(CU?.rol==='jefe'?`<button class="btn bs bsm" onclick="aqPagarIncentivo(${id})">Liquidar</button>`:'Pendiente'):'✅'}</td></tr>`).join('')+'</tbody></table></div>'+
  rows.map(([id,d])=>`<details style="margin-top:7px"><summary>Detalle: ${aqIncHtml(aqIncNombreEmp(id))} (${d.movs.length} movimientos)</summary><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Precio venta</th><th>Garrafones</th><th>Incentivo</th><th>Estado</th></tr></thead><tbody>${d.movs.map(m=>`<tr><td>${m.fecha}</td><td>${aqIncHtml(aqIncNombreCli(m.cliente_id))}</td><td>${aqIncFmt(m.precio_venta)}</td><td>${m.cantidad}</td><td>${aqIncFmt(m.importe_empleado)}</td><td>${m.pago_id?'Pagado':'Pendiente'}</td></tr>`).join('')}</tbody></table></div></details>`).join('')+
  '<p class="tmuted">Las ventas de crédito aún sin cobrar y las anuladas no están disponibles para liquidación. Los importes se guardan al momento de vender, no cambian si termina el incentivo.</p>';
 }
+const aqIncLiquidacionesEnCurso=new Set();
+const aqIncLiquidacionesNonces=new Map();
 async function aqPagarIncentivo(empleadoId){
-  showNotif('La liquidación de incentivos todavía requiere la RPC Auth de planilla y caja. No se registró ningún pago.','#e65100');
+ if(CU?.rol!=='jefe'){
+  showNotif('Solo el jefe puede liquidar incentivos.','#e65100');return;
+ }
+ const desde=document.getElementById('aq-inc-desde')?.value||'2000-01-01';
+ const hasta=document.getElementById('aq-inc-hasta')?.value||hoy();
+ const origen=document.getElementById('aq-inc-origen')?.value||'externo';
+ const emp=Number(empleadoId);
+ if(!Number.isSafeInteger(emp)||emp<=0||!['externo','caja'].includes(origen)){
+  showNotif('Datos de liquidación inválidos.','#e65100');return;
+ }
+ const nombre=aqIncNombreEmp(emp);
+ const mensaje='¿Liquidar los incentivos pendientes de '+nombre+' entre '+desde+' y '+hasta+
+  '?\\nOrigen: '+(origen==='caja'?'Efectivo de Caja':'Fuera de Caja')+
+  '.\\nEsta acción registrará un pago y no se podrá deshacer desde esta pantalla.';
+ if(!confirm(mensaje))return;
+ const intentoKey=[emp,desde,hasta,origen].join('|');
+ if(aqIncLiquidacionesEnCurso.has(intentoKey))return;
+ let nonce=aqIncLiquidacionesNonces.get(intentoKey);
+ if(!nonce){
+  if(!globalThis.crypto?.randomUUID){
+   showNotif('Se requiere conexión segura (HTTPS) para confirmar pagos.','#e65100');return;
+  }
+  nonce=globalThis.crypto.randomUUID();
+  aqIncLiquidacionesNonces.set(intentoKey,nonce);
+ }
+ aqIncLiquidacionesEnCurso.add(intentoKey);
+ try{
+  const {data,error}=await sb.rpc('aq_liquidar_incentivos_auth_v2',{
+   p_nonce:nonce,p_empleado:emp,p_desde:desde,p_hasta:hasta,p_origen:origen
+  });
+  if(error)throw error;
+  aqIncLiquidacionesNonces.delete(intentoKey);
+  const monto=Number(data?.monto||0);
+  showNotif(monto>0?
+    'Liquidación '+(data?.repetida?'ya registrada':'registrada')+
+    ': '+aqIncFmt(monto)+' · '+(origen==='caja'?'Salida de Caja conciliada':'Pago externo registrado'):
+    'No hay incentivos pendientes aptos para liquidación.','#168344');
+  await aqReporteIncentivos();
+ }catch(e){
+  console.warn('Liquidación incentivos Auth',e);
+  showNotif('No se confirmó la liquidación: '+String(e?.message||'Error de conexión')+
+    '. Si reintentas, se utilizará el mismo identificador.','#e65100');
+ }finally{
+  aqIncLiquidacionesEnCurso.delete(intentoKey);
+ }
 }
 
 </script>

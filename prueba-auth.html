@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AQUABRI — Prueba aislada de Supabase Auth</title>
+<style>
+body{font:16px system-ui,sans-serif;background:#e8f4fd;color:#173456;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px;box-sizing:border-box}
+main{background:white;max-width:390px;width:100%;box-sizing:border-box;border-radius:16px;padding:28px;box-shadow:0 8px 35px #1232}
+h1{font-size:22px;margin:0 0 8px}p{line-height:1.5}label{display:block;margin:15px 0 5px;font-size:14px;font-weight:600}
+input,button{box-sizing:border-box;width:100%;padding:12px;border-radius:9px;font:inherit}
+input{border:1px solid #abc}button{background:#1565c0;color:white;border:0;margin-top:18px;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}#out{white-space:pre-wrap;font-size:14px;margin-top:18px}small{color:#546e7a}
+</style>
+</head><body>
+<main><h1>Acceso seguro — prueba</h1>
+<p>Prueba aislada de las dos formas de acceso. <strong>No abre el sistema de ventas ni modifica datos.</strong></p>
+<form id="form"><label for="identifier">Usuario o número de celular</label><input id="identifier" autocomplete="username" placeholder="Jefe / Melgar / +502XXXXXXXX" required>
+<label for="pass">Contraseña de Supabase Auth</label><input id="pass" type="password" autocomplete="current-password" required>
+<button id="btn" type="submit">Comprobar acceso</button></form>
+<p id="out" role="status" aria-live="polite"></p>
+<small>Solo para pruebas. No utilizar como acceso operativo. Se cierra la sesión al terminar la comprobación.</small>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+"use strict";
+const sb = supabase.createClient(
+  "https://odwccqqvxpsggggehjtt.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kd2NjcXF2eHBzZ2dnZ2VoanR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1ODQxNTgsImV4cCI6MjA5MDE2MDE1OH0.4RulBc7xRiqfy5mAK9yxpj49fr7OloTp0-wZ9pZ0LJA",
+  {auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}}
+);
+const form=document.getElementById("form"),out=document.getElementById("out"),btn=document.getElementById("btn");
+form.addEventListener("submit",async event=>{
+ event.preventDefault();btn.disabled=true;out.textContent="Comprobando...";
+ const identifier=document.getElementById("identifier").value.trim();
+ const phone=identifier.replace(/[\s()-]/g,"");
+ const isPhone=/^\+?502\d{8}$/.test(phone);
+ const password=document.getElementById("pass").value;
+ try{
+  if(!isPhone && (!identifier || identifier.length>100))throw Error("Identificador inválido");
+  if(isPhone){
+    const {error:loginError}=await sb.auth.signInWithPassword({phone:phone.startsWith("+")?phone:"+"+phone,password});
+    if(loginError)throw loginError;
+  }else{
+    const response=await fetch("https://odwccqqvxpsggggehjtt.supabase.co/functions/v1/aq-auth-usuario-v2",{
+      method:"POST",
+      headers:{"content-type":"application/json"},
+      body:JSON.stringify({usuario:identifier,contrasena:password}),
+      cache:"no-store"
+    });
+    if(!response.ok)throw Error("Acceso rechazado");
+    const tokens=await response.json();
+    if(!tokens.access_token||!tokens.refresh_token)throw Error("Sesión incompleta");
+    const {error:setError}=await sb.auth.setSession({access_token:tokens.access_token,refresh_token:tokens.refresh_token});
+    if(setError)throw setError;
+  }
+  const {data:{user},error:userError}=await sb.auth.getUser();
+  if(userError||!user)throw userError||Error("No se pudo verificar la identidad");
+  const {data:profile,error:profileError}=await sb.from("usuarios").select("id,nombre,rol").eq("auth_uid",user.id).maybeSingle();
+  if(profileError)throw profileError;
+  if(!profile)throw Error("Cuenta autenticada pero sin vínculo con un usuario original de AQUABRI");
+  out.textContent="Autenticación correcta. Usuario AQUABRI ID "+profile.id+"; rol: "+profile.rol+". No se ha abierto la aplicación.";
+ }catch(_error){
+  // Evitar revelar detalles de cuentas a través de mensajes diferenciados.
+  out.textContent="No se pudo completar la prueba. Comprueba el número, la contraseña y la vinculación con AQUABRI.";
+ }finally{
+  document.getElementById("pass").value="";
+  try{await sb.auth.signOut({scope:"local"});}catch(_){}
+  btn.disabled=false;
+ }
+});
+</script>
+</body></html>

@@ -3332,34 +3332,7 @@ const PERMS={jefe:['inicio','ventas','clientes','puntos','ahorro','creditos','ma
 const PUEDE_EDITAR=['jefe','vendedor_editor'];
 const SOLO_JEFE=['jefe'];
 
-function genToken(){
-  if(!globalThis.crypto?.getRandomValues)throw new Error('La sesión requiere un navegador seguro (HTTPS).');
-  const bytes=new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
-}
-async function saveSession(uid){
-  const token=genToken();
-  const exp=new Date(Date.now()+30*24*60*60*1000).toISOString();
-  const {error}=await sb.from('sesiones').insert({usuario_id:uid,token,expira_en:exp});
-  if(error)throw error;
-  localStorage.setItem('aqb_token',token);
-  localStorage.setItem('aqb_uid',String(uid));
-}
-async function checkSession(){
-  const token=localStorage.getItem('aqb_token');
-  const uid=localStorage.getItem('aqb_uid');
-  if(!token||!uid)return false;
-  // Correr ambas queries en paralelo
-  const[{data:sesion},{data:user}]=await Promise.all([
-    sb.from('sesiones').select('*').eq('token',token).eq('usuario_id',uid).gt('expira_en',new Date().toISOString()).single(),
-    sb.from('usuarios').select('id,nombre,usuario,rol,foto,permisos_custom,empleado_id,auth_uid').eq('id',uid).single(),
-  ]);
-  if(!sesion||!user)return false;
-  CU=user;return true;
-}
-async function clearSession(){const token=localStorage.getItem('aqb_token');if(token)await sb.from('sesiones').delete().eq('token',token);localStorage.removeItem('aqb_token');localStorage.removeItem('aqb_uid');}
-
+// Sesiones legadas del navegador retiradas. Supabase Auth administra tokens y renovación.
 async function loadAll(){
   const hoyStr=hoy();
   const fecha90=new Date(Date.now()-90*864e5).toISOString().slice(0,10);
@@ -19719,6 +19692,12 @@ function aqMostrarFotoProducto(id){aqFotoQuitar=false;const f=document.getElemen
 function aqQuitarProdFoto(){aqFotoQuitar=true;document.getElementById('aq-prod-file').value='';document.getElementById('aq-prod-preview').style.display='none';document.getElementById('aq-prod-foto-status').textContent='La imagen se quitará al guardar.';}
 function aqLimpiarFotoProducto(){aqFotoQuitar=false;const f=document.getElementById('aq-prod-file');if(f)f.value='';const img=document.getElementById('aq-prod-preview');if(img){img.removeAttribute('src');img.style.display='none';}const st=document.getElementById('aq-prod-foto-status');if(st)st.textContent='';}
 async function aqGuardarFotoProducto(id){
+  // La Edge Function anterior exige token personalizado; no usarla con Supabase Auth.
+  const archivo=document.getElementById('aq-prod-file')?.files?.[0];
+  if(!archivo&&!aqFotoQuitar)return true;
+  showNotif('La carga de fotos requiere autorización Auth en Storage. No se modificó la imagen.','#e65100');
+  return false;
+
  const file=document.getElementById('aq-prod-file')?.files?.[0];
  const status=document.getElementById('aq-prod-foto-status');
  if(!file&&!aqFotoQuitar)return true;

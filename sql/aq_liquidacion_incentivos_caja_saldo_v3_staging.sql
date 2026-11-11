@@ -24,6 +24,7 @@ DECLARE
   v_actualizados integer;
   v_saldo_efectivo numeric(14,2);
   v_tipos_desconocidos integer;
+  v_usuario_caja integer;
 BEGIN
   v_auth := (SELECT auth.uid());
   IF v_auth IS NULL OR coalesce((auth.jwt()->>'is_anonymous')::boolean,false) THEN
@@ -106,12 +107,18 @@ BEGIN
   IF p_origen='caja' THEN
     -- Lock cash writes while checking the opening/closing state and inserting.
     LOCK TABLE public.caja IN SHARE ROW EXCLUSIVE MODE;
-    SELECT id INTO v_apertura FROM public.caja
+    SELECT id, usuario_id INTO v_apertura, v_usuario_caja FROM public.caja
     WHERE fecha=v_fecha AND tipo='apertura' ORDER BY id DESC LIMIT 1;
     IF v_apertura IS NULL OR EXISTS(
       SELECT 1 FROM public.caja WHERE fecha=v_fecha AND tipo='cierre' AND id>v_apertura
     ) THEN
       RAISE EXCEPTION 'La caja de hoy no está abierta; liquidación no realizada'
+      USING ERRCODE='23514';
+    END IF;
+    -- Cash payments can only debit the currently opened drawer of this boss.
+    -- Never settle out of a seller's cash drawer implicitly.
+    IF v_usuario_caja IS DISTINCT FROM v_uid THEN
+      RAISE EXCEPTION 'La caja activa pertenece a otro usuario: liquidación de efectivo no permitida'
       USING ERRCODE='23514';
     END IF;
 

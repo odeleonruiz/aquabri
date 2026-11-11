@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>AQUABRI | Activar celulares en producción</title>
+<style>
+:root{color-scheme:light}*{box-sizing:border-box}body{background:#eaf2f9;color:#193148;font:16px system-ui,-apple-system,Segoe UI,Arial,sans-serif;min-height:100vh;margin:0;padding:18px;display:flex;align-items:center;justify-content:center}
+main{background:#fff;width:min(460px,100%);border-radius:20px;padding:26px;box-shadow:0 12px 34px #19314822}
+h1{margin:0 0 4px;color:#0961a8;font-size:26px}h2{font-size:19px;margin:8px 0}
+p{color:#51647a;line-height:1.45;font-size:14px}label{display:block;font-size:13px;font-weight:700;margin:18px 0 6px}
+input{border:1px solid #a2afc2;border-radius:10px;padding:12px;font:inherit;color:#152b42;background:white;width:100%}
+button{background:#0961a8;color:white;border:0;border-radius:10px;width:100%;padding:13px;font-size:15px;font-weight:700;margin-top:18px;cursor:pointer}
+button:disabled{opacity:.55;cursor:wait}.muted{font-size:12px}.note{font-size:13px;background:#eef5fc;border-radius:10px;padding:12px;margin-top:16px}
+.hide{display:none!important}output{display:block;white-space:pre-wrap;color:#ae3030;min-height:22px;padding-top:12px;font-size:14px}#complete{color:#177344}
+</style></head>
+<body><main>
+<h1>AQUABRI</h1><p><strong>Registrar celular en AQUABRI principal</strong></p>
+<p>Esta página verifica tu celular en el Supabase PRINCIPAL. Registra primero el celular del jefe y después el de Sergio. No crea empleados ni modifica ventas, comisiones o permisos. Las cuentas se vincularán a sus usuarios existentes tras verificar las identidades.</p>
+<section id="step-phone">
+<form id="phone-form">
+<label for="mobile">Número de celular (Guatemala +502)</label>
+<input id="mobile" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="8" minlength="8" pattern="[0-9]{8}" required placeholder="8 dígitos">
+<button id="send" type="submit">Enviar código por SMS</button>
+</form></section>
+<section class="hide" id="step-verify">
+<h2>Confirmar teléfono</h2><p>Escribe el código que llegó al celular. No lo compartas en el chat.</p>
+<form id="verify-form">
+<label for="otp">Código SMS</label>
+<input id="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" minlength="6" maxlength="8" required placeholder="Código de verificación">
+<button id="verify" type="submit">Verificar código</button>
+</form>
+</section>
+<section class="hide" id="step-password">
+<h2>Contraseña segura</h2><p>Crea una contraseña NUEVA para la identidad telefónica de producción. No utilices la contraseña antigua del sistema ni compartas esta clave.</p>
+<form id="password-form">
+<label for="password">Nueva contraseña (mínimo 10 caracteres)</label>
+<input id="password" type="password" autocomplete="new-password" minlength="10" maxlength="128" required>
+<label for="password2">Repetir contraseña</label>
+<input id="password2" type="password" autocomplete="new-password" minlength="10" maxlength="128" required>
+<button id="save" type="submit">Guardar y completar verificación</button>
+</form></section>
+<section class="hide" id="step-done"><h2 id="complete">Teléfono verificado</h2>
+<p>El celular quedó verificado en Supabase Auth de PRODUCCIÓN. Aún falta asociar esta identidad con el usuario original de AQUABRI; el inicio de sesión actual no ha cambiado.</p>
+<p>Si acabas de verificar al jefe, repite este procedimiento con el celular de Sergio. Cuando hayas verificado los dos, regresa al chat y escribe <strong>“Los dos celulares están verificados en producción”</strong>. No envíes números, códigos ni contraseñas.</p></section>
+<output id="status" role="status"></output>
+<p class="note">Esta página utiliza <strong>Supabase principal</strong> exclusivamente para crear identidades telefónicas. El jefe conserva ID 1; Sergio conserva usuario ID 9 y empleado ID 7. José y Franklyn no se modifican.</p>
+<p class="muted">Si el código no llega, comprueba cobertura y el número. Evita pedir muchos códigos seguidos; el proveedor aplica límites.</p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.min.js"></script>
+<script>
+(()=>{
+"use strict";
+const BASE="https://odwccqqvxpsggggehjtt.supabase.co";
+const KEY="sb_publishable_7K_N06L5sm1aKB5nx419BQ_7TLcfUVX";
+const sb=window.supabase.createClient(BASE,KEY,{auth:{persistSession:false,autoRefreshToken:false}});
+const $=id=>document.getElementById(id);
+let phone=null,validated=false,busy=false;
+const message=(t,ok=false)=>{ $("status").style.color=ok?"#177344":"#ae3030";$("status").textContent=t; };
+const section=id=>{["step-phone","step-verify","step-password","step-done"].forEach(x=>$(x).classList.toggle("hide",x!==id));message("");};
+const button=async(el,op)=>{if(busy)return;busy=true;el.disabled=true;try{await op()}finally{busy=false;el.disabled=false;}};
+$("phone-form").addEventListener("submit",e=>{
+e.preventDefault();
+button($("send"),async()=>{
+ const n=$("mobile").value.trim();
+ if(!/^\d{8}$/.test(n))return message("El celular debe tener 8 dígitos.");
+ phone="+502"+n;
+ message("Solicitando código SMS...",true);
+ const {error}=await sb.auth.signInWithOtp({phone,options:{shouldCreateUser:true}});
+ if(error)return message("No se pudo enviar el código: "+(error.message||"Verifica configuración de SMS."));
+ section("step-verify");message("Código solicitado. Escríbelo cuando llegue.",true);
+});
+});
+$("verify-form").addEventListener("submit",e=>{
+e.preventDefault();
+button($("verify"),async()=>{
+ if(!phone)return section("step-phone");
+ const code=$("otp").value.trim();
+ message("Comprobando código...",true);
+ const {data,error}=await sb.auth.verifyOtp({phone,token:code,type:"sms"});
+ if(error||!data?.user||!data?.session)return message("No se pudo confirmar el código: "+(error?.message||"Inténtalo de nuevo."));
+ const {data:profile}=await sb.rpc("aq_mi_perfil_seguro");
+ if(profile?.id){
+  await sb.auth.signOut();
+  return message("Este celular ya pertenece a una cuenta vinculada de AQUABRI. No cambies sus credenciales. Consulta la vinculación con el administrador.");
+ }
+ if(!data.user.phone_confirmed_at){
+  await sb.auth.signOut();
+  return message("El proveedor aún no confirmó el teléfono. No se guardó ninguna contraseña.");
+ }
+ validated=true;
+ section("step-password");message("Teléfono confirmado. Ahora configura su contraseña de prueba.",true);
+});
+});
+$("password-form").addEventListener("submit",e=>{
+e.preventDefault();
+button($("save"),async()=>{
+ if(!validated)return message("Debes verificar primero el celular.");
+ const password=$("password").value,password2=$("password2").value;
+ if(password.length<10||password!==password2)return message("Las contraseñas deben coincidir y tener al menos 10 caracteres.");
+ message("Guardando contraseña segura...",true);
+ const {error}=await sb.auth.updateUser({password});
+ if(error)return message("No se guardó la contraseña: "+error.message);
+ $("password").value="";$("password2").value="";
+ await sb.auth.signOut();
+ section("step-done");message("Verificación completa en producción. Falta vincular la identidad al usuario original de AQUABRI.",true);
+});
+});
+})();
+</script>
+</body></html>

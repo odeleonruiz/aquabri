@@ -10502,8 +10502,7 @@ async function aqPagoProveedorAtomico({proveedor,deudaId=null,monto,fecha,notas,
   window._aqGuardandoPagoProv=true;showLoad(true);
   let resultado=null,error=null;
   try{
-    const r=await sb.rpc('aq_registrar_pago_proveedor_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,
+    const r=await sb.rpc('aq_pagar_proveedor_auth_v1',{
       p_nonce:window._aqPagoProveedorNonce,p_proveedor:proveedor,
       p_deuda_id:deudaId,p_monto:aqMonedaCompra(monto),p_fecha:fecha,
       p_notas:notas||'',p_origen:origen||'caja'

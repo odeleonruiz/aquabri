@@ -1,0 +1,57 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AQUABRI - Diagnóstico seguro STAGING</title>
+<style>body{background:#edf4fb;color:#183252;font:15px system-ui;margin:0;min-height:100vh;display:grid;place-items:center}main{width:min(570px,94vw);background:#fff;border-radius:15px;padding:24px;box-sizing:border-box;box-shadow:0 8px 30px #17345522}h1{font-size:22px;margin:0 0 9px}p{line-height:1.5}label{display:block;font-weight:600;margin:12px 0 5px}input,button{width:100%;box-sizing:border-box;padding:11px;font:inherit;border-radius:8px}input{border:1px solid #b3c7dc}button{background:#1565c0;color:white;border:0;margin-top:15px;cursor:pointer}button:disabled{opacity:.5;cursor:wait}pre{white-space:pre-wrap;word-break:break-word;background:#f4f7fa;border-radius:8px;padding:12px;min-height:65px}small{color:#657a8e}.warn{background:#fff5d7;padding:12px;border-radius:8px}</style></head><body>
+<main><h1>Diagnóstico Auth + RLS — STAGING</h1>
+<p class="warn">Esta herramienta usa <strong>exclusivamente el proyecto de pruebas</strong>. No permite crear ventas, cobrar, alterar caja, borrar datos ni guardar contraseñas.</p>
+<form id="login"><label for="identity">Usuario o celular vinculado en staging</label><input id="identity" placeholder="Usuario o +502XXXXXXXX" autocomplete="username" required>
+<label for="pw">Contraseña de Supabase Auth de staging</label><input id="pw" type="password" autocomplete="current-password" required>
+<button id="btn">Entrar y comprobar permisos (solo lectura)</button></form>
+<button id="logout" type="button" style="background:#596b7d">Cerrar sesión de prueba</button>
+<pre id="status" aria-live="polite">Sin iniciar sesión.</pre>
+<small>No uses contraseñas de producción ni datos reales en este diagnóstico. El código está en GitHub; no se ha publicado en la aplicación principal.</small></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script>
+"use strict";
+const sb=supabase.createClient(
+ "https://xzbawbkstaqvkwtqlqai.supabase.co",
+ "sb_publishable_QOGiyV0pqGEYY8tXBaTMag_e_eVQRJw",
+ {auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}}
+);
+const el=id=>document.getElementById(id);
+async function readTest(table,columns){
+ const {data,error}=await sb.from(table).select(columns).limit(1);
+ return error?"ERROR "+error.code+": "+error.message:"Autorizado ("+(data||[]).length+" registro(s) de muestra)";
+}
+el("login").addEventListener("submit",async e=>{
+ e.preventDefault();el("btn").disabled=true;el("status").textContent="Verificando identidad...";
+ try{
+ const identity=el("identity").value.trim(),password=el("pw").value;
+ const normal=identity.replace(/[\\s()-]/g,"");
+ if(/^\\+?502\\d{8}$/.test(normal)){
+  const {error}=await sb.auth.signInWithPassword({phone:normal.startsWith("+")?normal:"+"+normal,password});
+  if(error)throw error;
+ }else{
+  if(identity.length>100)throw Error("Usuario inválido");
+  const res=await fetch("https://xzbawbkstaqvkwtqlqai.supabase.co/functions/v1/aq-auth-usuario-v2",{
+   method:"POST",headers:{"content-type":"application/json"},
+   body:JSON.stringify({usuario:identity,contrasena:password}),cache:"no-store"});
+  if(!res.ok)throw Error("No se pudo autenticar en el entorno de pruebas");
+  const tokens=await res.json();
+  if(!tokens.access_token||!tokens.refresh_token)throw Error("No se recibió la sesión");
+  const {error}=await sb.auth.setSession({access_token:tokens.access_token,refresh_token:tokens.refresh_token});
+  if(error)throw error;
+ }
+ const {data:{user},error:authError}=await sb.auth.getUser();
+ if(authError||!user)throw Error("Identidad no confirmada");
+ const {data:profile,error:profileError}=await sb.from("usuarios").select("id,nombre,rol").eq("auth_uid",user.id).maybeSingle();
+ if(profileError||!profile)throw Error("Usuario no vinculado a AQUABRI staging");
+ const tests=[
+ ["ventas","id,usuario_id"],["creditos","id,cliente_id"],["caja","id,usuario_id"],
+ ["clientes","id,nombre"],["productos","id,nombre"],
+ ["empleados","id,usuario_id"],["comisiones","id,empleado_id"],
+ ["facturas_proveedores","id,proveedor"],["gastos","id,monto"]];
+ const result=await Promise.all(tests.map(async ([t,fields])=>t+": "+await readTest(t,fields)));
+ el("status").textContent="STAGING — perfil "+profile.nombre+" (ID "+profile.id+", rol "+profile.rol+")\\n\\n"+result.join("\\n")+"\\n\\nDiagnóstico de lectura terminado. No se realizaron escrituras.";
+ }catch(e){el("status").textContent="Prueba no completada: "+(e?.message||"Error de acceso");}
+ finally{el("pw").value="";el("btn").disabled=false;}
+});
+el("logout").addEventListener("click",async()=>{await sb.auth.signOut({scope:"local"});el("pw").value="";el("status").textContent="Sesión de pruebas cerrada.";});
+</script></body></html>

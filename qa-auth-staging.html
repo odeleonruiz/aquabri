@@ -24,8 +24,8 @@ el("login").addEventListener("submit",async e=>{
  e.preventDefault();el("btn").disabled=true;el("status").textContent="Verificando identidad...";
  try{
  const identity=el("identity").value.trim(),password=el("pw").value;
- const normal=identity.replace(/[\\s()-]/g,"");
- if(/^\\+?502\\d{8}$/.test(normal)){
+ const normal=identity.replace(/[\s()-]/g,"");
+ if(/^\+?502\d{8}$/.test(normal)){
   const {error}=await sb.auth.signInWithPassword({phone:normal.startsWith("+")?normal:"+"+normal,password});
   if(error)throw error;
  }else{

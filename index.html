@@ -231,8 +231,8 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
     <img id="ll-img" class="logo-login" src="" style="display:none">
     <div id="ll-fb" class="logo-fb">💧</div>
     <h2 id="ll-nombre">Sistema de Ventas</h2>
-    <p>Ingresa tus credenciales</p>
-    <input type="text" id="lu" placeholder="Usuario" autocomplete="username">
+    <p>Ingresa con tu usuario o número de celular y la contraseña de tu cuenta segura.</p>
+    <input type="text" id="lu" placeholder="Usuario o celular (+502...)" autocomplete="username">
     <input type="password" id="lp" placeholder="Contraseña" autocomplete="current-password">
     <button class="btn-login" onclick="doLogin()">Ingresar</button>
     <div class="lerr" id="lerr"></div>
@@ -3487,6 +3487,21 @@ function aqMostrarFalloInicio(error){
   </div>`;
   pantalla.querySelector('#aq-reintentar-inicio')?.addEventListener('click',()=>location.reload());
 }
+// AUTH V2 — rama de integración; no publicar sin validar RLS y operaciones de negocio.
+async function aqPerfilAutenticado(){
+  const {data:{user},error:authError}=await sb.auth.getUser();
+  if(authError||!user)return null;
+  const {data:perfil,error:perfilError}=await sb.from('usuarios')
+    .select('id,nombre,usuario,rol,foto,permisos_custom,empleado_id,auth_uid')
+    .eq('auth_uid',user.id).maybeSingle();
+  if(perfilError||!perfil)throw new Error('La identidad no está vinculada a un empleado autorizado.');
+  return perfil;
+}
+async function aqCargarCuenta(perfil){
+  await loadAll();
+  applyConfig();
+  CU=perfil;
+}
 async function init(){
   if(_aqInicioEnProceso||_aqInicioFinalizado)return;
   _aqInicioEnProceso=true;
@@ -3496,26 +3511,21 @@ async function init(){
   try{
     aviso=setTimeout(()=>{
       if(mensaje)mensaje.textContent='Conectando con Supabase… La respuesta está tardando más de lo normal.';
-      showNotif('⚠️ Supabase tarda en responder. No se registrará ninguna venta durante la carga.','#e65100');
     },12000);
-    await Promise.race([
-      loadAll(),
-      new Promise((_,reject)=>{
-        fechaLimite=setTimeout(()=>reject(new Error('Tiempo de espera agotado al cargar información')),35000);
-      })
+    const perfil=await Promise.race([
+      aqPerfilAutenticado(),
+      new Promise((_,reject)=>{fechaLimite=setTimeout(()=>reject(new Error('Tiempo de espera agotado al comprobar la identidad')),15000);})
     ]);
-    clearTimeout(fechaLimite);
-    applyConfig();
-    const autorizado=await Promise.race([
-      checkSession(),
-      new Promise((_,reject)=>{
-        fechaLimite=setTimeout(()=>reject(new Error('Tiempo de espera agotado al comprobar la sesión')),15000);
-      })
-    ]);
-    clearTimeout(fechaLimite);
+    clearTimeout(fechaLimite);fechaLimite=null;
+    if(perfil){
+      await Promise.race([
+        aqCargarCuenta(perfil),
+        new Promise((_,reject)=>{fechaLimite=setTimeout(()=>reject(new Error('Tiempo de espera agotado al cargar los datos')),35000);})
+      ]);
+    }
     document.getElementById('loading-screen').style.display='none';
     _aqInicioFinalizado=true;
-    if(autorizado)startApp();
+    if(perfil)startApp();
     else document.getElementById('login-screen').classList.add('show');
   }catch(e){
     aqMostrarFalloInicio(e);
@@ -3526,23 +3536,59 @@ async function init(){
 }
 
 async function doLogin(){
-  const u=document.getElementById('lu').value.trim();
-  const p=document.getElementById('lp').value;
-  const found=D.usuarios.find(x=>x.usuario===u&&x.pass===p);
-  if(!found){document.getElementById('lerr').textContent='Usuario o contraseña incorrectos';return;}
+  const input=document.getElementById('lu');
+  const passwordInput=document.getElementById('lp');
+  const err=document.getElementById('lerr');
+  const boton=document.querySelector('#login-screen .btn-login');
+  const identificador=input.value.trim();
+  const clave=passwordInput.value;
+  err.textContent='';
+  if(!identificador||!clave){err.textContent='Escribe tu usuario o celular y tu contraseña.';return;}
+  if(boton)boton.disabled=true;
   try{
-    await saveSession(found.id);
-    CU=found;
-    document.getElementById('lp').value='';
+    const normalizado=identificador.replace(/[\\s()-]/g,'');
+    if(/^\\+?502\\d{8}$/.test(normalizado)){
+      const telefono=normalizado.startsWith('+')?normalizado:'+'+normalizado;
+      const {error}=await sb.auth.signInWithPassword({phone:telefono,password:clave});
+      if(error)throw error;
+    }else{
+      const response=await fetch('https://odwccqqvxpsggggehjtt.supabase.co/functions/v1/aq-auth-usuario-v2',{
+        method:'POST',
+        headers:{'content-type':'application/json'},
+        cache:'no-store',
+        body:JSON.stringify({usuario:identificador,contrasena:clave})
+      });
+      if(!response.ok)throw new Error('Credenciales incorrectas o temporalmente bloqueadas');
+      const tokens=await response.json();
+      if(!tokens.access_token||!tokens.refresh_token)throw new Error('Sesión incompleta');
+      const {error}=await sb.auth.setSession({access_token:tokens.access_token,refresh_token:tokens.refresh_token});
+      if(error)throw error;
+    }
+    const perfil=await aqPerfilAutenticado();
+    if(!perfil)throw new Error('Cuenta sin vínculo');
+    await aqCargarCuenta(perfil);
+    passwordInput.value='';
     document.getElementById('login-screen').classList.remove('show');
     startApp();
-  }catch(e){
-    console.error('Error creando sesión:',e);
-    document.getElementById('lerr').textContent='No se pudo iniciar sesión. Revisa la conexión e intenta de nuevo.';
-  }
+  }catch(error){
+    console.error('Error en acceso Auth v2',error);
+    await sb.auth.signOut({scope:'local'}).catch(()=>{});
+    CU=null;
+    err.textContent='No se pudo iniciar sesión. Revisa tus credenciales o la conexión.';
+  }finally{if(boton)boton.disabled=false;}
 }
 document.getElementById('lp').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
-async function doLogout(){await clearSession();CU=null;document.getElementById('app').classList.remove('show');document.getElementById('login-screen').classList.add('show');document.getElementById('lu').value='';document.getElementById('lp').value='';document.getElementById('lerr').textContent='';}
+async function doLogout(){
+  await sb.auth.signOut({scope:'local'});
+  // Limpiar solo los tokens antiguos locales; no borrar registros de ventas ni sesiones ajenas.
+  localStorage.removeItem('aqb_token');localStorage.removeItem('aqb_uid');
+  CU=null;
+  document.getElementById('app').classList.remove('show');
+  document.getElementById('login-screen').classList.add('show');
+  document.getElementById('lu').value='';
+  document.getElementById('lp').value='';
+  document.getElementById('lerr').textContent='';
+}
 
 function startApp(){
   // Limpiar visitas de días anteriores

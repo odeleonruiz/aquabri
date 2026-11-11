@@ -6,6 +6,7 @@ const allowedOrigins = new Set([
   "https://odeleonruiz.github.io",
   "http://127.0.0.1:8765",
   "http://localhost:8765",
+  "https://aquabri-staging-preview.vercel.app",
 ]);
 const respond = (status: number, data: Record<string, unknown>, origin: string) =>
   new Response(JSON.stringify(data), {

@@ -5289,6 +5289,15 @@ function aqBonifConfirmar(destino,idx){
   if(destino==='pos'){posRenderCart();posRenderGrid();posUpdateBar();}else renderCart();
   showNotif(val>0?'🎁 '+val+' unidad(es) bonificadas · confirmadas':'Bonificación eliminada','#2e7d32');
 }
+function aqRevisarBonificaciones(lista){
+  for(const item of lista){
+    if(!Number(item.bonifCant))continue;
+    const idx=lista.indexOf(item);
+    if(!aqBonifElegible(lista,idx)){
+      item.bonifCant=0;item.bonifProdId=null;item.bonifNombre='';
+    }
+  }
+}
 function aqBonifBoton(lista,idx,destino){
   const item=lista[idx];
   if(!aqBonifElegible(lista,idx))return '';
@@ -5316,6 +5325,7 @@ function aqSyncEnvasesCarrito(destino){
 }
 
 function renderCart(){
+  aqRevisarBonificaciones(cart);
   aqActualizarPermisosDescuento();
   const dg=parseFloat(document.getElementById('v-descg')?.value)||0;
   const pag=parseFloat(document.getElementById('v-pagado')?.value)||0;
@@ -15845,6 +15855,7 @@ function cerrarPosCart(){
 }
 
 function posRenderCart(){
+  aqRevisarBonificaciones(posCart);
   aqActualizarPermisosDescuento();
   const dg=parseFloat(document.getElementById('pos-descg')?.value)||0;
   const pag=parseFloat(document.getElementById('pos-pagado')?.value)||0;

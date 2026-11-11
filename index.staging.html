@@ -3461,12 +3461,15 @@ function aqMostrarFalloInicio(error){
 }
 // AUTH V2 — rama de integración; no publicar sin validar RLS y operaciones de negocio.
 async function aqPerfilAutenticado(){
-  const {data:{user},error:authError}=await sb.auth.getUser();
+  const {data:authData,error:authError}=await sb.auth.getUser();
+  const user=authData?.user;
   if(authError||!user)return null;
-  const {data:perfil,error:perfilError}=await sb.from('usuarios')
-    .select('id,nombre,usuario,rol,foto,permisos_custom,empleado_id,auth_uid')
-    .eq('auth_uid',user.id).maybeSingle();
-  if(perfilError||!perfil)throw new Error('La identidad no está vinculada a un empleado autorizado.');
+  // Consulta filtrada por rol y autenticada en servidor; nunca SELECT directo de usuarios.
+  const {data:resumen,error:perfilError}=await sb.rpc('aq_usuarios_resumen_auth_v1');
+  if(perfilError)throw new Error('No se pudo consultar el perfil autorizado de AQUABRI pruebas.');
+  const perfil=(Array.isArray(resumen)?resumen:[])
+    .find(u=>String(u.auth_uid||'')===String(user.id));
+  if(!perfil)throw new Error('La identidad no está vinculada a un usuario autorizado de AQUABRI pruebas.');
   return perfil;
 }
 async function aqCargarCuenta(perfil){
@@ -3517,6 +3520,7 @@ async function doLogin(){
   err.textContent='';
   if(!identificador||!clave){err.textContent='Escribe tu usuario o celular y tu contraseña.';return;}
   if(boton)boton.disabled=true;
+  let etapa='credenciales';
   try{
     const normalizado=identificador.replace(/[\s()-]/g,'');
     if(/^(?:\+?502)?\d{8}$/.test(normalizado)){
@@ -3536,8 +3540,10 @@ async function doLogin(){
       const {error}=await sb.auth.setSession({access_token:tokens.access_token,refresh_token:tokens.refresh_token});
       if(error)throw error;
     }
+    etapa='perfil';
     const perfil=await aqPerfilAutenticado();
     if(!perfil)throw new Error('Cuenta sin vínculo');
+    etapa='datos';
     await aqCargarCuenta(perfil);
     passwordInput.value='';
     document.getElementById('login-screen').classList.remove('show');
@@ -3546,7 +3552,11 @@ async function doLogin(){
     console.error('Error en acceso Auth v2',error);
     await sb.auth.signOut({scope:'local'}).catch(()=>{});
     CU=null;
-    err.textContent='No se pudo iniciar sesión. Revisa tus credenciales o la conexión.';
+    err.textContent=etapa==='perfil'
+      ? 'Contraseña aceptada, pero no se pudo cargar tu perfil de pruebas.'
+      : etapa==='datos'
+        ? 'Ingreso correcto, pero no se pudieron cargar los datos de pruebas.'
+        : 'No se pudo comprobar el usuario o contraseña. Revisa tus datos.';
   }finally{if(boton)boton.disabled=false;}
 }
 document.getElementById('lp').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});

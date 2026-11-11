@@ -20974,15 +20974,7 @@ async function aqReporteIncentivos(){
  '<p class="tmuted">Las ventas de crédito aún sin cobrar y las anuladas no están disponibles para liquidación. Los importes se guardan al momento de vender, no cambian si termina el incentivo.</p>';
 }
 async function aqPagarIncentivo(empleadoId){
-  showNotif('Liquidación de incentivos pendiente de una RPC Auth que concilie planilla, gastos y caja. No se ha registrado ningún pago.','#e65100');
-  return;
-
- const desde=document.getElementById('aq-inc-desde').value,hasta=document.getElementById('aq-inc-hasta').value;
- const nombre=aqIncNombreEmp(empleadoId);
- if(!confirm('¿Registrar liquidación de incentivos especiales a '+nombre+' del '+desde+' al '+hasta+'? Solo se liquidarán movimientos no pagados y cobrados.'))return;
- const {data,error}=await sb.rpc('aq_liquidar_incentivos',{...aqIncAuth(),p_empleado:Number(empleadoId),p_desde:desde,p_hasta:hasta,p_origen:document.getElementById('aq-inc-origen')?.value||'externo'});
- if(error){showNotif(error.message,'#c62828');return;}
- showNotif('Incentivos liquidados: '+aqIncFmt(data));await aqReporteIncentivos();
+  showNotif('La liquidación de incentivos todavía requiere la RPC Auth de planilla y caja. No se registró ningún pago.','#e65100');
 }
 
 </script>

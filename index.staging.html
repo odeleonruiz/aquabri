@@ -1294,7 +1294,6 @@ document.addEventListener('DOMContentLoaded',()=>{
           <button onclick="cargarSiguientes10()" id="btn-siguientes-10" style="display:none;background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 12px;font-size:11px;font-weight:700;cursor:pointer">+10 más</button>
           <button onclick="mostrarTodosRuta()" id="btn-todos-ruta" style="display:none;background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 12px;font-size:11px;font-weight:600;cursor:pointer">Ver todos</button>
           <button onclick="limpiarRutaInteligente()" id="btn-limpiar-ruta" style="display:none;background:#c62828;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:700;cursor:pointer">✕ Limpiar</button>
-          <button onclick="limpiarRutaInteligente()" id="btn-limpiar-ruta" style="display:none;background:#c62828;color:#fff;border:none;border-radius:8px;padding:7px 10px;font-size:11px;font-weight:700;cursor:pointer">✖ Limpiar</button>
           <select id="sel-batch-ruta" onchange="_RUTA_BATCH=parseInt(this.value);mostrarLotePorVisitar(0)" style="display:none;background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:6px 8px;font-size:10px">
             <option value="10">10</option>
             <option value="20">20</option>
@@ -2341,7 +2340,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     <div class="gf">
       <div class="fg" style="grid-column:1/-1"><label>Vendedor</label><select id="liq-emp"></select></div>
       <div class="fg"><label>Hora salida</label><input type="time" id="liq-hora-sal"></div>
-      <div class="fg"><label>Notas</label><input id="liq-notas" placeholder="opcional"></div>
+      <div class="fg"><label>Notas</label><input id="liq-notas-salida" placeholder="opcional"></div>
     </div>
     <div class="fe" style="gap:8px;margin-top:12px">
       <button class="btn" onclick="closeModal('modal-nueva-liq')">Cancelar</button>
@@ -3519,9 +3518,9 @@ async function doLogin(){
   if(!identificador||!clave){err.textContent='Escribe tu usuario o celular y tu contraseña.';return;}
   if(boton)boton.disabled=true;
   try{
-    const normalizado=identificador.replace(/[\\s()-]/g,'');
-    if(/^\\+?502\\d{8}$/.test(normalizado)){
-      const telefono=normalizado.startsWith('+')?normalizado:'+'+normalizado;
+    const normalizado=identificador.replace(/[\s()-]/g,'');
+    if(/^(?:\+?502)?\d{8}$/.test(normalizado)){
+      const telefono='+502'+normalizado.slice(-8);
       const {error}=await sb.auth.signInWithPassword({phone:telefono,password:clave});
       if(error)throw error;
     }else{
@@ -7206,7 +7205,7 @@ function filtrarOpcionesRuta(val){
   const sug=document.getElementById('cr-sugerencia');
   if(sug&&!val)sug.textContent='';
 }
-function clearCliForm(){['cid','cn','ct','cd','cr','clat','clng','cexhib-desc','cexhib-cap','cexhib-costo'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});document.getElementById('cexhib').checked=false;document.getElementById('cexhib-desc-box').style.display='none';document.getElementById('cli-ft').textContent='Nuevo Cliente';}
+function clearCliForm(){['cid','cn','ct','cd','cr','clat','clng','cexhib-desc','cexhib-cap','cexhib-costo'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});document.getElementById('cexhib').value='0';document.getElementById('cexhib-desc-box').style.display='none';document.getElementById('cli-ft').textContent='Nuevo Cliente';}
 
 const GMAPS_KEY='AIzaSyCktYFbR3dx1xdo0fM0J3gVF7of3am_UYQ';
 let gmMap=null,gmMarkers={},gmMiPos=null,gmBusquedaMarker=null;
@@ -7271,7 +7270,7 @@ function initMapa(){
         document.getElementById('nmc-tel').value='';
         document.getElementById('nmc-dir').value='';
         document.getElementById('nmc-ruta').value='';
-        document.getElementById('nmc-exhib').checked=false;
+        document.getElementById('nmc-exhib').value='0';
         // Poblar selector de rutas con las rutas existentes
         const rutasExistentes=[...new Set(D.clientes.filter(c=>c.ruta).map(c=>c.ruta))].sort();
         const selRuta=document.getElementById('nmc-ruta-sel');
@@ -16361,14 +16360,14 @@ function modalNuevaLiquidacion(){
   sel.innerHTML=D.empleados.filter(e=>e.estado==='Activo').map(e=>`<option value="${e.id}">${e.nombre}</option>`).join('');
   const now=new Date();
   document.getElementById('liq-hora-sal').value=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  document.getElementById('liq-notas').value='';
+  document.getElementById('liq-notas-salida').value='';
   document.getElementById('modal-nueva-liq').classList.add('open');
 }
 
 async function guardarNuevaLiquidacion(){
   const empId=parseInt(document.getElementById('liq-emp').value);
   const horaSal=document.getElementById('liq-hora-sal').value;
-  const notas=document.getElementById('liq-notas').value;
+  const notas=document.getElementById('liq-notas-salida').value;
   await sb.from('liquidaciones').insert({empleado_id:empId,fecha:hoy(),hora_salida:horaSal,notas,estado:'abierta'});
   closeModal('modal-nueva-liq');
   const{data}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
@@ -21557,6 +21556,42 @@ async function aqAuditarCajaFase2(){
 document.addEventListener('DOMContentLoaded',()=>{
   const fecha=document.getElementById('aq-f2-fecha');if(fecha&&!fecha.value)fecha.value=hoy();
 });
+</script>
+<script id="aq-staging-ui-controls-smoke">
+function toggleExhibidorBtn(){
+ const input=document.getElementById('cexhib'),btn=document.getElementById('btn-cexhib'),details=document.getElementById('cexhib-desc-box');
+ if(!input||!btn||!details)return;
+ const active=input.value!=='1';input.value=active?'1':'0';
+ btn.textContent=active?'✅ EXHIBIDOR ACTIVO — Toca para desactivar':'🖥 Tiene Exhibidor';
+ btn.style.background=active?'#00695c':'#546e7a';
+ details.style.display=active?'':'none';
+}
+function toggleNmcExhibBtn(){
+ const input=document.getElementById('nmc-exhib'),btn=document.getElementById('btn-nmc-exhib');
+ if(!input||!btn)return;
+ const active=input.value!=='1';input.value=active?'1':'0';
+ btn.textContent=active?'✅ EXHIBIDOR ACTIVO — Toca para desactivar':'🖥 Tiene Exhibidor';
+ btn.style.background=active?'#00695c':'#546e7a';
+}
+async function previewRecordatorio(){
+ const cid=Number(document.getElementById('rec-cli')?.value||0), box=document.getElementById('saldo_pendiente-print-area');
+ if(!box)return;
+ if(!Number.isSafeInteger(cid)||cid<=0){box.textContent='Selecciona un cliente con deuda.';return;}
+ try{
+  await renderRecordatorioEnTicket(cid);
+  box.innerHTML=document.getElementById('ticket-print-area')?.innerHTML||'<p>No se pudo preparar el recordatorio.</p>';
+ }catch(e){box.textContent='No se pudo preparar el recordatorio: '+String(e?.message||'');}
+}
+function imprimirRecordatorio(){
+ const area=document.getElementById('saldo_pendiente-print-area');
+ if(!area?.textContent?.trim()){showNotif('Selecciona un cliente para imprimir.','#e65100');return;}
+ const node=document.createElement('style');
+ node.textContent='@media print{body *{visibility:hidden!important}#saldo_pendiente-print-area,#saldo_pendiente-print-area *{visibility:visible!important}#saldo_pendiente-print-area{position:absolute!important;left:0!important;top:0!important;width:100%!important}}';
+ document.head.appendChild(node);
+ const remove=()=>node.remove();
+ window.addEventListener('afterprint',remove,{once:true});
+ try{window.print()}finally{setTimeout(remove,2000)}
+}
 </script>
 </body>
 </html>

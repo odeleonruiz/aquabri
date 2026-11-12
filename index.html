@@ -7023,56 +7023,55 @@ function evConfirmarAgregar(){
   evRenderItems();
 }
 async function saveEditVenta(){
-  const id=document.getElementById('ev-id').value;
-  const et=document.getElementById('ev-entrega').value;
-  const entTexto=et==='domicilio'?'A Domicilio':et==='inmediata'?'Entrega Inmediata':'Recolección en tienda';
-  const esJefe=CU&&SOLO_JEFE.includes(CU.rol);
-  let nuevoTotal,nuevoPagado;
-  if(esJefe){
-    nuevoTotal=parseFloat(document.getElementById('ev-total').value)||0;
-    nuevoPagado=parseFloat(document.getElementById('ev-pagado2').value)||0;
-  } else {
-    nuevoTotal=parseFloat(document.getElementById('ev-total-simple').value)||0;
-    nuevoPagado=parseFloat(document.getElementById('ev-pagado2-simple').value)||0;
+  const id=Number(document.getElementById('ev-id').value);
+  const v=D.ventas.find(x=>Number(x.id)===id);
+  if(!v){showNotif('Venta no encontrada','#c62828');return;}
+  // QA/Auth: no permitir cambios que desajusten stock, caja, FIFO o créditos.
+  const jefe=CU&&SOLO_JEFE.includes(CU.rol);
+  const total=Number(document.getElementById(jefe?'ev-total':'ev-total-simple').value)||0;
+  const pagado=Number(document.getElementById(jefe?'ev-pagado2':'ev-pagado2-simple').value)||0;
+  const fecha=document.getElementById('ev-fecha').value;
+  const cliente=document.getElementById('ev-cli').value||null;
+  const estado=document.getElementById('ev-estado').value;
+  const financieroCambiado= Math.round(total*100)!==Math.round(Number(v.total||0)*100)
+    ||Math.round(pagado*100)!==Math.round(Number(v.pagado||0)*100)
+    ||fecha!==v.fecha||String(cliente||'')!==String(v.cliente_id||'')||estado!==v.estado;
+  if(financieroCambiado||String(v.notas||'').startsWith('📦 PEDIDO:')){
+    showNotif('Esta edición afecta ventas, caja o pedidos. Usa los flujos seguros de entrega/cancelación. La edición financiera sigue bloqueada en QA.','#c62828');
+    return;
   }
-  const {data:aqPuedeEditar,error:aqErrorEditar}=await sb.rpc('aq_venta_puede_modificar_auth_v1',{p_venta:Number(id)});
-  if(aqErrorEditar||aqPuedeEditar!==true){showNotif('Esta venta tiene incentivos liquidados o falta instalar el módulo SQL; no puede editarse de forma directa.','#c62828');return;}
-  const estadoNuevo=document.getElementById('ev-estado').value;
-  if(estadoNuevo==='Cancelada'||estadoNuevo==='Anulado'){
-    showNotif('Para cancelar una venta, usa la opción Cancelar del historial, que devuelve el stock.','#e65100');return;
+  if(_evItems?.some(i=>i._nuevo||i._eliminado)){
+    showNotif('No se pueden cambiar artículos sin una operación contable atómica.','#c62828');return;
   }
+  const {data:originales,error:itemsError}=await sb.from('venta_items')
+    .select('id,producto_id,cant,precio,descuento').eq('venta_id',id);
+  if(itemsError){showNotif('No se pudo verificar artículos; no se guardaron cambios','#c62828');return;}
+  if(_evItems?.length&&(
+    _evItems.length!==(originales||[]).length||
+    _evItems.some(item=>{
+      const old=(originales||[]).find(x=>Number(x.id)===Number(item.id));
+      return !old||Number(old.producto_id||0)!==Number(item.producto_id||0)
+       ||Number(old.cant)!==Number(item.cant)
+       ||Math.round(Number(old.precio||0)*100)!==Math.round(Number(item.precio||0)*100)
+       ||Math.round(Number(old.descuento||0)*100)!==Math.round(Number(item.descuento||0)*100);
+    })
+  )){
+    showNotif('Los cambios de cantidades/precios requieren un ajuste atómico de inventario y créditos.','#c62828');
+    return;
+  }
+  const entrega=document.getElementById('ev-entrega').value;
+  const entTexto=entrega==='domicilio'?'A Domicilio':entrega==='inmediata'?'Entrega Inmediata':'Recolección en tienda';
   showLoad(true);
-  await sb.from('ventas').update({
-    fecha:document.getElementById('ev-fecha').value,
-    cliente_id:document.getElementById('ev-cli').value||null,
-    entrega:entTexto,
-    estado:document.getElementById('ev-estado').value,
-    total:nuevoTotal,pagado:nuevoPagado,
-    notas:document.getElementById('ev-notas').value
-  }).eq('id',id);
-  // Si es Jefe, guardar cambios de items
-  if(esJefe&&_evItems.length){
-    const eliminados=_evItems.filter(i=>i._eliminado&&i.id);
-    for(const item of eliminados) await sb.from('venta_items').delete().eq('id',item.id);
-    const modificados=_evItems.filter(i=>!i._eliminado&&!i._nuevo&&i.id);
-    for(const item of modificados) await sb.from('venta_items').update({cant:item.cant,precio:item.precio,descuento:item.descuento||0}).eq('id',item.id);
-    const nuevos=_evItems.filter(i=>!i._eliminado&&i._nuevo);
-    if(nuevos.length) await sb.from('venta_items').insert(nuevos.map(i=>({venta_id:parseInt(id),nombre:i.nombre,cant:i.cant,precio:i.precio,descuento:0,producto_id:i.producto_id||null})));
-  }
-  // Actualizar crédito asociado
-  const credAsoc=D.creditos.find(c=>c.venta_id===parseInt(id)&&c.estado==='Pendiente');
-  if(credAsoc){
-    const nuevoMonto=nuevoTotal-nuevoPagado;
-    const nuevaFechaVenta=document.getElementById('ev-fecha').value;
-    if(nuevoMonto>0) await sb.from('creditos').update({monto:nuevoMonto,fecha:nuevaFechaVenta}).eq('id',credAsoc.id);
-    else await sb.from('creditos').update({fecha:nuevaFechaVenta}).eq('id',credAsoc.id);
-  }
-  showLoad(false);
-  closeModal('modal-edit-venta');
-  await loadLight();
-  Object.keys(_diasCache).forEach(k=>delete _diasCache[k]);
-  renderHistorial();renderCreditos();
-  showNotif('✅ Venta actualizada','#2e7d32');
+  try{
+    const {data,error}=await sb.rpc('aq_editar_venta_datos_auth_v1',{
+      p_venta:id,p_entrega:entTexto,p_notas:document.getElementById('ev-notas').value
+    });
+    if(error)throw error;
+    closeModal('modal-edit-venta');
+    await loadLight();renderHistorial();renderCreditos();
+    showNotif('✅ Entrega y notas actualizadas, sin alterar finanzas','#2e7d32');
+  }catch(e){showNotif('No se modificó la venta: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
 }
 async function delVenta(id){
   const esVendedorRol=['vendedor','vendedor_editor'].includes(CU?.rol);

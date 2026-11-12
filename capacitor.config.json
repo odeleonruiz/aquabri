@@ -1,0 +1,11 @@
+{
+  "appId": "com.aquabri.ventas",
+  "appName": "AQUABRI",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

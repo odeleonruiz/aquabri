@@ -30,3 +30,14 @@ jobs:
           assert(html.includes("aq_sesion_perfil_seguro_v1"),'Falta lectura de perfil');
           assert(!html.includes("x.usuario===u&&x.pass===p"),'Comparación insegura permanece');
           NODE
+      - name: Verificar cabecera de sesión en CORS del laboratorio
+        run: |
+          set -o pipefail
+          respuesta=$(curl --fail --silent --show-error --max-time 20 --request OPTIONS \
+            -H 'Origin: https://odeleonruiz.github.io' \
+            -H 'Access-Control-Request-Method: GET' \
+            -H 'Access-Control-Request-Headers: apikey,authorization,x-aquabri-session' \
+            -D - -o /dev/null \
+            https://xzbawbkstaqvkwtqlqai.supabase.co/rest/v1/clientes)
+          echo "$respuesta" | grep -i 'access-control-allow-headers:' || true
+          echo "$respuesta" | grep -i 'access-control-allow-headers:' | grep -Eqi 'x-aquabri-session|\*'

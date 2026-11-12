@@ -11332,105 +11332,103 @@ function actualizarEntradaPreview(){
   if(despues)despues.textContent=D.envBod+cant;
 }
 
+// Todas las escrituras de envases se realizan en una sola transacción autenticada.
+async function aqGuardarMovimientoEnvase(opKey,payload){
+  const nonce=aqNonceOperacion('env-'+opKey,payload);
+  const {data,error}=await sb.rpc('aq_registrar_movimiento_envase_auth_v1',{
+    ...payload,p_nonce:nonce
+  });
+  if(error||!data?.ok)throw error||new Error('Supabase no confirmó el movimiento');
+  aqConfirmarOperacion('env-'+opKey);
+  return data;
+}
+async function aqActualizarPantallaEnvases(){
+  try{
+    await loadAll();updateEnvStats();renderEnvases();renderEnvPrestados();fillEnvSelects();
+  }catch(error){
+    console.error('Movimiento confirmado, pero no se pudo refrescar envases',error);
+    showNotif('Movimiento confirmado. Actualiza la página para ver los nuevos saldos.','#e65100');
+  }
+}
 async function ingresarEnvases(){
   const cant=Number(document.getElementById('ent-cant').value);
-  if(!Number.isSafeInteger(cant)||cant<=0){showNotif('Ingresa una cantidad entera válida','#c62828');return;}
+  if(!Number.isSafeInteger(cant)||cant<=0){showNotif('Ingresa una cantidad válida','#c62828');return;}
   const motivo=document.getElementById('ent-motivo').value;
   const notas=document.getElementById('ent-notas').value;
-  const boton=document.querySelector('button[onclick="ingresarEnvases()"]');
-  if(boton?.disabled)return;
-  if(boton)boton.disabled=true;
+  const btn=document.querySelector('button[onclick="ingresarEnvases()"]');
+  if(btn?.disabled)return;if(btn)btn.disabled=true;
   try{
-    const {data:actual,error:lecturaError}=await sb.from('envases_bodega').select('cantidad').eq('id',1).maybeSingle();
-    if(lecturaError)throw lecturaError;
-    if(!actual)throw new Error('No existe el registro de bodega (id 1). Debe configurarse en Supabase antes de registrar entradas.');
-    const nuevaCant=Number(actual.cantidad||0)+cant;
-    const {data:guardado,error:actualizarError}=await sb.from('envases_bodega').update({cantidad:nuevaCant}).eq('id',1).select('cantidad').maybeSingle();
-    if(actualizarError)throw actualizarError;
-    if(!guardado)throw new Error('Supabase no confirmó la actualización de bodega. Revisa los permisos de la tabla.');
-    const {error:histError}=await sb.from('envases').insert({fecha:hoy(),cliente_id:null,cant,tipo:'Entrada',notas:motivo+(notas?' — '+notas:''),precio:0});
-    if(histError){
-      await loadAll();updateEnvStats();renderEnvases();
-      throw new Error('La bodega se actualizó, pero falló el historial. NO repitas la entrada; revisa el movimiento: '+histError.message);
-    }
-    await loadAll();updateEnvStats();renderEnvases();
+    const datos={p_tipo:'Entrada',p_cantidad:cant,p_cliente_id:null,p_fecha:hoy(),
+      p_notas:[motivo,notas].filter(Boolean).join(' — '),p_precio_unitario:0,p_medio_pago:'efectivo'};
+    const res=await aqGuardarMovimientoEnvase('entrada',datos);
     document.getElementById('ent-cant').value=1;
     document.getElementById('ent-notas').value='';
-    actualizarEntradaPreview();
-    showNotif('✅ '+cant+' envases ingresados a bodega. Total: '+D.envBod);
-  }catch(error){console.error('Error entrada envases:',error);showNotif('Error: '+(error.message||'No se pudo registrar'),'#c62828');}
-  finally{if(boton)boton.disabled=false;}
+    await aqActualizarPantallaEnvases();actualizarEntradaPreview();
+    showNotif(res.repetida?'Entrada ya registrada':'✅ Entrada confirmada — bodega: '+res.bodega_final);
+  }catch(e){showNotif('No se registró la entrada: '+(e.message||e),'#c62828');}
+  finally{if(btn)btn.disabled=false;}
 }
 
 async function prestarEnv(){
   const cid=Number(document.getElementById('envp-cli')?.value);
   const cant=Number(document.getElementById('ev-cant')?.value);
   const fecha=document.getElementById('envp-fecha')?.value;
-  const cli=D.clientes.find(c=>c.id===cid);
-  if(!cli){showNotif('Selecciona un cliente de la lista','#c62828');return;}
-  if(!Number.isSafeInteger(cant)||cant<=0){showNotif('Ingresa una cantidad entera mayor que cero','#c62828');return;}
-  if(!fecha){showNotif('Selecciona la fecha del préstamo','#c62828');return;}
-  if(cant>D.envBod){showNotif('No hay suficientes envases en bodega','#c62828');return;}
-  const boton=document.querySelector('#env-tab-prestamo button[onclick="prestarEnv()"]');
-  if(boton?.disabled)return;
-  if(boton)boton.disabled=true;
+  if(!Number.isInteger(cid)||cid<1||!Number.isInteger(cant)||cant<1||!fecha){
+    showNotif('Selecciona cliente, cantidad y fecha válidos','#c62828');return;
+  }
+  const btn=document.querySelector('#env-tab-prestamo button[onclick="prestarEnv()"]');
+  if(btn?.disabled)return;if(btn)btn.disabled=true;
   try{
-    const {data:cliActual,error:readErr}=await sb.from('clientes').select('envases').eq('id',cid).maybeSingle();
-    if(readErr||!cliActual)throw readErr||new Error('No se pudo leer el cliente');
-    const {data:clienteGuardado,error:e1}=await sb.from('clientes').update({envases:Number(cliActual.envases||0)+cant}).eq('id',cid).select('id').maybeSingle();
-    if(e1||!clienteGuardado)throw e1||new Error('No se pudo actualizar el saldo del cliente');
-    const {data:bodegaGuardada,error:e2}=await sb.from('envases_bodega').update({cantidad:D.envBod-cant}).eq('id',1).select('cantidad').maybeSingle();
-    if(e2||!bodegaGuardada)throw e2||new Error('No se pudo actualizar bodega; revisa el saldo del cliente antes de repetir');
-    const {error:e3}=await sb.from('envases').insert({fecha,cliente_id:cid,cant,tipo:'Préstamo',notas:document.getElementById('envp-notas').value,precio:0});
-    if(e3)throw e3;
-    // No dejar seleccionado al cliente anterior después de guardar.
-    const buscador=document.getElementById('envp-buscar');
-    const selector=document.getElementById('envp-cli');
-    if(buscador)buscador.value='';
-    if(selector)selector.value='';
-    await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();
-    if(selector)selector.value='';
+    const data={p_tipo:'Préstamo',p_cantidad:cant,p_cliente_id:cid,p_fecha:fecha,
+      p_notas:document.getElementById('envp-notas').value||'',
+      p_precio_unitario:0,p_medio_pago:'efectivo'};
+    const res=await aqGuardarMovimientoEnvase('prestamo',data);
+    const buscador=document.getElementById('envp-buscar'),sel=document.getElementById('envp-cli');
+    if(buscador)buscador.value='';if(sel)sel.value='';
     document.getElementById('ev-cant').value='1';
     document.getElementById('envp-notas').value='';
     document.getElementById('envp-fecha').value=hoy();
-    showNotif('✅ Préstamo registrado');
-  }catch(error){
-    console.error('Error registrando préstamo de envases:',error);
-    showNotif('No se completó el préstamo: '+(error.message||'revisa conexión y permisos'),'#c62828');
-    // Las operaciones anteriores pueden haber quedado guardadas: revisar datos antes de reintentar.
-    try{await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();}catch(e){console.error(e);}
-  }finally{if(boton)boton.disabled=false;}
+    await aqActualizarPantallaEnvases();
+    if(sel)sel.value='';
+    showNotif(res.repetida?'Préstamo ya registrado':'✅ Préstamo registrado con saldo actualizado');
+  }catch(e){showNotif('No se completó el préstamo: '+(e.message||e),'#c62828');}
+  finally{if(btn)btn.disabled=false;}
 }
 
 async function devolverEnv(){
-  const cid=parseInt(document.getElementById('dev-cli').value);
-  const cant=parseInt(document.getElementById('dev-cant').value)||1;
-  const cli=D.clientes.find(c=>c.id===cid);
-  if(!cli||(cli.envases||0)<cant){showNotif(`El cliente solo tiene ${cli?.envases||0} envases prestados`,'#c62828');return;}
-  await sb.from('clientes').update({envases:cli.envases-cant}).eq('id',cid);
-  await sb.from('envases_bodega').update({cantidad:D.envBod+cant}).eq('id',1);
-  await sb.from('envases').insert({fecha:hoy(),cliente_id:cid,cant,tipo:'Devolución',notas:document.getElementById('dev-notas')?.value||'',precio:0});
-  await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();
-  document.getElementById('dev-info').textContent='';
-  showNotif('✅ Devolución registrada — envase vuelve a bodega');
+  const cid=Number(document.getElementById('dev-cli').value);
+  const cant=Number(document.getElementById('dev-cant').value);
+  if(!Number.isInteger(cid)||cid<1||!Number.isInteger(cant)||cant<1){
+    showNotif('Selecciona cliente y cantidad válida','#c62828');return;
+  }
+  try{
+    const data={p_tipo:'Devolución',p_cantidad:cant,p_cliente_id:cid,p_fecha:hoy(),
+      p_notas:document.getElementById('dev-notas')?.value||'',p_precio_unitario:0,p_medio_pago:'efectivo'};
+    const res=await aqGuardarMovimientoEnvase('devolucion',data);
+    await aqActualizarPantallaEnvases();
+    const msg=document.getElementById('dev-info');if(msg)msg.textContent='';
+    showNotif(res.repetida?'Devolución ya registrada':'✅ Devolución confirmada — envases devueltos a bodega');
+  }catch(e){showNotif('No se completó la devolución: '+(e.message||e),'#c62828');}
 }
 
 async function venderEnvase(){
-  const cant=parseInt(document.getElementById('venv-cant').value)||1;
-  const precio=parseFloat(document.getElementById('venv-precio').value)||0;
-  if(cant>D.envBod){showNotif('No hay suficientes envases en bodega','#c62828');return;}
-  if(!precio){showNotif('Ingresa el precio de venta','#c62828');return;}
-  const cid=document.getElementById('venv-cli').value;
-  const total=cant*precio;
-  
-  await sb.from('envases_bodega').update({cantidad:D.envBod-cant}).eq('id',1);
-  
-  await sb.from('envases').insert({fecha:document.getElementById('venv-fecha').value,cliente_id:cid?parseInt(cid):null,cant,tipo:'Venta',notas:document.getElementById('venv-notas').value||'',precio:total});
-  
-  await sb.from('ventas').insert({fecha:document.getElementById('venv-fecha').value,cliente_id:cid?parseInt(cid):null,total,pagado:total,entrega:'Entrega Inmediata',notas:'Venta de envase vacío ×'+cant,estado:'Entregado',bonificaciones:''});
-  await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();
-  document.getElementById('venv-cant').value=1;document.getElementById('venv-precio').value=0;document.getElementById('venv-notas').value='';document.getElementById('venv-total').textContent='';
-  showNotif(`✅ Venta de ${cant} envase(s) por ${fQ(total)}`);
+  const cant=Number(document.getElementById('venv-cant').value);
+  const precio=Number(document.getElementById('venv-precio').value);
+  const clienteRaw=document.getElementById('venv-cli').value;
+  if(!Number.isInteger(cant)||cant<1||!Number.isFinite(precio)||precio<=0){
+    showNotif('Cantidad o precio inválido','#c62828');return;
+  }
+  const data={p_tipo:'Venta',p_cantidad:cant,p_cliente_id:clienteRaw?Number(clienteRaw):null,
+    p_fecha:document.getElementById('venv-fecha').value||hoy(),
+    p_notas:document.getElementById('venv-notas').value||'',
+    p_precio_unitario:precio,p_medio_pago:'efectivo'};
+  try{
+    const res=await aqGuardarMovimientoEnvase('venta',data);
+    document.getElementById('venv-cant').value=1;document.getElementById('venv-precio').value=0;
+    document.getElementById('venv-notas').value='';document.getElementById('venv-total').textContent='';
+    await aqActualizarPantallaEnvases();
+    showNotif(res.repetida?'Venta ya registrada':'✅ Venta #'+res.venta_id+' registrada en historial y caja: '+fQ(res.monto));
+  }catch(e){showNotif('No se confirmó la venta de envases: '+(e.message||e),'#c62828');}
 }
 
 function renderEnvPrestados(){
@@ -11491,18 +11489,19 @@ function cambiarCantDev(cid,delta,maximo){
 }
 
 async function confirmarDevRapido(cid,maximo){
-  const cantEl=document.getElementById('cant-dev-'+cid);
-  const cant=parseInt(cantEl?.textContent)||1;
-  if(cant<=0||cant>maximo){showNotif('Cantidad inválida','#c62828');return;}
-  const cli=D.clientes.find(c=>c.id===cid);
-  if(!cli)return;
+  const cant=Number(document.getElementById('cant-dev-'+cid)?.textContent)||1;
+  if(!Number.isInteger(cant)||cant<1||cant>maximo){
+    showNotif('Cantidad de devolución inválida','#c62828');return;
+  }
   showLoad(true);
-  await sb.from('clientes').update({envases:cli.envases-cant}).eq('id',cid);
-  await sb.from('envases_bodega').update({cantidad:D.envBod+cant}).eq('id',1);
-  await sb.from('envases').insert({fecha:hoy(),cliente_id:cid,cant,tipo:'Devolución',notas:'Devolución',precio:0});
-  await loadAll();updateEnvStats();renderEnvPrestados();fillEnvSelects();
-  showLoad(false);
-  showNotif('✅ '+cant+' envase(s) devuelto(s)');
+  try{
+    const data={p_tipo:'Devolución',p_cantidad:cant,p_cliente_id:Number(cid),p_fecha:hoy(),
+      p_notas:'Devolución rápida',p_precio_unitario:0,p_medio_pago:'efectivo'};
+    const res=await aqGuardarMovimientoEnvase('devolucion-rapida-'+cid,data);
+    await aqActualizarPantallaEnvases();
+    showNotif(res.repetida?'Devolución ya registrada':'✅ '+cant+' envase(s) devuelto(s)');
+  }catch(e){showNotif('No se completó la devolución: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
 }
 
 async function devRapido(cid,maximo){

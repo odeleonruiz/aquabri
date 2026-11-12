@@ -10,7 +10,7 @@
 <head>
 <base href="/aquabri/">
 <meta name="robots" content="noindex,nofollow">
-<!-- AQUABRI QA: base de pruebas solamente. -->
+<!-- AQUABRI QA: apuntar únicamente a la base de pruebas. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -247,8 +247,7 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
 </style>
 </head>
 <body>
-<div id="qa-ambiente-no-produccion" style="position:fixed;bottom:0;left:0;right:0;z-index:9999999;background:#b71c1c;color:white;text-align:center;padding:6px 8px;font:bold 12px Arial,sans-serif;pointer-events:none">⚠ AQUABRI DE PRUEBAS · No registrar ventas reales · Base separada</div>
-
+<div id="aq-qa-aviso" role="status" style="position:fixed;top:0;left:0;right:0;z-index:100001;padding:3px 8px;text-align:center;font:700 11px system-ui,sans-serif;background:#fff3cd;color:#663c00;pointer-events:none;box-shadow:0 1px 3px #0003">AQUABRI · PRUEBAS — DATOS AISLADOS DEL SISTEMA OFICIAL</div>
 
 <div id="loading-screen">
   <div class="spin"></div>
@@ -5208,10 +5207,10 @@ async function marcarVisitadoDesdeVentas(){
   if(!siguiente){showNotif('🎉 Todos los clientes visitados','#2e7d32');return;}
   const cid=siguiente.clientes?.id;
   if(cid){
-    await marcarVisitadoDirecto(cid, true); // true = sin compra
+    if(!await marcarVisitadoDirecto(cid, true))return;
   } else {
+    if(!await aqMarcarParadaSegura(siguiente.id))return;
     siguiente.estado='Visitado';
-    await sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',siguiente.id);
   }
   actualizarNavPanel();
   actualizarPanelRutaVentas();
@@ -5583,7 +5582,10 @@ async function cobrar(enviarWsp=false){
     if(!window._visitasHoy)window._visitasHoy={};
     window._visitasHoy[cidInt]=fechaVenta;
     // Guardar visita permanente con la fecha real de la venta
-    sb.from('visitas').insert({cliente_id:cidInt,fecha:fechaVenta,usuario_id:CU?.id||null,notas:'Auto desde venta #'+venta.id});
+    if(!await aqRegistrarVisitaSegura(cidInt,false,fechaVenta,venta.id,true)){
+      console.warn('La venta fue confirmada, pero faltó sincronizar la visita de ruta');
+      showNotif('Venta guardada; la visita quedó pendiente de sincronizar.','#e65100');
+    }
     // Actualizar D.ventas en memoria para que sugerencias se refresquen sin esperar BD
     const ventaLocal={id:venta.id,cliente_id:cidInt,fecha:fechaVenta,total,estado,clientes:D.clientes.find(c=>c.id===cidInt)?{nombre:D.clientes.find(c=>c.id===cidInt).nombre}:null};
     if(!D.ventas.find(v=>v.id===venta.id))D.ventas.unshift(ventaLocal);
@@ -5599,7 +5601,7 @@ async function cobrar(enviarWsp=false){
         const parada=navParadas.find(p=>p.cliente_id===cidInt||p.clientes?.id===cidInt);
         if(parada&&parada.estado!=='Visitado'){
           parada.estado='Visitado';
-          sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',parada.id);
+          // La visita y el estado de ruta se actualizan juntos mediante la RPC autenticada.
           actualizarNavPanel();
           actualizarPanelRutaVentas();
         }
@@ -5646,7 +5648,7 @@ async function cobrar(enviarWsp=false){
     const parada=navParadas.find(p=>p.cliente_id===parseInt(cid)||p.clientes?.id===parseInt(cid));
     if(parada&&parada.estado!=='Visitado'){
       parada.estado='Visitado';
-      sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',parada.id);
+      // La visita y el estado de ruta se actualizan juntos mediante la RPC autenticada.
       actualizarNavPanel();
     }
   }
@@ -6785,7 +6787,7 @@ async function registrarClienteDesdeVenta(nombre,prefix='v'){
       if(res.mensaje)showNotif(res.mensaje,'#e65100');
     }catch(e){showNotif('Error al registrar cliente: '+(e.message||e),'#c62828');return;}
     if(nuevo?.id){
-      await sb.from('visitas').insert({cliente_id:nuevo.id,fecha:hoy(),usuario_id:CU?.id||null,notas:'Registrado desde venta'});
+      await aqRegistrarVisitaSegura(nuevo.id,false,hoy(),null,true);
       await loadLight();
       const hid=document.getElementById(prefix+'-cli');
       const inp=document.getElementById(prefix+'-cli-input');
@@ -7972,30 +7974,72 @@ function navegarA(lat,lng,nombre){
   showNotif(`🗺 Abriendo Google Maps → ${nombre||'Cliente'}`);
 }
 
+// Rutas atómicas: no escribir cabeceras/paradas directamente desde el navegador.
+async function aqRutaRpc(rpc,args){
+  const {data,error}=await sb.rpc(rpc,args);
+  if(error||!data?.ok)throw error||new Error('Operación de ruta sin confirmar');
+  return data;
+}
+async function aqCrearRutaSegura(ruta,clientes){
+  return aqRutaRpc('aq_crear_ruta_auth_v1',{
+    p_ruta:ruta,p_clientes:(clientes||[]).map(id=>Number(id))
+  });
+}
+async function aqCambiarRutaEstado(id,estado){
+  try{await aqRutaRpc('aq_estado_ruta_auth_v1',{p_ruta_id:Number(id),p_estado:estado});return true;}
+  catch(e){showNotif('Ruta no actualizada: '+(e.message||e),'#c62828');return false;}
+}
+async function aqReordenarRutaSegura(id,paradas){
+  try{
+    await aqRutaRpc('aq_reordenar_ruta_auth_v1',{
+      p_ruta_id:Number(id),p_paradas:(paradas||[]).map(x=>Number(x))
+    });
+    return true;
+  }catch(e){showNotif('No se guardó el nuevo orden: '+(e.message||e),'#c62828');return false;}
+}
+
+// Visitas y paradas: escrituras solo mediante RPC autenticadas de staging.
+async function aqRegistrarVisitaSegura(clienteId,sinCompra=false,fecha=null,ventaId=null,silencio=false){
+  try{
+    const {data,error}=await sb.rpc('aq_marcar_visita_auth_v1',{
+      p_cliente_id:Number(clienteId),p_sin_compra:!!sinCompra,
+      p_fecha:fecha||null,p_venta_id:ventaId||null
+    });
+    if(error||!data?.ok)throw error||new Error('La visita no fue confirmada');
+    return true;
+  }catch(e){
+    console.error('AQUABRI: visita no guardada',e);
+    if(!silencio)showNotif('No se pudo registrar la visita: '+(e?.message||e),'#c62828');
+    return false;
+  }
+}
+async function aqMarcarParadaSegura(paradaId,silencio=false){
+  try{
+    const {data,error}=await sb.rpc('aq_marcar_parada_auth_v1',{p_parada_id:Number(paradaId)});
+    if(error||!data?.ok)throw error||new Error('La parada no fue confirmada');
+    return true;
+  }catch(e){
+    console.error('AQUABRI: parada no actualizada',e);
+    if(!silencio)showNotif('No se pudo completar la parada: '+(e?.message||e),'#c62828');
+    return false;
+  }
+}
 async function marcarVisitadoDirecto(cid,sinCompra=false){
+  if(!await aqRegistrarVisitaSegura(cid,sinCompra))return false;
   estadosParadas[cid]='visitado';
   actualizarColorMarker(cid);
   if(!window._visitasHoy)window._visitasHoy={};
   window._visitasHoy[cid]=hoy();
   if(!window._todasVisitas)window._todasVisitas=[];
-  window._todasVisitas.push({cliente_id:cid,fecha:hoy()});
-  const notasVisita=sinCompra?'Sin compra':'Marcado desde mapa';
-  await sb.from('visitas').insert({cliente_id:cid,fecha:hoy(),usuario_id:CU?.id||null,notas:notasVisita});
-  // buscar en TODAS las rutas de hoy, no solo la activa
-  const{data:paradasCliente}=await sb.from('ruta_paradas')
-    .select('id,ruta_id,rutas(fecha)')
-    .eq('cliente_id',cid)
-    .eq('estado','Pendiente');
-  if(paradasCliente?.length){
-    for(const p of paradasCliente){
-      if(p.rutas?.fecha===hoy())await sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',p.id);
-    }
+  if(!window._todasVisitas.some(v=>Number(v.cliente_id)===Number(cid)&&v.fecha===hoy())){
+    window._todasVisitas.push({cliente_id:cid,fecha:hoy()});
   }
   const pm=navParadas.find(x=>x.cliente_id===cid||x.clientes?.id===cid);
   if(pm)pm.estado='Visitado';
   if(navRutaActiva){actualizarNavPanel();renderRutas();actualizarPanelRutaVentas();}
   if(_rutaInteligente&&_rutaInteligente.length>0)setTimeout(()=>mostrarLotePorVisitar(0),400);
   showNotif(sinCompra?'📍 Visita sin compra guardada ✅':'✅ Visita guardada');
+  return true;
 }
 
 async function iniciarNavegacionRuta(rid){
@@ -8045,7 +8089,7 @@ async function iniciarNavegacionRuta(rid){
         p.estado='Visitado';
         estadosParadas[cid]='visitado';
         // Actualizar en Supabase también
-        sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',p.id);
+        aqMarcarParadaSegura(p.id,true);
         actualizarColorMarker(cid);
         return;
       }
@@ -8058,7 +8102,7 @@ async function iniciarNavegacionRuta(rid){
   if(primerPend>=0)navIdx=primerPend;
   document.getElementById('nav-ruta-panel').style.display='';
   document.getElementById('nav-ruta-nombre').textContent=ruta.nombre;
-  await sb.from('rutas').update({estado:'En Ruta'}).eq('id',rid);
+  if(!await aqCambiarRutaEstado(rid,'En Ruta'))return;
   actualizarNavPanel();
   actualizarPanelRutaVentas();
   renderRutas();
@@ -8066,7 +8110,7 @@ async function iniciarNavegacionRuta(rid){
   // Auto-optimizar por cercanía — con GPS si disponible, sin GPS usa posición del primer cliente
   const pendientes=navParadas.filter(p=>p.estado!=='Visitado'&&p.clientes?.lat&&p.clientes?.lng);
   const visitados=navParadas.filter(p=>p.estado==='Visitado');
-  function optimizarParadas(posInicio){
+  async function optimizarParadas(posInicio){
     if(pendientes.length<=1)return;
     const ordenados=[];
     const restantes=[...pendientes];
@@ -8084,7 +8128,7 @@ async function iniciarNavegacionRuta(rid){
       pos={lat:parseFloat(ult.clientes.lat),lng:parseFloat(ult.clientes.lng)};
     }
     navParadas=[...visitados,...ordenados];
-    ordenados.forEach((p,i)=>sb.from('ruta_paradas').update({orden:visitados.length+i}).eq('id',p.id));
+    if(!await aqReordenarRutaSegura(navRutaActiva.id,navParadas.map(p=>p.id)))return;
     const pp=navParadas.findIndex(p=>p.estado!=='Visitado');
     if(pp>=0)navIdx=pp;
     actualizarNavPanel();
@@ -8203,8 +8247,11 @@ async function marcarVisitado(){
     }
   }
 
+  const visitaGuardada=p.clientes?.id
+    ?await marcarVisitadoDirecto(p.clientes.id,true)
+    :await aqMarcarParadaSegura(p.id);
+  if(!visitaGuardada)return;
   p.estado='Visitado';
-  await sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',p.id);
   if(p.clientes?.id){estadosParadas[p.clientes.id]='visitado';actualizarColorMarker(p.clientes.id);}
   actualizarNavPanel();
   sincronizarNavFs();
@@ -8233,8 +8280,8 @@ async function marcarSinCompraDesdeNav(){
   const p=pend[0];
   const cid=p.clientes?.id||p.cliente_id;
   if(!cid){
+    if(!await aqMarcarParadaSegura(p.id))return;
     p.estado='Visitado';
-    await sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',p.id);
     actualizarNavPanel();
     sincronizarNavFs();
     actualizarPanelRutaVentas();
@@ -8281,14 +8328,14 @@ function mostrarRutaCompletada(){
 ✅ ${visitados} clientes visitados
 
 ¿Finalizar la ruta?`)){
-      finalizarRuta();
+      finalizarRutaActiva();
     }
   },500);
 }
 
-async function finalizarRuta(){
+async function finalizarRutaActiva(){
   if(document.hidden||!navRutaActiva)return;
-  await sb.from('rutas').update({estado:'Completada'}).eq('id',navRutaActiva.id);
+  if(!await aqCambiarRutaEstado(navRutaActiva.id,'Completada'))return;
   cerrarNavRuta();
   showNotif('✅ Ruta finalizada y guardada','#2e7d32');
 }
@@ -8311,23 +8358,14 @@ function navAnterior(){
 
 async function reutilizarRuta(rutaId, nombre){
   if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el Jefe puede gestionar rutas','#c62828');return;}
-  if(!confirm(`¿Reutilizar la ruta "${nombre}"? Se reiniciarán las paradas pendientes.`))return;
-  const{data:paradas}=await sb.from('ruta_paradas').select('id,cliente_id').eq('ruta_id',rutaId);
-  if(paradas?.length){
-    const hoyStr=hoy();
-    for(const p of paradas){
-      const yaVisitado=(window._visitasHoy||{})[p.cliente_id]===hoyStr;
-      const yaVendido=D.ventas.some(v=>v.cliente_id===p.cliente_id&&v.fecha===hoyStr&&v.estado!=='Cancelada');
-      const nuevoEstado=(yaVisitado||yaVendido)?'Visitado':'Pendiente';
-      await sb.from('ruta_paradas').update({estado:nuevoEstado}).eq('id',p.id);
-    }
-  }
-  const{data:paradasActualizadas}=await sb.from('ruta_paradas').select('estado').eq('ruta_id',rutaId);
-  const todasVisitadas=paradasActualizadas?.every(p=>p.estado==='Visitado');
-  await sb.from('rutas').update({estado:todasVisitadas?'Completada':'Pendiente',fecha:hoy()}).eq('id',rutaId);
-  await loadAll();renderRutas();
-  const pendientes=paradasActualizadas?.filter(p=>p.estado==='Pendiente').length||0;
-  showNotif(`✅ Ruta "${nombre}" lista — ${pendientes} paradas pendientes`,'#6a1b9a');
+  if(!confirm(`¿Reutilizar la ruta "${nombre}"? Se recalcularán las paradas pendientes.`))return;
+  try{
+    const res=await aqRutaRpc('aq_reutilizar_ruta_auth_v1',{
+      p_ruta_id:Number(rutaId),p_fecha:hoy()
+    });
+    await loadAll();renderRutas();
+    showNotif(`✅ Ruta "${nombre}" lista — ${res.pendientes} paradas pendientes`,'#6a1b9a');
+  }catch(e){showNotif('No se reutilizó la ruta: '+(e.message||e),'#c62828');}
 }
 
 function actualizarSeguimientoJefe(){
@@ -8842,18 +8880,14 @@ async function iniciarRutaPersonalizada(rutaPersId, nombre){
   });
   if(!clientesFiltrados.length){showLoad(false);showNotif('Todos los clientes de esta ruta ya fueron visitados ✅','#2e7d32');return;}
   // Crear ruta navegable en tabla rutas
-  const{data:rutaNueva}=await sb.from('rutas').insert({
-    nombre:nombre+' — '+hoyStr,
-    fecha:hoyStr,
-    estado:'Pendiente',
-    vehiculo_id:vehiculoId||null,
-    empleado_id:empleadoId||null,
-    notas:'Generada desde agrupamiento'
-  }).select().single();
-  if(!rutaNueva){showLoad(false);showNotif('Error al crear ruta','#c62828');return;}
-  // Insertar paradas
-  const paradas=clientesFiltrados.map((item,i)=>({ruta_id:rutaNueva.id,cliente_id:item.clientes.id,orden:i,estado:'Pendiente'}));
-  await sb.from('ruta_paradas').insert(paradas);
+  let rutaNueva;
+  try{
+    rutaNueva=await aqCrearRutaSegura({
+      nombre:nombre+' — '+hoyStr,fecha:hoyStr,
+      vehiculo_id:vehiculoId||null,empleado_id:empleadoId||null,
+      notas:'Generada desde agrupamiento'
+    },clientesFiltrados.map(item=>item.clientes.id));
+  }catch(e){showLoad(false);showNotif('Error al crear ruta: '+(e.message||e),'#c62828');return;}
   showLoad(false);
   // Ir al mapa e iniciar navegación
   await goPage('mapa');
@@ -10073,17 +10107,9 @@ async function crearRutaCombinada(){
   if(!confirm(`¿Crear ruta "${nombre}" con ${clientes.length} clientes para el ${fecha}?`))return;
   showLoad(true);
   try{
-    const{data:ruta,error}=await sb.from('rutas').insert({
-      nombre,fecha,estado:'Pendiente',
-      vehiculo_id:vid||null,
-      empleado_id:eid||null
-    }).select().single();
-    if(error)throw error;
-    if(ruta?.id){
-      const paradas=clientes.map((c,i)=>({ruta_id:ruta.id,cliente_id:c.id,orden:i+1,estado:'Pendiente'}));
-      const{error:e2}=await sb.from('ruta_paradas').insert(paradas);
-      if(e2)throw e2;
-    }
+    const ruta=await aqCrearRutaSegura({
+      nombre,fecha,vehiculo_id:vid||null,empleado_id:eid||null
+    },clientes.map(c=>c.id));
     showLoad(false);
     // Limpiar form
     document.querySelectorAll('#combinar-checkboxes input').forEach(i=>i.checked=false);
@@ -10184,22 +10210,16 @@ async function saveRutaDesdeNombreRuta(){
   const eid=document.getElementById('r-empleado2').value;
   const fecha=document.getElementById('r-fecha2').value||hoy();
   
-  const{data:rutaData}=await sb.from('rutas').insert({
-    nombre,fecha,estado:'Pendiente',
-    vehiculo_id:vid?parseInt(vid):null,
-    empleado_id:eid?parseInt(eid):null
-  }).select().single();
-  if(!rutaData){showNotif('Error creando ruta','#c62828');return;}
-  
-  const paradas=clientesRutaSeleccionada.map((c,i)=>({
-    ruta_id:rutaData.id,cliente_id:c.id,orden:i+1,estado:'Pendiente'
-  }));
-  await sb.from('ruta_paradas').insert(paradas);
-  await loadAll();
-  renderRutas();
-  showNotif(`✅ Ruta "${nombre}" creada con ${paradas.length} clientes`,'#2e7d32');
-  
-  setTimeout(()=>iniciarNavegacionRuta(rutaData.id),800);
+  try{
+    const rutaData=await aqCrearRutaSegura({
+      nombre,fecha,vehiculo_id:vid?parseInt(vid):null,
+      empleado_id:eid?parseInt(eid):null
+    },clientesRutaSeleccionada.map(c=>c.id));
+    await loadAll();
+    renderRutas();
+    showNotif(`✅ Ruta "${nombre}" creada con ${clientesRutaSeleccionada.length} clientes`,'#2e7d32');
+    setTimeout(()=>iniciarNavegacionRuta(rutaData.id),800);
+  }catch(e){showNotif('Error creando ruta: '+(e.message||e),'#c62828');}
 }
 
 function optimizarClientesRuta(){
@@ -10243,9 +10263,14 @@ async function saveRuta(){
   if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el Jefe puede crear rutas','#c62828');return;}
   const nom=document.getElementById('r-nombre').value.trim();if(!nom){showNotif('Nombre requerido','#c62828');return;}
   if(!rutaParadasIds.length){showNotif('Agrega al menos 1 parada','#c62828');return;}
-  const{data:ruta}=await sb.from('rutas').insert({nombre:nom,vehiculo_id:parseInt(document.getElementById('r-vehiculo').value)||null,empleado_id:parseInt(document.getElementById('r-empleado').value)||null,fecha:document.getElementById('r-fecha').value,estado:'Pendiente'}).select().single();
-  for(let i=0;i<rutaParadasIds.length;i++)await sb.from('ruta_paradas').insert({ruta_id:ruta.id,cliente_id:rutaParadasIds[i],orden:i+1,estado:'Pendiente'});
-  clearRutaForm();renderRutas();showNotif('Ruta creada ✅');
+  try{
+    await aqCrearRutaSegura({
+      nombre:nom,vehiculo_id:parseInt(document.getElementById('r-vehiculo').value)||null,
+      empleado_id:parseInt(document.getElementById('r-empleado').value)||null,
+      fecha:document.getElementById('r-fecha').value||hoy()
+    },rutaParadasIds);
+    clearRutaForm();renderRutas();showNotif('Ruta creada ✅');
+  }catch(e){showNotif('No se creó la ruta: '+(e.message||e),'#c62828');}
 }
 
 function renderPedidosPendientesVentas(){
@@ -10446,9 +10471,21 @@ async function verRutaEnMapa(rid){
   const bounds=new google.maps.LatLngBounds();puntos.forEach(p=>bounds.extend(p));gmMap.fitBounds(bounds,{padding:{top:50,right:50,bottom:50,left:50}});
   showNotif(`🗺 Mostrando: ${ruta.nombre}`);rutaLineasActiva=true;
 }
-async function iniciarRuta(id){await sb.from('rutas').update({estado:'En Ruta'}).eq('id',id);renderRutas();showNotif('Ruta iniciada ✅');}
-async function finalizarRuta(id){await sb.from('rutas').update({estado:'Finalizado'}).eq('id',id);await sb.from('ruta_paradas').update({estado:'Visitado'}).eq('ruta_id',id);cerrarNavRuta();renderRutas();showNotif('Ruta finalizada ✅');}
-async function delRuta(id){if(!confirm('¿Eliminar ruta?'))return;await sb.from('ruta_paradas').delete().eq('ruta_id',id);await sb.from('rutas').delete().eq('id',id);renderRutas();showNotif('Eliminado','#c62828');}
+async function iniciarRuta(id){
+  if(!await aqCambiarRutaEstado(id,'En Ruta'))return;
+  renderRutas();showNotif('Ruta iniciada ✅');
+}
+async function finalizarRuta(id){
+  if(!await aqCambiarRutaEstado(id,'Finalizado'))return;
+  cerrarNavRuta();renderRutas();showNotif('Ruta finalizada sin inventar visitas ✅');
+}
+async function delRuta(id){
+  if(!confirm('¿Eliminar ruta?'))return;
+  try{
+    await aqRutaRpc('aq_borrar_ruta_auth_v1',{p_ruta_id:Number(id)});
+    renderRutas();showNotif('Ruta eliminada','#c62828');
+  }catch(e){showNotif('No se pudo eliminar ruta: '+(e.message||e),'#c62828');}
+}
 
 
 // ── POR PROVEEDOR ─────────────────────────────────────────────────────────────
@@ -14374,8 +14411,10 @@ async function confirmarPagoComision(empId, nombre, periodo){
 
 function handleFotoUpload(input){const file=input.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{userFotoBase64=e.target.result;document.getElementById('u-foto-prev').src=e.target.result;document.getElementById('u-foto-prev').style.display='';document.getElementById('u-foto-fb').style.display='none';};r.readAsDataURL(file);}
 async function saveUser(){
-  // QA/Auth: contraseñas, altas y roles requieren servicio seguro de Supabase Auth.
-  showNotif('Gestión de usuarios deshabilitada en pruebas: falta activar alta y cambios de clave seguros.','#c62828');
+  // QA/Auth: No almacenar contraseñas en public.usuarios.pass ni modificar
+  // roles mediante UPDATE directo. El alta y la recuperación de acceso deben
+  // hacerse en una función servidor que gestione Supabase Auth y audite al jefe.
+  showNotif('Gestión de usuarios temporalmente deshabilitada en pruebas. Falta integrar el alta y cambio de clave con Supabase Auth.','#c62828');
   return false;
 }
 
@@ -14402,7 +14441,7 @@ function editUser(id){
   if(u.foto){document.getElementById('u-foto-prev').src=u.foto;document.getElementById('u-foto-prev').style.display='';document.getElementById('u-foto-fb').style.display='none';}
   document.getElementById('uft').textContent='Editar Usuario — '+u.nombre;
 }
-async function delUser(id){showNotif('Eliminación deshabilitada en pruebas hasta integrar revocación segura de Supabase Auth.','#c62828');return false;}
+async function delUser(id){showNotif('La eliminación de empleados está bloqueada en pruebas hasta que se implemente revocación segura de Supabase Auth.','#c62828');return false;}
 function clearUserForm(){
   const nomInp=document.getElementById('unom');
   if(nomInp){nomInp.disabled=false;nomInp.style.background='';nomInp.style.color='';nomInp.title='';}
@@ -15850,7 +15889,7 @@ init();
 </script>
 
 <script>
-// QA aislada: NO registrar ni desregistrar service workers de producción.
+// Entorno QA: JAMÁS desregistrar service workers del sistema oficial.
 // Precargar Supabase en segundo plano
 window.addEventListener('load',()=>{
   if(window.requestIdleCallback){

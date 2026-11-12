@@ -19222,75 +19222,39 @@ function actualizarResumenCanje(){
 }
 
 async function confirmarCanje(clienteId,saldoActual,qrId){
-  const items=window._canjeItems||{};
-  if(!Object.keys(items).length){showNotif('Selecciona al menos un producto','#e65100');return;}
-  const totalPts=Object.values(items).reduce((s,i)=>s+i.cant*i.precio,0);
-  if(totalPts>saldoActual){showNotif('Puntos insuficientes','#c62828');return;}
-  if(!confirm(`¿Confirmar canje de ${totalPts} puntos?`))return;
+  const seleccion=window._canjeItems||{};
+  const items=Object.entries(seleccion).map(([id,prod])=>({
+    producto_id:Number(id),cant:Number(prod.cant)
+  }));
+  if(!items.length){showNotif('Selecciona al menos un producto','#e65100');return;}
+  const totalEstimado=Object.values(seleccion).reduce((s,i)=>s+i.cant*i.precio,0);
+  if(totalEstimado>saldoActual){showNotif('Puntos insuficientes','#c62828');return;}
+  if(!confirm('¿Confirmar canje estimado de '+totalEstimado.toFixed(2)+' puntos? Se validará el saldo y precio real antes de completar.'))return;
+  const payload={p_qr_id:Number(qrId),p_items:items};
   showLoad(true);
   try{
-    // 1. Marcar QR como usado
-    await sb.from('puntos_canjes_qr').update({usado:true}).eq('id',qrId);
-    // 2. Registrar venta de canje con precio Q0
-    const fechaHoy=hoy();
-    const{data:venta}=await sb.from('ventas').insert({
-      cliente_id:clienteId,
-      fecha:fechaHoy,
-      total:0,
-      pagado:0,
-      estado:'Entregado',
-      entrega:'Entrega Inmediata',
-      notas:'CANJE DE PUNTOS',
-      tipo_venta:'canje'
-    }).select().single();
-    // 3. Registrar items
-    if(venta){
-      const ventaItems=Object.entries(items).map(([pid,i])=>({
-        venta_id:venta.id,
-        producto_id:parseInt(pid),
-        nombre:i.nombre,
-        cant:i.cant,
-        precio:0,
-        descuento:0,
-        es_canje:true
-      }));
-      await sb.from('venta_items').insert(ventaItems);
-      // 4. Descontar stock
-      for(const [pid,i] of Object.entries(items)){
-        const prod=D.prods.find(p=>p.id===parseInt(pid));
-        if(prod){
-          await sb.from('productos').update({stock:parseFloat(prod.stock||0)-i.cant}).eq('id',parseInt(pid));
-        }
-      }
-    }
-    // 5. Descontar puntos
-    const ptos=D.puntosClientes.find(p=>p.cliente_id===clienteId);
-    if(ptos){
-      await sb.from('puntos_clientes').update({puntos_canjeados:parseFloat(ptos.puntos_canjeados||0)+totalPts}).eq('cliente_id',clienteId);
-      await sb.from('puntos_historial').insert({
-        cliente_id:clienteId,
-        venta_id:venta?.id||null,
-        tipo:'canje',
-        puntos:-totalPts,
-        descripcion:'Canje QR — '+Object.values(items).map(i=>i.cant+'x '+i.nombre).join(', ')
-      });
-    }
-    await loadAll();
-    renderPuntos();
-    const resumen=Object.values(items).map(i=>`${i.cant}x ${i.nombre}`).join(', ');
+    const {data,error}=await sb.rpc('aq_canjear_puntos_auth_v1',{
+      ...payload,p_nonce:aqNonceOperacion('canje-'+qrId,payload)
+    });
+    if(error||!data?.ok)throw error||new Error('Canje no confirmado');
+    aqConfirmarOperacion('canje-'+qrId);
+    window._canjeItems={};
+    try{await loadAll();renderPuntos();}
+    catch(e){console.error('Canje confirmado, pero falló refrescar datos:',e);}
+    const resumen=Object.values(seleccion).map(i=>i.cant+'x '+i.nombre).join(', ');
     document.getElementById('canje-resultado').innerHTML=`
       <div style="background:#e8f5e9;border:2px solid #a5d6a7;border-radius:12px;padding:16px;text-align:center">
         <div style="font-size:32px">🎁</div>
-        <div style="font-size:15px;font-weight:800;color:#2e7d32;margin:8px 0">¡Canje exitoso!</div>
-        <div style="font-size:12px;color:#37474f">${resumen}</div>
-        <div style="font-size:13px;font-weight:700;color:#e65100;margin-top:6px">−${totalPts} puntos</div>
+        <div style="font-size:15px;font-weight:800;color:#2e7d32;margin:8px 0">¡Canje confirmado en Supabase!</div>
+        <div style="font-size:12px;color:#37474f">${aqEsc(resumen)}</div>
+        <div style="font-size:13px;font-weight:700;color:#e65100;margin-top:6px">−${Number(data.puntos||0).toFixed(2)} puntos</div>
+        <div style="font-size:11px;color:#546e7a">Comprobante de canje #${Number(data.id)}</div>
         <button onclick="document.getElementById('canje-resultado').innerHTML=''" class="btn bp bsm" style="margin-top:12px">✓ Listo</button>
       </div>`;
-    showNotif('✅ Canje registrado exitosamente');
+    showNotif(data.repetida?'Canje ya registrado, sin volver a descontar puntos':'✅ Canje registrado, inventario y puntos actualizados');
   }catch(e){
-    showNotif('Error al procesar el canje: '+e.message,'#c62828');
-  }
-  showLoad(false);
+    showNotif('No se completó el canje: '+(e.message||e),'#c62828');
+  }finally{showLoad(false);}
 }
 
 function toggleFilaPuntos(pid,activo){

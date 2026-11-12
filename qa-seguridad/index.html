@@ -10,7 +10,7 @@
 <head>
 <base href="/aquabri/">
 <meta name="robots" content="noindex,nofollow">
-<!-- AQUABRI QA: solamente usa Supabase staging. -->
+<!-- QA aislado: proyecto de Supabase de pruebas exclusivamente. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2169,7 +2169,7 @@ document.addEventListener('DOMContentLoaded',()=>{
         <div id="liq-diferencia" style="text-align:center;font-size:15px;font-weight:800;padding:10px;border-radius:8px;margin-top:8px"></div>
 
         <div class="fe" style="margin-top:12px">
-          <button class="btn bs" onclick="guardarLiquidacion()" style="font-size:15px;padding:14px 28px">✅ Confirmar Liquidación</button>
+          <button class="btn bs" onclick="guardarLiquidacionCarga()" style="font-size:15px;padding:14px 28px">✅ Confirmar Liquidación</button>
         </div>
       </div>
 
@@ -2391,7 +2391,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     </div>
     <div class="fe" style="gap:8px;margin-top:12px">
       <button class="btn" onclick="closeModal('modal-cerrar-liq')">Cancelar</button>
-      <button class="btn bs" onclick="guardarLiquidacion()">✅ Liquidar</button>
+      <button class="btn bs" onclick="guardarLiquidacionPersonal()">✅ Liquidar</button>
     </div>
   </div>
 </div>
@@ -11336,105 +11336,103 @@ function actualizarEntradaPreview(){
   if(despues)despues.textContent=D.envBod+cant;
 }
 
+// Todas las escrituras de envases se realizan en una sola transacción autenticada.
+async function aqGuardarMovimientoEnvase(opKey,payload){
+  const nonce=aqNonceOperacion('env-'+opKey,payload);
+  const {data,error}=await sb.rpc('aq_registrar_movimiento_envase_auth_v1',{
+    ...payload,p_nonce:nonce
+  });
+  if(error||!data?.ok)throw error||new Error('Supabase no confirmó el movimiento');
+  aqConfirmarOperacion('env-'+opKey);
+  return data;
+}
+async function aqActualizarPantallaEnvases(){
+  try{
+    await loadAll();updateEnvStats();renderEnvases();renderEnvPrestados();fillEnvSelects();
+  }catch(error){
+    console.error('Movimiento confirmado, pero no se pudo refrescar envases',error);
+    showNotif('Movimiento confirmado. Actualiza la página para ver los nuevos saldos.','#e65100');
+  }
+}
 async function ingresarEnvases(){
   const cant=Number(document.getElementById('ent-cant').value);
-  if(!Number.isSafeInteger(cant)||cant<=0){showNotif('Ingresa una cantidad entera válida','#c62828');return;}
+  if(!Number.isSafeInteger(cant)||cant<=0){showNotif('Ingresa una cantidad válida','#c62828');return;}
   const motivo=document.getElementById('ent-motivo').value;
   const notas=document.getElementById('ent-notas').value;
-  const boton=document.querySelector('button[onclick="ingresarEnvases()"]');
-  if(boton?.disabled)return;
-  if(boton)boton.disabled=true;
+  const btn=document.querySelector('button[onclick="ingresarEnvases()"]');
+  if(btn?.disabled)return;if(btn)btn.disabled=true;
   try{
-    const {data:actual,error:lecturaError}=await sb.from('envases_bodega').select('cantidad').eq('id',1).maybeSingle();
-    if(lecturaError)throw lecturaError;
-    if(!actual)throw new Error('No existe el registro de bodega (id 1). Debe configurarse en Supabase antes de registrar entradas.');
-    const nuevaCant=Number(actual.cantidad||0)+cant;
-    const {data:guardado,error:actualizarError}=await sb.from('envases_bodega').update({cantidad:nuevaCant}).eq('id',1).select('cantidad').maybeSingle();
-    if(actualizarError)throw actualizarError;
-    if(!guardado)throw new Error('Supabase no confirmó la actualización de bodega. Revisa los permisos de la tabla.');
-    const {error:histError}=await sb.from('envases').insert({fecha:hoy(),cliente_id:null,cant,tipo:'Entrada',notas:motivo+(notas?' — '+notas:''),precio:0});
-    if(histError){
-      await loadAll();updateEnvStats();renderEnvases();
-      throw new Error('La bodega se actualizó, pero falló el historial. NO repitas la entrada; revisa el movimiento: '+histError.message);
-    }
-    await loadAll();updateEnvStats();renderEnvases();
+    const datos={p_tipo:'Entrada',p_cantidad:cant,p_cliente_id:null,p_fecha:hoy(),
+      p_notas:[motivo,notas].filter(Boolean).join(' — '),p_precio_unitario:0,p_medio_pago:'efectivo'};
+    const res=await aqGuardarMovimientoEnvase('entrada',datos);
     document.getElementById('ent-cant').value=1;
     document.getElementById('ent-notas').value='';
-    actualizarEntradaPreview();
-    showNotif('✅ '+cant+' envases ingresados a bodega. Total: '+D.envBod);
-  }catch(error){console.error('Error entrada envases:',error);showNotif('Error: '+(error.message||'No se pudo registrar'),'#c62828');}
-  finally{if(boton)boton.disabled=false;}
+    await aqActualizarPantallaEnvases();actualizarEntradaPreview();
+    showNotif(res.repetida?'Entrada ya registrada':'✅ Entrada confirmada — bodega: '+res.bodega_final);
+  }catch(e){showNotif('No se registró la entrada: '+(e.message||e),'#c62828');}
+  finally{if(btn)btn.disabled=false;}
 }
 
 async function prestarEnv(){
   const cid=Number(document.getElementById('envp-cli')?.value);
   const cant=Number(document.getElementById('ev-cant')?.value);
   const fecha=document.getElementById('envp-fecha')?.value;
-  const cli=D.clientes.find(c=>c.id===cid);
-  if(!cli){showNotif('Selecciona un cliente de la lista','#c62828');return;}
-  if(!Number.isSafeInteger(cant)||cant<=0){showNotif('Ingresa una cantidad entera mayor que cero','#c62828');return;}
-  if(!fecha){showNotif('Selecciona la fecha del préstamo','#c62828');return;}
-  if(cant>D.envBod){showNotif('No hay suficientes envases en bodega','#c62828');return;}
-  const boton=document.querySelector('#env-tab-prestamo button[onclick="prestarEnv()"]');
-  if(boton?.disabled)return;
-  if(boton)boton.disabled=true;
+  if(!Number.isInteger(cid)||cid<1||!Number.isInteger(cant)||cant<1||!fecha){
+    showNotif('Selecciona cliente, cantidad y fecha válidos','#c62828');return;
+  }
+  const btn=document.querySelector('#env-tab-prestamo button[onclick="prestarEnv()"]');
+  if(btn?.disabled)return;if(btn)btn.disabled=true;
   try{
-    const {data:cliActual,error:readErr}=await sb.from('clientes').select('envases').eq('id',cid).maybeSingle();
-    if(readErr||!cliActual)throw readErr||new Error('No se pudo leer el cliente');
-    const {data:clienteGuardado,error:e1}=await sb.from('clientes').update({envases:Number(cliActual.envases||0)+cant}).eq('id',cid).select('id').maybeSingle();
-    if(e1||!clienteGuardado)throw e1||new Error('No se pudo actualizar el saldo del cliente');
-    const {data:bodegaGuardada,error:e2}=await sb.from('envases_bodega').update({cantidad:D.envBod-cant}).eq('id',1).select('cantidad').maybeSingle();
-    if(e2||!bodegaGuardada)throw e2||new Error('No se pudo actualizar bodega; revisa el saldo del cliente antes de repetir');
-    const {error:e3}=await sb.from('envases').insert({fecha,cliente_id:cid,cant,tipo:'Préstamo',notas:document.getElementById('envp-notas').value,precio:0});
-    if(e3)throw e3;
-    // No dejar seleccionado al cliente anterior después de guardar.
-    const buscador=document.getElementById('envp-buscar');
-    const selector=document.getElementById('envp-cli');
-    if(buscador)buscador.value='';
-    if(selector)selector.value='';
-    await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();
-    if(selector)selector.value='';
+    const data={p_tipo:'Préstamo',p_cantidad:cant,p_cliente_id:cid,p_fecha:fecha,
+      p_notas:document.getElementById('envp-notas').value||'',
+      p_precio_unitario:0,p_medio_pago:'efectivo'};
+    const res=await aqGuardarMovimientoEnvase('prestamo',data);
+    const buscador=document.getElementById('envp-buscar'),sel=document.getElementById('envp-cli');
+    if(buscador)buscador.value='';if(sel)sel.value='';
     document.getElementById('ev-cant').value='1';
     document.getElementById('envp-notas').value='';
     document.getElementById('envp-fecha').value=hoy();
-    showNotif('✅ Préstamo registrado');
-  }catch(error){
-    console.error('Error registrando préstamo de envases:',error);
-    showNotif('No se completó el préstamo: '+(error.message||'revisa conexión y permisos'),'#c62828');
-    // Las operaciones anteriores pueden haber quedado guardadas: revisar datos antes de reintentar.
-    try{await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();}catch(e){console.error(e);}
-  }finally{if(boton)boton.disabled=false;}
+    await aqActualizarPantallaEnvases();
+    if(sel)sel.value='';
+    showNotif(res.repetida?'Préstamo ya registrado':'✅ Préstamo registrado con saldo actualizado');
+  }catch(e){showNotif('No se completó el préstamo: '+(e.message||e),'#c62828');}
+  finally{if(btn)btn.disabled=false;}
 }
 
 async function devolverEnv(){
-  const cid=parseInt(document.getElementById('dev-cli').value);
-  const cant=parseInt(document.getElementById('dev-cant').value)||1;
-  const cli=D.clientes.find(c=>c.id===cid);
-  if(!cli||(cli.envases||0)<cant){showNotif(`El cliente solo tiene ${cli?.envases||0} envases prestados`,'#c62828');return;}
-  await sb.from('clientes').update({envases:cli.envases-cant}).eq('id',cid);
-  await sb.from('envases_bodega').update({cantidad:D.envBod+cant}).eq('id',1);
-  await sb.from('envases').insert({fecha:hoy(),cliente_id:cid,cant,tipo:'Devolución',notas:document.getElementById('dev-notas')?.value||'',precio:0});
-  await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();
-  document.getElementById('dev-info').textContent='';
-  showNotif('✅ Devolución registrada — envase vuelve a bodega');
+  const cid=Number(document.getElementById('dev-cli').value);
+  const cant=Number(document.getElementById('dev-cant').value);
+  if(!Number.isInteger(cid)||cid<1||!Number.isInteger(cant)||cant<1){
+    showNotif('Selecciona cliente y cantidad válida','#c62828');return;
+  }
+  try{
+    const data={p_tipo:'Devolución',p_cantidad:cant,p_cliente_id:cid,p_fecha:hoy(),
+      p_notas:document.getElementById('dev-notas')?.value||'',p_precio_unitario:0,p_medio_pago:'efectivo'};
+    const res=await aqGuardarMovimientoEnvase('devolucion',data);
+    await aqActualizarPantallaEnvases();
+    const msg=document.getElementById('dev-info');if(msg)msg.textContent='';
+    showNotif(res.repetida?'Devolución ya registrada':'✅ Devolución confirmada — envases devueltos a bodega');
+  }catch(e){showNotif('No se completó la devolución: '+(e.message||e),'#c62828');}
 }
 
 async function venderEnvase(){
-  const cant=parseInt(document.getElementById('venv-cant').value)||1;
-  const precio=parseFloat(document.getElementById('venv-precio').value)||0;
-  if(cant>D.envBod){showNotif('No hay suficientes envases en bodega','#c62828');return;}
-  if(!precio){showNotif('Ingresa el precio de venta','#c62828');return;}
-  const cid=document.getElementById('venv-cli').value;
-  const total=cant*precio;
-  
-  await sb.from('envases_bodega').update({cantidad:D.envBod-cant}).eq('id',1);
-  
-  await sb.from('envases').insert({fecha:document.getElementById('venv-fecha').value,cliente_id:cid?parseInt(cid):null,cant,tipo:'Venta',notas:document.getElementById('venv-notas').value||'',precio:total});
-  
-  await sb.from('ventas').insert({fecha:document.getElementById('venv-fecha').value,cliente_id:cid?parseInt(cid):null,total,pagado:total,entrega:'Entrega Inmediata',notas:'Venta de envase vacío ×'+cant,estado:'Entregado',bonificaciones:''});
-  await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();
-  document.getElementById('venv-cant').value=1;document.getElementById('venv-precio').value=0;document.getElementById('venv-notas').value='';document.getElementById('venv-total').textContent='';
-  showNotif(`✅ Venta de ${cant} envase(s) por ${fQ(total)}`);
+  const cant=Number(document.getElementById('venv-cant').value);
+  const precio=Number(document.getElementById('venv-precio').value);
+  const clienteRaw=document.getElementById('venv-cli').value;
+  if(!Number.isInteger(cant)||cant<1||!Number.isFinite(precio)||precio<=0){
+    showNotif('Cantidad o precio inválido','#c62828');return;
+  }
+  const data={p_tipo:'Venta',p_cantidad:cant,p_cliente_id:clienteRaw?Number(clienteRaw):null,
+    p_fecha:document.getElementById('venv-fecha').value||hoy(),
+    p_notas:document.getElementById('venv-notas').value||'',
+    p_precio_unitario:precio,p_medio_pago:'efectivo'};
+  try{
+    const res=await aqGuardarMovimientoEnvase('venta',data);
+    document.getElementById('venv-cant').value=1;document.getElementById('venv-precio').value=0;
+    document.getElementById('venv-notas').value='';document.getElementById('venv-total').textContent='';
+    await aqActualizarPantallaEnvases();
+    showNotif(res.repetida?'Venta ya registrada':'✅ Venta #'+res.venta_id+' registrada en historial y caja: '+fQ(res.monto));
+  }catch(e){showNotif('No se confirmó la venta de envases: '+(e.message||e),'#c62828');}
 }
 
 function renderEnvPrestados(){
@@ -11495,18 +11493,19 @@ function cambiarCantDev(cid,delta,maximo){
 }
 
 async function confirmarDevRapido(cid,maximo){
-  const cantEl=document.getElementById('cant-dev-'+cid);
-  const cant=parseInt(cantEl?.textContent)||1;
-  if(cant<=0||cant>maximo){showNotif('Cantidad inválida','#c62828');return;}
-  const cli=D.clientes.find(c=>c.id===cid);
-  if(!cli)return;
+  const cant=Number(document.getElementById('cant-dev-'+cid)?.textContent)||1;
+  if(!Number.isInteger(cant)||cant<1||cant>maximo){
+    showNotif('Cantidad de devolución inválida','#c62828');return;
+  }
   showLoad(true);
-  await sb.from('clientes').update({envases:cli.envases-cant}).eq('id',cid);
-  await sb.from('envases_bodega').update({cantidad:D.envBod+cant}).eq('id',1);
-  await sb.from('envases').insert({fecha:hoy(),cliente_id:cid,cant,tipo:'Devolución',notas:'Devolución',precio:0});
-  await loadAll();updateEnvStats();renderEnvPrestados();fillEnvSelects();
-  showLoad(false);
-  showNotif('✅ '+cant+' envase(s) devuelto(s)');
+  try{
+    const data={p_tipo:'Devolución',p_cantidad:cant,p_cliente_id:Number(cid),p_fecha:hoy(),
+      p_notas:'Devolución rápida',p_precio_unitario:0,p_medio_pago:'efectivo'};
+    const res=await aqGuardarMovimientoEnvase('devolucion-rapida-'+cid,data);
+    await aqActualizarPantallaEnvases();
+    showNotif(res.repetida?'Devolución ya registrada':'✅ '+cant+' envase(s) devuelto(s)');
+  }catch(e){showNotif('No se completó la devolución: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
 }
 
 async function devRapido(cid,maximo){
@@ -12113,42 +12112,8 @@ function renderCargaItems(){
     `</div>`;
 }
 async function saveCarga(){
-  if(!cargaItems.length){showNotif('Agrega productos','#c62828');return;}
-  showLoad(true);
-  const fecha=document.getElementById('carg-fecha').value;
-  const vehiculoId=parseInt(document.getElementById('carg-veh').value);
-  // Calcular número de carga del día para este vehículo
-  const{data:cargasDia}=await sb.from('cargas').select('id').eq('vehiculo_id',vehiculoId).eq('fecha',fecha);
-  const numDelDia=(cargasDia?.length||0)+1;
-  const{data:carga,error:cargaErr}=await sb.from('cargas').insert({
-    vehiculo_id:vehiculoId,
-    empleado_id:parseInt(document.getElementById('carg-emp').value),
-    fecha,
-    descripcion:document.getElementById('carg-desc').value||('Carga '+numDelDia),
-    estado:'En Ruta'
-  }).select().single();
-  if(cargaErr||!carga){showLoad(false);showNotif('Error al guardar carga: '+(cargaErr?.message||'sin respuesta'),'#c62828');console.error('saveCarga error:',cargaErr);return;}
-  const promesas=[];
-  for(const item of cargaItems){
-    promesas.push(sb.from('carga_items').insert({
-      carga_id:carga.id,producto_id:item.pid,
-      nombre_producto:item.nombre,cantidad:item.cant
-    }));
-    const prod=D.prods.find(p=>p.id===item.pid);
-    if(prod){
-      const ns=Math.max(0,parseInt(prod.stock||0)-item.cant);
-      prod.stock=ns;
-      promesas.push(sb.from('productos').update({stock:ns}).eq('id',item.pid));
-    }
-  }
-  await Promise.all(promesas);
-  cargaItems=[];renderCargaItems();renderCargasProdBtns();
-  document.getElementById('carg-desc').value='';
-  await loadAll();renderCargasTabla();renderCargasLista();renderCargasProdBtns();
-  showLoad(false);
-  showNotif('✅ Carga '+numDelDia+' registrada — stock descontado');
+  showNotif('Crear cargas está bloqueado en pruebas hasta tener registro atómico de carga, inventario y devoluciones. No se guardó nada.','#c62828');
 }
-
 // Recargar: agregar más producto a una carga activa
 let _recargaCargaId=null;
 let _recargaItems=[];
@@ -12202,34 +12167,8 @@ function renderRecargaItems(){
   </div>`).join('');
 }
 async function guardarRecarga(){
-  if(!_recargaItems.length){showNotif('Agrega productos','#c62828');return;}
-  showLoad(true);
-  const promesas=[];
-  for(const item of _recargaItems){
-    // Buscar si ya existe ese producto en la carga para sumar
-    const{data:exist}=await sb.from('carga_items').select('id,cantidad').eq('carga_id',_recargaCargaId).eq('producto_id',item.pid).maybeSingle();
-    if(exist){
-      promesas.push(sb.from('carga_items').update({cantidad:exist.cantidad+item.cant}).eq('id',exist.id));
-    } else {
-      const prod=D.prods.find(p=>p.id===item.pid);
-      promesas.push(sb.from('carga_items').insert({carga_id:_recargaCargaId,producto_id:item.pid,nombre_producto:item.nombre||prod?.nombre,cantidad:item.cant}));
-    }
-    // Descontar del inventario
-    const prod=D.prods.find(p=>p.id===item.pid);
-    if(prod){
-      const ns=Math.max(0,parseInt(prod.stock||0)-item.cant);
-      prod.stock=ns;
-      promesas.push(sb.from('productos').update({stock:ns}).eq('id',item.pid));
-    }
-  }
-  await Promise.all(promesas);
-  document.getElementById('modal-recargar').style.display='none';
-  _recargaCargaId=null;_recargaItems=[];
-  await loadAll();renderCargasLista();
-  showLoad(false);
-  showNotif('✅ Recarga agregada — stock descontado');
+  showNotif('Recargar carga está bloqueado en pruebas hasta validar inventario atómico y devolución de sobrantes. No se guardó nada.','#c62828');
 }
-
 async function renderCargasLista(){
   const{data:cargas}=await sb.from('cargas').select('*,vehiculos(nombre),empleados(nombre),carga_items(nombre_producto,cantidad)').eq('estado','En Ruta').order('id',{ascending:true});
   const el=document.getElementById('cargas-resumen');if(!el)return;
@@ -12263,8 +12202,8 @@ async function renderCargasLista(){
   }).join('');
 }
 function renderCargasTabla(){const el=document.getElementById('carg-tbody');if(!el)return;el.innerHTML=D.cargas.map(c=>`<tr><td>${c.id}</td><td>${c.fecha}</td><td>${c.vehiculos?.nombre||'—'}</td><td>${c.empleados?.nombre||'—'}</td><td>${c.descripcion||'—'}</td><td>${sBadge(c.estado)}</td><td><button class="btn bd bsm" onclick="delCarga(${c.id})">🗑</button></td></tr>`).join('');}
-async function finCarga(id){await sb.from('cargas').update({estado:'Finalizado'}).eq('id',id);await loadAll();renderCargasLista();renderCargasTabla();showNotif('Finalizado ✅');}
-async function delCarga(id){if(!confirm('¿Eliminar?'))return;await sb.from('carga_items').delete().eq('carga_id',id);await sb.from('cargas').delete().eq('id',id);await loadAll();renderCargasLista();renderCargasTabla();}
+async function finCarga(id){showNotif('La carga solo puede finalizarse después de liquidación segura. Ningún registro se modificó.','#c62828');}
+async function delCarga(id){showNotif('No se pueden borrar cargas ni su historial desde QA. Requiere anulación con ajuste verificado de stock.','#c62828');}
 function irALiquidar(cargaId){
   // Ir al tab Liquidación de la página Cargas y abrir esa carga
   const tabLiq=document.querySelector('#page-cargas .tabs .tab:nth-child(2)');
@@ -15083,57 +15022,51 @@ function selClienteMembresia(id,nombre){
 }
 
 async function eliminarClientePuntos(clienteId,nombre){
-  if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el Jefe puede eliminar','#c62828');return;}
-  if(!confirm('¿Eliminar a '+nombre+' del programa de puntos? Se perderán todos sus puntos.'))return;
-  await sb.from('puntos_historial').delete().eq('cliente_id',clienteId);
-  await sb.from('puntos_clientes').delete().eq('cliente_id',clienteId);
-  await loadAll();
-  initPuntos();
-  showNotif('Cliente eliminado del programa ✅','#c62828');
+  if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el jefe puede desactivar membresías','#c62828');return;}
+  if(!confirm('¿Desactivar la membresía de '+nombre+'? Sus puntos e historial NO se borrarán.'))return;
+  try{
+    const {data,error}=await sb.rpc('aq_desactivar_cliente_puntos_auth_v1',{p_cliente_id:Number(clienteId)});
+    if(error||!data?.ok)throw error||new Error('Desactivación no confirmada');
+    await loadAll();initPuntos();
+    showNotif('Membresía desactivada con historial conservado','#2e7d32');
+  }catch(e){showNotif('No se pudo desactivar: '+(e.message||e),'#c62828');}
 }
-
+async function aqInscribirPuntosSeguro(clienteId,precio,notas){
+  const payload={p_cliente_id:Number(clienteId),p_precio:Number(precio),
+    p_notas:notas||'',p_medio_pago:'efectivo'};
+  const key='puntos-inscripcion-'+clienteId;
+  const {data,error}=await sb.rpc('aq_inscribir_cliente_puntos_auth_v1',{
+    ...payload,p_nonce:aqNonceOperacion(key,payload)
+  });
+  if(error||!data?.ok)throw error||new Error('Inscripción no confirmada');
+  aqConfirmarOperacion(key);
+  return data;
+}
 async function venderMembresia(){
-  const cid=document.getElementById('pts-cli-venta').value;
-  if(!cid){showNotif('Selecciona un cliente','#e65100');return;}
-  const precio=parseFloat(document.getElementById('pts-precio-venta').value)||0;
+  const cid=Number(document.getElementById('pts-cli-venta').value);
+  if(!Number.isInteger(cid)||cid<1){showNotif('Selecciona un cliente','#e65100');return;}
+  const precio=Number(document.getElementById('pts-precio-venta').value)||0;
   const notas=document.getElementById('pts-notas-venta').value||D.puntosConfig?.descripcion||'Membresía programa de puntos';
-  const cli=D.clientes.find(c=>c.id===parseInt(cid));
-  if(!confirm(`¿Inscribir a ${cli?.nombre} por Q${precio}?`))return;
-  
-  if(precio>0){
-    await sb.from('ventas').insert({
-      fecha:hoy(),cliente_id:parseInt(cid),total:precio,pagado:precio,
-      entrega:'Entrega Inmediata',notas:'Membresía: '+notas,estado:'Entregado',bonificaciones:''
-    });
-  }
-  
-  await sb.from('puntos_clientes').upsert({
-    cliente_id:parseInt(cid),puntos_totales:0,puntos_canjeados:0,activo:true,
-    fecha_inscripcion:hoy()
-  },{onConflict:'cliente_id'});
-  await sb.from('puntos_historial').insert({
-    cliente_id:parseInt(cid),tipo:'ajuste',puntos:0,
-    descripcion:`Inscripción al programa${precio>0?' — Q'+precio+' pagados':' (gratuita)'}`
-  });
-  await loadLight();
-  initPuntos();
-  showNotif(`✅ ${cli?.nombre} inscrito al programa de puntos${precio>0?' — Q'+precio+' cobrados':''}`);
+  const cli=D.clientes.find(c=>Number(c.id)===cid);
+  if(precio<=0){showNotif('Para membresía gratuita, usa Inscribir gratis','#e65100');return;}
+  if(!confirm('¿Inscribir a '+(cli?.nombre||'cliente')+' por '+fQ(precio)+'?'))return;
+  try{
+    const res=await aqInscribirPuntosSeguro(cid,precio,notas);
+    await loadAll();initPuntos();
+    showNotif(res.repetida?'Inscripción ya registrada':
+      '✅ Inscripción confirmada en factura #'+res.venta_id+' y caja por '+fQ(res.precio),'#2e7d32');
+  }catch(e){showNotif('No se registró la membresía: '+(e.message||e),'#c62828');}
 }
-
 async function inscribirGratis(){
-  const cid=document.getElementById('pts-cli-venta').value;
-  if(!cid){showNotif('Selecciona un cliente','#e65100');return;}
-  const cli=D.clientes.find(c=>c.id===parseInt(cid));
-  if(!confirm(`¿Inscribir a ${cli?.nombre} gratis?`))return;
-  await sb.from('puntos_clientes').upsert({
-    cliente_id:parseInt(cid),puntos_totales:0,puntos_canjeados:0,activo:true,fecha_inscripcion:hoy()
-  },{onConflict:'cliente_id'});
-  await sb.from('puntos_historial').insert({
-    cliente_id:parseInt(cid),tipo:'ajuste',puntos:0,descripcion:'Inscripción gratuita al programa'
-  });
-  await loadLight();
-  initPuntos();
-  showNotif(`✅ ${cli?.nombre} inscrito gratis al programa`);
+  const cid=Number(document.getElementById('pts-cli-venta').value);
+  if(!Number.isInteger(cid)||cid<1){showNotif('Selecciona un cliente','#e65100');return;}
+  const cli=D.clientes.find(c=>Number(c.id)===cid);
+  if(!confirm('¿Inscribir a '+(cli?.nombre||'cliente')+' gratis?'))return;
+  try{
+    const res=await aqInscribirPuntosSeguro(cid,0,'Inscripción gratuita al programa');
+    await loadAll();initPuntos();
+    showNotif(res.repetida?'Cliente ya inscrito':'✅ Cliente inscrito gratis sin alterar puntos anteriores','#2e7d32');
+  }catch(e){showNotif('No se registró la inscripción: '+(e.message||e),'#c62828');}
 }
 
 function renderPtsResumen(){
@@ -15965,7 +15898,7 @@ init();
 </script>
 
 <script>
-// QA nunca desregistra service workers del sistema oficial.
+// QA: no desregistrar service workers compartidos con el sistema oficial.
 // Precargar Supabase en segundo plano
 window.addEventListener('load',()=>{
   if(window.requestIdleCallback){
@@ -16686,15 +16619,22 @@ function modalNuevaLiquidacion(){
 }
 
 async function guardarNuevaLiquidacion(){
-  const empId=parseInt(document.getElementById('liq-emp').value);
+  const empId=Number(document.getElementById('liq-emp').value);
   const horaSal=document.getElementById('liq-hora-sal').value;
   const notas=document.getElementById('liq-notas').value;
-  await sb.from('liquidaciones').insert({empleado_id:empId,fecha:hoy(),hora_salida:horaSal,notas,estado:'abierta'});
-  closeModal('modal-nueva-liq');
-  const{data}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
-  D.liquidaciones=data||[];
-  renderLiquidaciones();
-  showNotif('Salida registrada ✅');
+  const payload={p_empleado:empId,p_hora_salida:horaSal,p_notas:notas};
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_abrir_salida_auth_v1',{
+      ...payload,p_nonce:aqNonceOperacion('salida-nueva',payload)
+    });
+    if(error||!data?.ok)throw error||new Error('Salida no confirmada');
+    aqConfirmarOperacion('salida-nueva');
+    closeModal('modal-nueva-liq');
+    const {data:filas,error:reloadError}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
+    if(!reloadError)D.liquidaciones=filas||[];
+    renderLiquidaciones();
+    showNotif(data.repetida?'Salida ya estaba registrada':'Salida registrada ✅');
+  }catch(e){showNotif('No se registró la salida: '+(e.message||e),'#c62828');}
 }
 
 async function abrirLiquidar(id){
@@ -16718,24 +16658,32 @@ async function abrirLiquidar(id){
   document.getElementById('modal-cerrar-liq').classList.add('open');
 }
 
-async function guardarLiquidacion(){
-  const id=parseInt(document.getElementById('liq-id-cerrar').value);
+async function guardarLiquidacionPersonal(){
+  const id=Number(document.getElementById('liq-id-cerrar').value);
   const horaReg=document.getElementById('liq-hora-reg').value;
-  const monto=parseFloat(document.getElementById('liq-monto').value)||0;
+  const monto=Number(document.getElementById('liq-monto').value)||0;
   const notas=document.getElementById('liq-notas-cerrar').value;
-  await sb.from('liquidaciones').update({hora_regreso:horaReg,monto_entregado:monto,estado:'cerrada',notas}).eq('id',id);
-  closeModal('modal-cerrar-liq');
-  const{data}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
-  D.liquidaciones=data||[];
-  renderLiquidaciones();
-  showNotif('Liquidación registrada ✅','#2e7d32');
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_cerrar_salida_auth_v1',{
+      p_liquidacion:id,p_hora_regreso:horaReg,p_monto:monto,p_notas:notas
+    });
+    if(error||!data?.ok)throw error||new Error('Liquidación no confirmada');
+    closeModal('modal-cerrar-liq');
+    const {data:filas}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
+    if(filas)D.liquidaciones=filas;
+    renderLiquidaciones();
+    showNotif(data.repetida?'Salida ya cerrada':'Liquidación registrada ✅','#2e7d32');
+  }catch(e){showNotif('No se cerró la salida: '+(e.message||e),'#c62828');}
 }
-
 async function delLiquidacion(id){
-  if(!confirm('¿Eliminar esta salida?'))return;
-  await sb.from('liquidaciones').delete().eq('id',id);
-  D.liquidaciones=D.liquidaciones.filter(l=>l.id!==id);
-  renderLiquidaciones();
+  if(!confirm('¿Anular la salida sin eliminar su historial? Solo se pueden anular las que siguen abiertas y sin movimientos.'))return;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_anular_salida_auth_v1',{p_liquidacion:Number(id)});
+    if(error||!data?.ok)throw error||new Error('No confirmado');
+    const {data:filas}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
+    if(filas)D.liquidaciones=filas;
+    renderLiquidaciones();showNotif('Salida anulada; se conserva el historial');
+  }catch(e){showNotif('No se pudo anular: '+(e.message||e),'#c62828');}
 }
 
 async function initCaja(){
@@ -17965,92 +17913,9 @@ function calcLiquidacion(){
   }
 }
 
-async function guardarLiquidacion(){
-  if(!_liqCargaActual){showNotif('No hay carga seleccionada','#c62828');return;}
-  if(!aqLiqExclusionOK){showNotif('No se verificaron los incentivos: no se puede guardar una liquidación con posible doble comisión.','#c62828');return;}
-  showLoad(true);
-  let totalVendido=0;
-  const promesas=[];
-  // Calcular totales y devolver sobrantes al inventario
-  _liqItems.forEach(item=>{
-    const bonif=parseInt(item.bonificacion||0);
-    const regresa=parseInt(item.cantidad_regresa||0);
-    // El total de dinero viene de las ventas reales ya registradas
-    totalVendido+=item.ya_vendido_monto||0;
-    // Devolver al inventario: los que regresan físicamente
-    const devolver=regresa;
-    if(devolver>0){
-      const prod=D.prods.find(p=>p.id===item.producto_id);
-      if(prod){
-        const ns=parseInt(prod.stock||0)+devolver;
-        prod.stock=ns;
-        promesas.push(sb.from('productos').update({stock:ns}).eq('id',item.producto_id));
-      }
-    }
-    // Las bonificaciones ya se descontaron del inventario al registrar la carga, no se devuelven
-  });
-  const efectivo=parseFloat(document.getElementById('liq-efectivo').value)||0;
-  const pctComision=parseFloat(_liqCargaActual.empleados?.comision_pct)||0;
-  const comision=Math.round(Math.max(0,totalVendido-aqLiqExclusionMonto)*pctComision/100*100)/100;
-  const diferencia=efectivo-totalVendido;
-  const notas=document.getElementById('liq-notas').value;
-  const empId=_liqCargaActual.empleado_id;
-  // Guardar liquidación
-  const{data:liq}=await sb.from('liquidaciones').insert({
-    carga_id:_liqCargaActual.id,
-    empleado_id:empId,
-    fecha:hoy(),
-    total_vendido:totalVendido,
-    total_esperado:totalVendido,
-    efectivo_entregado:efectivo,
-    diferencia,
-    comision,
-    notas,
-    estado:'Liquidado'
-  }).select().single();
-  // Guardar items liquidación con bonificaciones
-  if(liq){
-    await sb.from('liquidacion_items').insert(_liqItems.map(item=>({
-      liquidacion_id:liq.id,
-      producto_id:item.producto_id,
-      nombre_producto:item.nombre_producto,
-      cantidad_salida:item.cantidad,
-      cantidad_vendida:item.ya_vendido||0,
-      cantidad_devuelta:parseInt(item.cantidad_regresa||0),
-      cantidad_bonificacion:parseInt(item.bonificacion||0),
-      precio_unitario:item.precio_venta||0,
-      subtotal:item.ya_vendido_monto||0
-    })));
-  }
-  // Registrar comisión del empleado
-  if(comision>0&&empId){
-    const mesActual=hoy().substring(0,7);
-    const{data:comExist}=await sb.from('comisiones').select('id,monto').eq('empleado_id',empId).like('periodo','%'+mesActual+'%').single();
-    if(comExist){
-      await sb.from('comisiones').update({monto:parseFloat(comExist.monto||0)+comision}).eq('id',comExist.id);
-    } else {
-      await sb.from('comisiones').insert({empleado_id:empId,monto:comision,periodo:mesActual,notas:'Auto desde liquidación carga #'+_liqCargaActual.id,estado:'Pendiente'});
-    }
-  }
-  // Envases: los que no regresaron quedan como préstamo del empleado
-  const envSalida=parseInt(document.getElementById('liq-env-salida').value)||0;
-  const envRegreso=parseInt(document.getElementById('liq-env-regreso').value)||0;
-  if(envRegreso>0){
-    const nuevaBodega=Math.max(0,D.envBod+envRegreso);
-    await sb.from('envases_bodega').update({cantidad:nuevaBodega}).eq('id',1);
-    D.envBod=nuevaBodega;
-  }
-  // Marcar carga(s) como Finalizado — si es grupo, marcar todas
-  const idsAFinalizar=_liqCargaActual._ids||[_liqCargaActual.id];
-  await sb.from('cargas').update({estado:'Finalizado'}).in('id',idsAFinalizar);
-  await Promise.all(promesas);
-  await loadAll();
-  showLoad(false);
-  cerrarLiqPanel();
-  initLiquidacion();
-  showNotif('✅ Liquidación guardada — comisión Q'+comision.toFixed(2)+' registrada');
+async function guardarLiquidacionCarga(){
+  showNotif('Liquidación de carga en preparación de seguridad. No se guardó nada. Usa AQUABRI oficial para operaciones reales.','#c62828');
 }
-
 function cerrarLiqPanel(){
   document.getElementById('liq-panel').style.display='none';
   _liqCargaActual=null;
@@ -19213,75 +19078,39 @@ function actualizarResumenCanje(){
 }
 
 async function confirmarCanje(clienteId,saldoActual,qrId){
-  const items=window._canjeItems||{};
-  if(!Object.keys(items).length){showNotif('Selecciona al menos un producto','#e65100');return;}
-  const totalPts=Object.values(items).reduce((s,i)=>s+i.cant*i.precio,0);
-  if(totalPts>saldoActual){showNotif('Puntos insuficientes','#c62828');return;}
-  if(!confirm(`¿Confirmar canje de ${totalPts} puntos?`))return;
+  const seleccion=window._canjeItems||{};
+  const items=Object.entries(seleccion).map(([id,prod])=>({
+    producto_id:Number(id),cant:Number(prod.cant)
+  }));
+  if(!items.length){showNotif('Selecciona al menos un producto','#e65100');return;}
+  const totalEstimado=Object.values(seleccion).reduce((s,i)=>s+i.cant*i.precio,0);
+  if(totalEstimado>saldoActual){showNotif('Puntos insuficientes','#c62828');return;}
+  if(!confirm('¿Confirmar canje estimado de '+totalEstimado.toFixed(2)+' puntos? Se validará el saldo y precio real antes de completar.'))return;
+  const payload={p_qr_id:Number(qrId),p_items:items};
   showLoad(true);
   try{
-    // 1. Marcar QR como usado
-    await sb.from('puntos_canjes_qr').update({usado:true}).eq('id',qrId);
-    // 2. Registrar venta de canje con precio Q0
-    const fechaHoy=hoy();
-    const{data:venta}=await sb.from('ventas').insert({
-      cliente_id:clienteId,
-      fecha:fechaHoy,
-      total:0,
-      pagado:0,
-      estado:'Entregado',
-      entrega:'Entrega Inmediata',
-      notas:'CANJE DE PUNTOS',
-      tipo_venta:'canje'
-    }).select().single();
-    // 3. Registrar items
-    if(venta){
-      const ventaItems=Object.entries(items).map(([pid,i])=>({
-        venta_id:venta.id,
-        producto_id:parseInt(pid),
-        nombre:i.nombre,
-        cant:i.cant,
-        precio:0,
-        descuento:0,
-        es_canje:true
-      }));
-      await sb.from('venta_items').insert(ventaItems);
-      // 4. Descontar stock
-      for(const [pid,i] of Object.entries(items)){
-        const prod=D.prods.find(p=>p.id===parseInt(pid));
-        if(prod){
-          await sb.from('productos').update({stock:parseFloat(prod.stock||0)-i.cant}).eq('id',parseInt(pid));
-        }
-      }
-    }
-    // 5. Descontar puntos
-    const ptos=D.puntosClientes.find(p=>p.cliente_id===clienteId);
-    if(ptos){
-      await sb.from('puntos_clientes').update({puntos_canjeados:parseFloat(ptos.puntos_canjeados||0)+totalPts}).eq('cliente_id',clienteId);
-      await sb.from('puntos_historial').insert({
-        cliente_id:clienteId,
-        venta_id:venta?.id||null,
-        tipo:'canje',
-        puntos:-totalPts,
-        descripcion:'Canje QR — '+Object.values(items).map(i=>i.cant+'x '+i.nombre).join(', ')
-      });
-    }
-    await loadAll();
-    renderPuntos();
-    const resumen=Object.values(items).map(i=>`${i.cant}x ${i.nombre}`).join(', ');
+    const {data,error}=await sb.rpc('aq_canjear_puntos_auth_v1',{
+      ...payload,p_nonce:aqNonceOperacion('canje-'+qrId,payload)
+    });
+    if(error||!data?.ok)throw error||new Error('Canje no confirmado');
+    aqConfirmarOperacion('canje-'+qrId);
+    window._canjeItems={};
+    try{await loadAll();renderPuntos();}
+    catch(e){console.error('Canje confirmado, pero falló refrescar datos:',e);}
+    const resumen=Object.values(seleccion).map(i=>i.cant+'x '+i.nombre).join(', ');
     document.getElementById('canje-resultado').innerHTML=`
       <div style="background:#e8f5e9;border:2px solid #a5d6a7;border-radius:12px;padding:16px;text-align:center">
         <div style="font-size:32px">🎁</div>
-        <div style="font-size:15px;font-weight:800;color:#2e7d32;margin:8px 0">¡Canje exitoso!</div>
-        <div style="font-size:12px;color:#37474f">${resumen}</div>
-        <div style="font-size:13px;font-weight:700;color:#e65100;margin-top:6px">−${totalPts} puntos</div>
+        <div style="font-size:15px;font-weight:800;color:#2e7d32;margin:8px 0">¡Canje confirmado en Supabase!</div>
+        <div style="font-size:12px;color:#37474f">${aqEsc(resumen)}</div>
+        <div style="font-size:13px;font-weight:700;color:#e65100;margin-top:6px">−${Number(data.puntos||0).toFixed(2)} puntos</div>
+        <div style="font-size:11px;color:#546e7a">Comprobante de canje #${Number(data.id)}</div>
         <button onclick="document.getElementById('canje-resultado').innerHTML=''" class="btn bp bsm" style="margin-top:12px">✓ Listo</button>
       </div>`;
-    showNotif('✅ Canje registrado exitosamente');
+    showNotif(data.repetida?'Canje ya registrado, sin volver a descontar puntos':'✅ Canje registrado, inventario y puntos actualizados');
   }catch(e){
-    showNotif('Error al procesar el canje: '+e.message,'#c62828');
-  }
-  showLoad(false);
+    showNotif('No se completó el canje: '+(e.message||e),'#c62828');
+  }finally{showLoad(false);}
 }
 
 function toggleFilaPuntos(pid,activo){

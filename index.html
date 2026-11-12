@@ -5485,9 +5485,7 @@ async function cobrar(enviarWsp=false){
   }
   let resultado=null,ventaError=null;
   try{
-    const respuesta=await sb.rpc('aq_registrar_venta_con_envases',{
-      p_token:localStorage.getItem('aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
+    const respuesta=await sb.rpc('aq_vender_con_envases_auth_v3',{
       p_nonce:window._aqCobroNonce,
       p_venta:datosVenta,
       p_items:detalleVenta
@@ -5501,7 +5499,7 @@ async function cobrar(enviarWsp=false){
     document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
     const codigo=ventaError?.code?' · '+ventaError.code:'';
     const msg=ventaError?.message||'Supabase no confirmó la operación.';
-    const faltaFuncion=ventaError?.code==='PGRST202'||/aq_registrar_venta_con_envases|schema cache|function.*not found/i.test(msg);
+    const faltaFuncion=ventaError?.code==='PGRST202'||/aq_vender_con_envases_auth_v3|schema cache|function.*not found/i.test(msg);
     alert(faltaFuncion
       ?'⚠️ Falta actualizar la función de venta y envases en Supabase. NO se registró esta venta. El carrito sigue intacto.'
       :'❌ No se confirmó la venta. '+msg+codigo+'\nEl carrito sigue disponible. Si hubo un error de conexión, revisa el Historial antes de reintentar para evitar duplicados.');
@@ -7137,7 +7135,7 @@ async function saveEditVenta(){
     nuevoTotal=parseFloat(document.getElementById('ev-total-simple').value)||0;
     nuevoPagado=parseFloat(document.getElementById('ev-pagado2-simple').value)||0;
   }
-  const {data:aqPuedeEditar,error:aqErrorEditar}=await sb.rpc('aq_venta_puede_modificar',{p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_venta:Number(id)});
+  const {data:aqPuedeEditar,error:aqErrorEditar}=await sb.rpc('aq_venta_puede_modificar_auth_v1',{p_venta:Number(id)});
   if(aqErrorEditar||aqPuedeEditar!==true){showNotif('Esta venta tiene incentivos liquidados o falta instalar el módulo SQL; no puede editarse de forma directa.','#c62828');return;}
   const estadoNuevo=document.getElementById('ev-estado').value;
   if(estadoNuevo==='Cancelada'||estadoNuevo==='Anulado'){
@@ -7191,13 +7189,11 @@ async function delVenta(id){
   try{
     // Una sola transacción en Supabase: stock, puntos, créditos, caja, FIFO e inventario de envases.
     // El servidor ignora una segunda cancelación y no restaura stock dos veces.
-    const {data,error}=await sb.rpc('aq_cancelar_venta_segura',{
-      p_token:localStorage.getItem('aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
+    const {data,error}=await sb.rpc('aq_cancelar_venta_contado_auth_v1',{
       p_venta:Number(id)
     });
     if(error)throw error;
-    if(data?.ok!==true)throw new Error('Supabase no confirmó la anulación');
+    if(data?.cancelada!==true)throw new Error('Supabase no confirmó la anulación');
     await loadLight();
     D.envases=(D.envases||[]).map(e=>Number(e.venta_id)===Number(id)?{...e,anulado:true}:e);
     const {data:eb,error:ebErr}=await sb.from('envases_bodega').select('cantidad').eq('id',1).maybeSingle();
@@ -10647,8 +10643,7 @@ async function aqPagoProveedorAtomico({proveedor,deudaId=null,monto,fecha,notas,
   window._aqGuardandoPagoProv=true;showLoad(true);
   let resultado=null,error=null;
   try{
-    const r=await sb.rpc('aq_registrar_pago_proveedor_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,
+    const r=await sb.rpc('aq_pagar_proveedor_auth_v1',{
       p_nonce:window._aqPagoProveedorNonce,p_proveedor:proveedor,
       p_deuda_id:deudaId,p_monto:aqMonedaCompra(monto),p_fecha:fecha,
       p_notas:notas||'',p_origen:origen||'caja'
@@ -10969,8 +10964,7 @@ async function aqCobroClienteSeguro({clienteId,monto,medio,notas='',creditoId=nu
   aqCobroCreditoGuardando=true;showLoad(true);
   let data=null,err=null;
   try{
-    const r=await sb.rpc('aq_cobrar_credito_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,
+    const r=await sb.rpc('aq_cobrar_auth_v2',{
       p_nonce:previo.nonce,p_cliente_id:cid,p_monto:payload.monto,
       p_medio:medio,p_notas:payload.notas,p_credito_id:crid
     });data=r.data;err=r.error;
@@ -12035,10 +12029,10 @@ async function saveFactura(){
   window._aqGuardandoFactura=true;showLoad(true);
   let resultado=null,error=null;
   try{
-    const rpc=tipo==='inventario'?'aq_registrar_compra_segura':'aq_registrar_documento_sin_items';
+    const rpc=tipo==='inventario'?'aq_comprar_auth_v2':'aq_registrar_documento_auth_v1';
     const args=tipo==='inventario'
-      ?{p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_nonce:window._aqCompraNonce,p_factura:datos,p_items:lineas}
-      :{p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_nonce:window._aqCompraNonce,p_tipo:tipo,p_documento:datos};
+      ?{p_nonce:window._aqCompraNonce,p_factura:datos,p_items:lineas}
+      :{p_nonce:window._aqCompraNonce,p_tipo:tipo,p_documento:datos};
     const r=await sb.rpc(rpc,args);resultado=r.data;error=r.error;
   }catch(e){error=e;}
   showLoad(false);window._aqGuardandoFactura=false;
@@ -12491,9 +12485,7 @@ async function saveGasto(){
   const btn=el('g-guardar');if(btn){btn.disabled=true;btn.textContent='⏳ Guardando…';}
   let confirmado=null;
   try{
-    const resp=await sb.rpc('aq_registrar_gasto_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
+    const resp=await sb.rpc('aq_registrar_gasto_auth_v2',{
       p_nonce:window._aqGastoPendiente.nonce,
       p_gasto:datos
     });
@@ -16928,6 +16920,13 @@ function modalAbrirCaja(){
 }
 
 let aqCajaAperturaGuardando=false;
+function aqNonceAuth(){
+  if(typeof crypto==='undefined'||!crypto.getRandomValues)
+    throw new Error('Se requiere HTTPS y un navegador compatible para registrar operaciones seguras');
+  if(typeof crypto.randomUUID==='function')return crypto.randomUUID();
+  const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);
+  return Array.from(bytes,x=>x.toString(16).padStart(2,'0')).join('');
+}
 async function abrirCaja(){
   if(aqCajaAperturaGuardando)return;
   if(await aqBloquearNuevoDiaPorCierre())return;
@@ -16959,9 +16958,17 @@ async function abrirCaja(){
     }
     // Registro informativo, NO sustituye auditoría del actor en Supabase.
     notaFinal=(notaFinal?notaFinal+' · ':'')+'Apertura solicitada por: '+(CU?.nombre||'Usuario #'+(CU?.id||'?'));
-    const {error:escrituraError}=await sb.from('caja')
-      .insert({fecha:hoy(),tipo:'apertura',monto,notas:notaFinal,usuario_id:usuarioId});
-    if(escrituraError)throw escrituraError;
+    const firmaApertura=JSON.stringify([hoy(),monto,usuarioId,notaFinal]);
+    if(window._aqCajaAperturaFirma!==firmaApertura){
+      window._aqCajaAperturaFirma=firmaApertura;
+      window._aqCajaAperturaNonce=aqNonceAuth();
+    }
+    const {data:aperturaConfirmada,error:escrituraError}=await sb.rpc('aq_abrir_caja_auth_v2',{
+      p_nonce:window._aqCajaAperturaNonce,p_fecha:hoy(),p_monto:monto,
+      p_usuario_caja:Number(usuarioId),p_notas:notaFinal
+    });
+    if(escrituraError||!aperturaConfirmada)throw escrituraError||new Error('Supabase no confirmó la apertura');
+    window._aqCajaAperturaNonce=null;window._aqCajaAperturaFirma=null;
     closeModal('modal-abrir-caja');
     showNotif('✅ Apertura guardada: Q '+monto.toFixed(2),'#2e7d32');
     await initCaja();
@@ -17122,8 +17129,21 @@ async function cerrarCaja(){
       (info.sinClasificarCantidad?' | Medios de pago sin clasificar: '+info.sinClasificarCantidad:'')+
       ' | Transferencias (fuera de efectivo): '+info.transferencias.toFixed(2)+' | Otros medios (fuera de efectivo): '+info.otrosNoEfectivo.toFixed(2);
     const notas=(notasUsuario?notasUsuario+' · ':'')+resumen;
-    const {error}=await sb.from('caja').insert({fecha,tipo:'cierre',monto,notas,usuario_id:CU?.id||null});
-    if(error)throw error;
+    const firmaCierre=JSON.stringify([fecha,monto,info.aperturaId,info.esperado,info.numeroMovimientos,notas]);
+    if(window._aqCajaCierreFirma!==firmaCierre){
+      window._aqCajaCierreFirma=firmaCierre;
+      window._aqCajaCierreNonce=aqNonceAuth();
+    }
+    const {data:cierreConfirmado,error}=await sb.rpc('aq_cerrar_caja_auth_v2',{
+      p_nonce:window._aqCajaCierreNonce,p_fecha:fecha,p_apertura_id:info.aperturaId,
+      p_contado:monto,p_esperado_cliente:info.esperado,
+      p_num_movimientos:info.numeroMovimientos,
+      p_acepta_sin_clasificar:Boolean(info.sinClasificarCantidad),
+      p_acepta_diferencia:Math.abs(diff)>=0.01,
+      p_notas:notas
+    });
+    if(error||!cierreConfirmado)throw error||new Error('Supabase no confirmó el cierre');
+    window._aqCajaCierreNonce=null;window._aqCajaCierreFirma=null;
     aqCajaCierrePreparado=null;
     window._aqFechaCierreForzado=null;window._aqCierreSaldoHistorico=null;
     closeModal('modal-cerrar-caja');

@@ -14374,29 +14374,11 @@ async function confirmarPagoComision(empId, nombre, periodo){
 
 function handleFotoUpload(input){const file=input.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{userFotoBase64=e.target.result;document.getElementById('u-foto-prev').src=e.target.result;document.getElementById('u-foto-prev').style.display='';document.getElementById('u-foto-fb').style.display='none';};r.readAsDataURL(file);}
 async function saveUser(){
-  const nom=document.getElementById('unom').value.trim();
-  const usr=document.getElementById('uusr').value.trim();
-  const pass=document.getElementById('upass').value;
-  if(!nom||!usr){showNotif('Nombre y usuario requeridos','#c62828');return;}
-  const id=document.getElementById('uid').value;
-  if(id){
-    // Editar — NO permitir cambiar nombre
-    const uExist=D.usuarios.find(x=>x.id===parseInt(id));
-    const obj={rol:document.getElementById('urol').value,foto:userFotoBase64||''};
-    const esJefeSave=CU&&SOLO_JEFE.includes(CU.rol);
-    if(esJefeSave){
-      obj.nombre=nom;
-      obj.usuario=usr;
-    }
-    if(pass)obj.pass=pass;
-    // Ignorar cambio de nombre silenciosamente
-    await sb.from('usuarios').update(obj).eq('id',id);
-  } else {
-    if(!pass){showNotif('Contraseña requerida','#c62828');return;}
-    await sb.from('usuarios').insert({nombre:nom,usuario:usr,pass,rol:document.getElementById('urol').value,foto:userFotoBase64||''});
-  }
-  await loadAll();clearUserForm();renderUsers();cargarPermisosCustom().then(renderPermisosEditor);showNotif('✅ Usuario guardado','#2e7d32');
+  // QA/Auth: contraseñas, altas y roles requieren servicio seguro de Supabase Auth.
+  showNotif('Gestión de usuarios deshabilitada en pruebas: falta activar alta y cambios de clave seguros.','#c62828');
+  return false;
 }
+
 function renderUsers(){document.getElementById('usr-tbody').innerHTML=D.usuarios.map(u=>`<tr><td>${u.id}</td><td>${u.foto?`<img src="${u.foto}" style="width:30px;height:30px;border-radius:50%;object-fit:cover">`:'<span style="font-size:20px">👤</span>'}</td><td><b>${u.nombre}</b></td><td><code>${u.usuario}</code></td><td><span class="badge ${u.rol==='jefe'?'baz':'bgr'}">${u.rol}</span></td><td>${u.id===1?'<span class="tmuted" style="font-size:10px">Protegido</span>':`<button class="btn bsm" onclick="editUser(${u.id})">✏️</button> <button class="btn bd bsm" onclick="delUser(${u.id})">🗑</button>`}</td></tr>`).join('');}
 function editUser(id){
   const u=D.usuarios.find(x=>x.id===id);if(!u)return;
@@ -14420,7 +14402,7 @@ function editUser(id){
   if(u.foto){document.getElementById('u-foto-prev').src=u.foto;document.getElementById('u-foto-prev').style.display='';document.getElementById('u-foto-fb').style.display='none';}
   document.getElementById('uft').textContent='Editar Usuario — '+u.nombre;
 }
-async function delUser(id){if(id===1){showNotif('No puedes eliminar al Jefe','#c62828');return;}if(!confirm('¿Eliminar usuario?'))return;const emp=D.empleados.find(e=>e.usuario_id===id);await sb.from('usuarios').delete().eq('id',id);await loadLight();renderUsers();showNotif('Usuario eliminado');}
+async function delUser(id){showNotif('Eliminación deshabilitada en pruebas hasta integrar revocación segura de Supabase Auth.','#c62828');return false;}
 function clearUserForm(){
   const nomInp=document.getElementById('unom');
   if(nomInp){nomInp.disabled=false;nomInp.style.background='';nomInp.style.color='';nomInp.title='';}

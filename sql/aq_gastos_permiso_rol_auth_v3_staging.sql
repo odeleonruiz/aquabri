@@ -49,8 +49,7 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('eliminado',true,'id',p_gasto_id,'caja_eliminada',v_reg.caja_id IS NOT NULL);
 END;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.aq_registrar_gasto_seguro(p_token text, p_uid bigint, p_nonce text, p_gasto jsonb)
  RETURNS jsonb
@@ -152,4 +151,4 @@ BEGIN
   RETURN jsonb_build_object('id',v_gasto_id,'caja_id',v_caja_id,
     'metodo',v_metodo,'repetida',false);
 END;
-$function$
+$function$;

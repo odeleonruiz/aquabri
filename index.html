@@ -15078,57 +15078,51 @@ function selClienteMembresia(id,nombre){
 }
 
 async function eliminarClientePuntos(clienteId,nombre){
-  if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el Jefe puede eliminar','#c62828');return;}
-  if(!confirm('¿Eliminar a '+nombre+' del programa de puntos? Se perderán todos sus puntos.'))return;
-  await sb.from('puntos_historial').delete().eq('cliente_id',clienteId);
-  await sb.from('puntos_clientes').delete().eq('cliente_id',clienteId);
-  await loadAll();
-  initPuntos();
-  showNotif('Cliente eliminado del programa ✅','#c62828');
+  if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el jefe puede desactivar membresías','#c62828');return;}
+  if(!confirm('¿Desactivar la membresía de '+nombre+'? Sus puntos e historial NO se borrarán.'))return;
+  try{
+    const {data,error}=await sb.rpc('aq_desactivar_cliente_puntos_auth_v1',{p_cliente_id:Number(clienteId)});
+    if(error||!data?.ok)throw error||new Error('Desactivación no confirmada');
+    await loadAll();initPuntos();
+    showNotif('Membresía desactivada con historial conservado','#2e7d32');
+  }catch(e){showNotif('No se pudo desactivar: '+(e.message||e),'#c62828');}
 }
-
+async function aqInscribirPuntosSeguro(clienteId,precio,notas){
+  const payload={p_cliente_id:Number(clienteId),p_precio:Number(precio),
+    p_notas:notas||'',p_medio_pago:'efectivo'};
+  const key='puntos-inscripcion-'+clienteId;
+  const {data,error}=await sb.rpc('aq_inscribir_cliente_puntos_auth_v1',{
+    ...payload,p_nonce:aqNonceOperacion(key,payload)
+  });
+  if(error||!data?.ok)throw error||new Error('Inscripción no confirmada');
+  aqConfirmarOperacion(key);
+  return data;
+}
 async function venderMembresia(){
-  const cid=document.getElementById('pts-cli-venta').value;
-  if(!cid){showNotif('Selecciona un cliente','#e65100');return;}
-  const precio=parseFloat(document.getElementById('pts-precio-venta').value)||0;
+  const cid=Number(document.getElementById('pts-cli-venta').value);
+  if(!Number.isInteger(cid)||cid<1){showNotif('Selecciona un cliente','#e65100');return;}
+  const precio=Number(document.getElementById('pts-precio-venta').value)||0;
   const notas=document.getElementById('pts-notas-venta').value||D.puntosConfig?.descripcion||'Membresía programa de puntos';
-  const cli=D.clientes.find(c=>c.id===parseInt(cid));
-  if(!confirm(`¿Inscribir a ${cli?.nombre} por Q${precio}?`))return;
-  
-  if(precio>0){
-    await sb.from('ventas').insert({
-      fecha:hoy(),cliente_id:parseInt(cid),total:precio,pagado:precio,
-      entrega:'Entrega Inmediata',notas:'Membresía: '+notas,estado:'Entregado',bonificaciones:''
-    });
-  }
-  
-  await sb.from('puntos_clientes').upsert({
-    cliente_id:parseInt(cid),puntos_totales:0,puntos_canjeados:0,activo:true,
-    fecha_inscripcion:hoy()
-  },{onConflict:'cliente_id'});
-  await sb.from('puntos_historial').insert({
-    cliente_id:parseInt(cid),tipo:'ajuste',puntos:0,
-    descripcion:`Inscripción al programa${precio>0?' — Q'+precio+' pagados':' (gratuita)'}`
-  });
-  await loadLight();
-  initPuntos();
-  showNotif(`✅ ${cli?.nombre} inscrito al programa de puntos${precio>0?' — Q'+precio+' cobrados':''}`);
+  const cli=D.clientes.find(c=>Number(c.id)===cid);
+  if(precio<=0){showNotif('Para membresía gratuita, usa Inscribir gratis','#e65100');return;}
+  if(!confirm('¿Inscribir a '+(cli?.nombre||'cliente')+' por '+fQ(precio)+'?'))return;
+  try{
+    const res=await aqInscribirPuntosSeguro(cid,precio,notas);
+    await loadAll();initPuntos();
+    showNotif(res.repetida?'Inscripción ya registrada':
+      '✅ Inscripción confirmada en factura #'+res.venta_id+' y caja por '+fQ(res.precio),'#2e7d32');
+  }catch(e){showNotif('No se registró la membresía: '+(e.message||e),'#c62828');}
 }
-
 async function inscribirGratis(){
-  const cid=document.getElementById('pts-cli-venta').value;
-  if(!cid){showNotif('Selecciona un cliente','#e65100');return;}
-  const cli=D.clientes.find(c=>c.id===parseInt(cid));
-  if(!confirm(`¿Inscribir a ${cli?.nombre} gratis?`))return;
-  await sb.from('puntos_clientes').upsert({
-    cliente_id:parseInt(cid),puntos_totales:0,puntos_canjeados:0,activo:true,fecha_inscripcion:hoy()
-  },{onConflict:'cliente_id'});
-  await sb.from('puntos_historial').insert({
-    cliente_id:parseInt(cid),tipo:'ajuste',puntos:0,descripcion:'Inscripción gratuita al programa'
-  });
-  await loadLight();
-  initPuntos();
-  showNotif(`✅ ${cli?.nombre} inscrito gratis al programa`);
+  const cid=Number(document.getElementById('pts-cli-venta').value);
+  if(!Number.isInteger(cid)||cid<1){showNotif('Selecciona un cliente','#e65100');return;}
+  const cli=D.clientes.find(c=>Number(c.id)===cid);
+  if(!confirm('¿Inscribir a '+(cli?.nombre||'cliente')+' gratis?'))return;
+  try{
+    const res=await aqInscribirPuntosSeguro(cid,0,'Inscripción gratuita al programa');
+    await loadAll();initPuntos();
+    showNotif(res.repetida?'Cliente ya inscrito':'✅ Cliente inscrito gratis sin alterar puntos anteriores','#2e7d32');
+  }catch(e){showNotif('No se registró la inscripción: '+(e.message||e),'#c62828');}
 }
 
 function renderPtsResumen(){

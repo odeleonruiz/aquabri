@@ -7970,6 +7970,30 @@ function navegarA(lat,lng,nombre){
   showNotif(`🗺 Abriendo Google Maps → ${nombre||'Cliente'}`);
 }
 
+// Rutas atómicas: no escribir cabeceras/paradas directamente desde el navegador.
+async function aqRutaRpc(rpc,args){
+  const {data,error}=await sb.rpc(rpc,args);
+  if(error||!data?.ok)throw error||new Error('Operación de ruta sin confirmar');
+  return data;
+}
+async function aqCrearRutaSegura(ruta,clientes){
+  return aqRutaRpc('aq_crear_ruta_auth_v1',{
+    p_ruta:ruta,p_clientes:(clientes||[]).map(id=>Number(id))
+  });
+}
+async function aqCambiarRutaEstado(id,estado){
+  try{await aqRutaRpc('aq_estado_ruta_auth_v1',{p_ruta_id:Number(id),p_estado:estado});return true;}
+  catch(e){showNotif('Ruta no actualizada: '+(e.message||e),'#c62828');return false;}
+}
+async function aqReordenarRutaSegura(id,paradas){
+  try{
+    await aqRutaRpc('aq_reordenar_ruta_auth_v1',{
+      p_ruta_id:Number(id),p_paradas:(paradas||[]).map(x=>Number(x))
+    });
+    return true;
+  }catch(e){showNotif('No se guardó el nuevo orden: '+(e.message||e),'#c62828');return false;}
+}
+
 // Visitas y paradas: escrituras solo mediante RPC autenticadas de staging.
 async function aqRegistrarVisitaSegura(clienteId,sinCompra=false,fecha=null,ventaId=null,silencio=false){
   try{
@@ -8074,7 +8098,7 @@ async function iniciarNavegacionRuta(rid){
   if(primerPend>=0)navIdx=primerPend;
   document.getElementById('nav-ruta-panel').style.display='';
   document.getElementById('nav-ruta-nombre').textContent=ruta.nombre;
-  await sb.from('rutas').update({estado:'En Ruta'}).eq('id',rid);
+  if(!await aqCambiarRutaEstado(rid,'En Ruta'))return;
   actualizarNavPanel();
   actualizarPanelRutaVentas();
   renderRutas();
@@ -8082,7 +8106,7 @@ async function iniciarNavegacionRuta(rid){
   // Auto-optimizar por cercanía — con GPS si disponible, sin GPS usa posición del primer cliente
   const pendientes=navParadas.filter(p=>p.estado!=='Visitado'&&p.clientes?.lat&&p.clientes?.lng);
   const visitados=navParadas.filter(p=>p.estado==='Visitado');
-  function optimizarParadas(posInicio){
+  async function optimizarParadas(posInicio){
     if(pendientes.length<=1)return;
     const ordenados=[];
     const restantes=[...pendientes];
@@ -8100,7 +8124,7 @@ async function iniciarNavegacionRuta(rid){
       pos={lat:parseFloat(ult.clientes.lat),lng:parseFloat(ult.clientes.lng)};
     }
     navParadas=[...visitados,...ordenados];
-    ordenados.forEach((p,i)=>sb.from('ruta_paradas').update({orden:visitados.length+i}).eq('id',p.id));
+    if(!await aqReordenarRutaSegura(navRutaActiva.id,navParadas.map(p=>p.id)))return;
     const pp=navParadas.findIndex(p=>p.estado!=='Visitado');
     if(pp>=0)navIdx=pp;
     actualizarNavPanel();
@@ -8300,14 +8324,14 @@ function mostrarRutaCompletada(){
 ✅ ${visitados} clientes visitados
 
 ¿Finalizar la ruta?`)){
-      finalizarRuta();
+      finalizarRutaActiva();
     }
   },500);
 }
 
-async function finalizarRuta(){
+async function finalizarRutaActiva(){
   if(document.hidden||!navRutaActiva)return;
-  await sb.from('rutas').update({estado:'Completada'}).eq('id',navRutaActiva.id);
+  if(!await aqCambiarRutaEstado(navRutaActiva.id,'Completada'))return;
   cerrarNavRuta();
   showNotif('✅ Ruta finalizada y guardada','#2e7d32');
 }
@@ -8330,23 +8354,14 @@ function navAnterior(){
 
 async function reutilizarRuta(rutaId, nombre){
   if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el Jefe puede gestionar rutas','#c62828');return;}
-  if(!confirm(`¿Reutilizar la ruta "${nombre}"? Se reiniciarán las paradas pendientes.`))return;
-  const{data:paradas}=await sb.from('ruta_paradas').select('id,cliente_id').eq('ruta_id',rutaId);
-  if(paradas?.length){
-    const hoyStr=hoy();
-    for(const p of paradas){
-      const yaVisitado=(window._visitasHoy||{})[p.cliente_id]===hoyStr;
-      const yaVendido=D.ventas.some(v=>v.cliente_id===p.cliente_id&&v.fecha===hoyStr&&v.estado!=='Cancelada');
-      const nuevoEstado=(yaVisitado||yaVendido)?'Visitado':'Pendiente';
-      await sb.from('ruta_paradas').update({estado:nuevoEstado}).eq('id',p.id);
-    }
-  }
-  const{data:paradasActualizadas}=await sb.from('ruta_paradas').select('estado').eq('ruta_id',rutaId);
-  const todasVisitadas=paradasActualizadas?.every(p=>p.estado==='Visitado');
-  await sb.from('rutas').update({estado:todasVisitadas?'Completada':'Pendiente',fecha:hoy()}).eq('id',rutaId);
-  await loadAll();renderRutas();
-  const pendientes=paradasActualizadas?.filter(p=>p.estado==='Pendiente').length||0;
-  showNotif(`✅ Ruta "${nombre}" lista — ${pendientes} paradas pendientes`,'#6a1b9a');
+  if(!confirm(`¿Reutilizar la ruta "${nombre}"? Se recalcularán las paradas pendientes.`))return;
+  try{
+    const res=await aqRutaRpc('aq_reutilizar_ruta_auth_v1',{
+      p_ruta_id:Number(rutaId),p_fecha:hoy()
+    });
+    await loadAll();renderRutas();
+    showNotif(`✅ Ruta "${nombre}" lista — ${res.pendientes} paradas pendientes`,'#6a1b9a');
+  }catch(e){showNotif('No se reutilizó la ruta: '+(e.message||e),'#c62828');}
 }
 
 function actualizarSeguimientoJefe(){
@@ -8861,18 +8876,14 @@ async function iniciarRutaPersonalizada(rutaPersId, nombre){
   });
   if(!clientesFiltrados.length){showLoad(false);showNotif('Todos los clientes de esta ruta ya fueron visitados ✅','#2e7d32');return;}
   // Crear ruta navegable en tabla rutas
-  const{data:rutaNueva}=await sb.from('rutas').insert({
-    nombre:nombre+' — '+hoyStr,
-    fecha:hoyStr,
-    estado:'Pendiente',
-    vehiculo_id:vehiculoId||null,
-    empleado_id:empleadoId||null,
-    notas:'Generada desde agrupamiento'
-  }).select().single();
-  if(!rutaNueva){showLoad(false);showNotif('Error al crear ruta','#c62828');return;}
-  // Insertar paradas
-  const paradas=clientesFiltrados.map((item,i)=>({ruta_id:rutaNueva.id,cliente_id:item.clientes.id,orden:i,estado:'Pendiente'}));
-  await sb.from('ruta_paradas').insert(paradas);
+  let rutaNueva;
+  try{
+    rutaNueva=await aqCrearRutaSegura({
+      nombre:nombre+' — '+hoyStr,fecha:hoyStr,
+      vehiculo_id:vehiculoId||null,empleado_id:empleadoId||null,
+      notas:'Generada desde agrupamiento'
+    },clientesFiltrados.map(item=>item.clientes.id));
+  }catch(e){showLoad(false);showNotif('Error al crear ruta: '+(e.message||e),'#c62828');return;}
   showLoad(false);
   // Ir al mapa e iniciar navegación
   await goPage('mapa');
@@ -10092,17 +10103,9 @@ async function crearRutaCombinada(){
   if(!confirm(`¿Crear ruta "${nombre}" con ${clientes.length} clientes para el ${fecha}?`))return;
   showLoad(true);
   try{
-    const{data:ruta,error}=await sb.from('rutas').insert({
-      nombre,fecha,estado:'Pendiente',
-      vehiculo_id:vid||null,
-      empleado_id:eid||null
-    }).select().single();
-    if(error)throw error;
-    if(ruta?.id){
-      const paradas=clientes.map((c,i)=>({ruta_id:ruta.id,cliente_id:c.id,orden:i+1,estado:'Pendiente'}));
-      const{error:e2}=await sb.from('ruta_paradas').insert(paradas);
-      if(e2)throw e2;
-    }
+    const ruta=await aqCrearRutaSegura({
+      nombre,fecha,vehiculo_id:vid||null,empleado_id:eid||null
+    },clientes.map(c=>c.id));
     showLoad(false);
     // Limpiar form
     document.querySelectorAll('#combinar-checkboxes input').forEach(i=>i.checked=false);
@@ -10203,22 +10206,16 @@ async function saveRutaDesdeNombreRuta(){
   const eid=document.getElementById('r-empleado2').value;
   const fecha=document.getElementById('r-fecha2').value||hoy();
   
-  const{data:rutaData}=await sb.from('rutas').insert({
-    nombre,fecha,estado:'Pendiente',
-    vehiculo_id:vid?parseInt(vid):null,
-    empleado_id:eid?parseInt(eid):null
-  }).select().single();
-  if(!rutaData){showNotif('Error creando ruta','#c62828');return;}
-  
-  const paradas=clientesRutaSeleccionada.map((c,i)=>({
-    ruta_id:rutaData.id,cliente_id:c.id,orden:i+1,estado:'Pendiente'
-  }));
-  await sb.from('ruta_paradas').insert(paradas);
-  await loadAll();
-  renderRutas();
-  showNotif(`✅ Ruta "${nombre}" creada con ${paradas.length} clientes`,'#2e7d32');
-  
-  setTimeout(()=>iniciarNavegacionRuta(rutaData.id),800);
+  try{
+    const rutaData=await aqCrearRutaSegura({
+      nombre,fecha,vehiculo_id:vid?parseInt(vid):null,
+      empleado_id:eid?parseInt(eid):null
+    },clientesRutaSeleccionada.map(c=>c.id));
+    await loadAll();
+    renderRutas();
+    showNotif(`✅ Ruta "${nombre}" creada con ${clientesRutaSeleccionada.length} clientes`,'#2e7d32');
+    setTimeout(()=>iniciarNavegacionRuta(rutaData.id),800);
+  }catch(e){showNotif('Error creando ruta: '+(e.message||e),'#c62828');}
 }
 
 function optimizarClientesRuta(){
@@ -10262,9 +10259,14 @@ async function saveRuta(){
   if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el Jefe puede crear rutas','#c62828');return;}
   const nom=document.getElementById('r-nombre').value.trim();if(!nom){showNotif('Nombre requerido','#c62828');return;}
   if(!rutaParadasIds.length){showNotif('Agrega al menos 1 parada','#c62828');return;}
-  const{data:ruta}=await sb.from('rutas').insert({nombre:nom,vehiculo_id:parseInt(document.getElementById('r-vehiculo').value)||null,empleado_id:parseInt(document.getElementById('r-empleado').value)||null,fecha:document.getElementById('r-fecha').value,estado:'Pendiente'}).select().single();
-  for(let i=0;i<rutaParadasIds.length;i++)await sb.from('ruta_paradas').insert({ruta_id:ruta.id,cliente_id:rutaParadasIds[i],orden:i+1,estado:'Pendiente'});
-  clearRutaForm();renderRutas();showNotif('Ruta creada ✅');
+  try{
+    await aqCrearRutaSegura({
+      nombre:nom,vehiculo_id:parseInt(document.getElementById('r-vehiculo').value)||null,
+      empleado_id:parseInt(document.getElementById('r-empleado').value)||null,
+      fecha:document.getElementById('r-fecha').value||hoy()
+    },rutaParadasIds);
+    clearRutaForm();renderRutas();showNotif('Ruta creada ✅');
+  }catch(e){showNotif('No se creó la ruta: '+(e.message||e),'#c62828');}
 }
 
 function renderPedidosPendientesVentas(){
@@ -10465,9 +10467,21 @@ async function verRutaEnMapa(rid){
   const bounds=new google.maps.LatLngBounds();puntos.forEach(p=>bounds.extend(p));gmMap.fitBounds(bounds,{padding:{top:50,right:50,bottom:50,left:50}});
   showNotif(`🗺 Mostrando: ${ruta.nombre}`);rutaLineasActiva=true;
 }
-async function iniciarRuta(id){await sb.from('rutas').update({estado:'En Ruta'}).eq('id',id);renderRutas();showNotif('Ruta iniciada ✅');}
-async function finalizarRuta(id){await sb.from('rutas').update({estado:'Finalizado'}).eq('id',id);await sb.from('ruta_paradas').update({estado:'Visitado'}).eq('ruta_id',id);cerrarNavRuta();renderRutas();showNotif('Ruta finalizada ✅');}
-async function delRuta(id){if(!confirm('¿Eliminar ruta?'))return;await sb.from('ruta_paradas').delete().eq('ruta_id',id);await sb.from('rutas').delete().eq('id',id);renderRutas();showNotif('Eliminado','#c62828');}
+async function iniciarRuta(id){
+  if(!await aqCambiarRutaEstado(id,'En Ruta'))return;
+  renderRutas();showNotif('Ruta iniciada ✅');
+}
+async function finalizarRuta(id){
+  if(!await aqCambiarRutaEstado(id,'Finalizado'))return;
+  cerrarNavRuta();renderRutas();showNotif('Ruta finalizada sin inventar visitas ✅');
+}
+async function delRuta(id){
+  if(!confirm('¿Eliminar ruta?'))return;
+  try{
+    await aqRutaRpc('aq_borrar_ruta_auth_v1',{p_ruta_id:Number(id)});
+    renderRutas();showNotif('Ruta eliminada','#c62828');
+  }catch(e){showNotif('No se pudo eliminar ruta: '+(e.message||e),'#c62828');}
+}
 
 
 // ── POR PROVEEDOR ─────────────────────────────────────────────────────────────

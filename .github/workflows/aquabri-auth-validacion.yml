@@ -33,6 +33,14 @@ jobs:
           assert(html.includes("aq_cobrar_credito_sesion_segura_v1"),'Falta RPC de cobro seguro');
           assert(!html.includes("sb.from('usuarios')"),'Consulta directa de usuarios permanece');
           assert(!html.includes("sb.from('sesiones')"),'Acceso directo a sesiones permanece');
+          assert(!/sb\\.from\\(['"]clientes['"]\\)\\.(insert|update|delete)\\(/.test(html),'Escritura de cliente sin RPC');
+          assert(html.includes('aq_archivar_cliente_sesion_v1'),'Falta archivado no destructivo de clientes');
+          assert(!html.includes("sb.from('creditos').delete().eq('cliente_id',id)"),'Hay borrado destructivo de créditos al eliminar clientes');
+          assert(html.includes('aq_registrar_movimiento_envase_sesion_v1'),'Falta RPC de movimientos de envases');
+          assert(html.includes('aq_anular_movimiento_envase_sesion_v1'),'Falta anulación de préstamos de envases');
+          assert(html.includes('aq_abrir_caja_sesion_v1'),'Falta apertura de caja transaccional');
+          assert(html.includes('aq_cerrar_caja_sesion_v1'),'Falta cierre de caja transaccional');
+          assert(html.includes('aq_registrar_gasto_sesion_v1'),'Falta registro de gasto transaccional');
           NODE
       - name: Verificar cabecera de sesión en CORS del laboratorio
         run: |

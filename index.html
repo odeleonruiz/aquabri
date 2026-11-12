@@ -6344,20 +6344,48 @@ async function aqCapturarComprobanteEnCanvas(el){
   return canvas;
 }
 let aqCachePNGComprobante=null;
+function aqEstadoBotonesCompartir(estado){
+  // El botón de iOS solo queda disponible cuando el archivo existe realmente.
+  for(const modal of ['modal-ticket','modal-saldo_pendiente']){
+    const root=document.getElementById(modal);
+    if(!root?.classList.contains('open'))continue;
+    root.querySelectorAll('button[onclick*="compartirImagenComprobante"]').forEach(btn=>{
+      if(!btn.dataset.aqEtiquetaCompartir)btn.dataset.aqEtiquetaCompartir=btn.innerHTML;
+      if(estado==='preparando'){
+        btn.disabled=true;btn.textContent='⏳ Preparando imagen…';
+      }else{
+        btn.disabled=false;
+        btn.innerHTML=btn.dataset.aqEtiquetaCompartir;
+        btn.title=estado==='error'?'No se pudo preparar la imagen. Toca para intentar de nuevo.':'Imagen lista para compartir';
+      }
+    });
+  }
+}
 function aqPrecalentarPNGComprobante(el){
   if(!el)return;
   const firma=el.innerHTML;
-  if(aqCachePNGComprobante?.el===el&&aqCachePNGComprobante?.firma===firma)return;
+  if(aqCachePNGComprobante?.el===el&&aqCachePNGComprobante?.firma===firma){
+    aqEstadoBotonesCompartir(aqCachePNGComprobante.blob?'lista':'preparando');
+    return;
+  }
   const cache={el,firma,promesa:null,blob:null};
   aqCachePNGComprobante=cache;
+  aqEstadoBotonesCompartir('preparando');
   cache.promesa=(async()=>{
     const canvas=await aqCapturarComprobanteEnCanvas(el);
     const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('No se pudo crear PNG')),'image/png'));
-    cache.blob=blob;
+    if(aqCachePNGComprobante===cache && el.innerHTML===firma){
+      cache.blob=blob;
+      aqEstadoBotonesCompartir('lista');
+    }
     return blob;
   })();
   cache.promesa.catch(e=>{
-    if(aqCachePNGComprobante===cache)aqCachePNGComprobante=null;
+    if(aqCachePNGComprobante===cache){
+      aqCachePNGComprobante=null;
+      aqEstadoBotonesCompartir('error');
+      showNotif('No se pudo preparar la imagen. Toca Compartir para reintentar.','#c62828');
+    }
     console.warn('Preparación previa de PNG no disponible:',e);
   });
 }
@@ -6460,36 +6488,41 @@ async function compartirImagenComprobante(){
   if(btn?.dataset.aqGenerando==='1'||!aqValidarDetalleVentaComprobante())return false;
   const el=aqDocumentoVisible();
   const nombre=aqNombrePNGComprobante();
-  try{
+  const cache=aqCachePNGComprobante;
+  const blob=cache?.el===el&&cache?.firma===el?.innerHTML?cache.blob:null;
+  // CRÍTICO Safari: la llamada a navigator.share debe ocurrir en el clic ORIGINAL,
+  // antes de cualquier await, captura, descarga o promesa.
+  if(blob&&typeof navigator.share==='function'&&typeof File==='function'){
     if(btn){btn.dataset.aqGenerando='1';btn.disabled=true;}
-    aqUltimoEstadoCompartirPNG='';
-    // iOS exige activar navigator.share durante el gesto original del usuario.
-    // Nunca esperar un fetch, una captura o una promesa ANTES de abrir el menú.
-    const cache=aqCachePNGComprobante;
-    const lista=cache?.el===el&&cache?.firma===el?.innerHTML&&cache.blob;
-    if(lista){
-      const compartir=aqCompartirPNG(cache.blob,nombre);
-      const estado=await compartir;
+    try{
+      const estado=await aqCompartirPNG(blob,nombre);
       aqUltimoEstadoCompartirPNG=estado;
-      if(estado==='compartido'){showNotif('✅ Comprobante compartido','#2e7d32');return true;}
+      if(estado==='compartido'){showNotif('✅ Menú de compartir completado','#2e7d32');return true;}
       if(estado==='cancelado')return false;
-    }
-    showNotif('📷 Preparando imagen del comprobante…','#1565c0');
-    const o=await aqPrepararPNGComprobante(el,nombre);
-    if(typeof navigator.share==='function'&&typeof File==='function'&&!['sin_soporte','fallo'].includes(aqUltimoEstadoCompartirPNG)){
-      // La primera pulsación puede utilizarse para terminar la captura.
-      // Solicitar una segunda pulsación conserva el gesto necesario en Safari/iPhone.
-      showNotif('✅ Imagen lista. Toca «Compartir imagen» otra vez para elegir WhatsApp.','#2e7d32');
+      // Navegador sin capacidad para archivos: ofrecer PNG manual, sin afirmar envío.
+      const links=aqMostrarEnlacesComprobante(blob,nombre);
+      showNotif('El navegador no permitió compartir archivos. Descarga la imagen debajo del comprobante.','#e65100');
+      return Boolean(links);
+    }catch(e){
+      console.error('Compartir comprobante:',e);
+      aqMostrarEnlacesComprobante(blob,nombre);
+      showNotif('No se abrió el menú de compartir. Imagen disponible debajo del comprobante.','#e65100');
       return false;
-    }
-    aqSolicitarDescargaPNG(o.links);
-    showNotif('📷 Imagen lista. Abre o descarga el comprobante debajo.','#2e7d32');
-    return true;
-  }catch(e){
-    console.error('Compartir comprobante:',e);
-    alert('No se pudo preparar la imagen: '+(e?.message||'Error desconocido')+'. Puedes imprimir el comprobante.');
-    return false;
-  }finally{if(btn){btn.disabled=false;delete btn.dataset.aqGenerando;}}
+    }finally{if(btn){btn.disabled=false;delete btn.dataset.aqGenerando;}}
+  }
+  // Cuando el PNG aún no existe, se prepara sin consumir el permiso de
+  // compartir. El botón permanecerá desactivado hasta que el archivo esté listo.
+  aqPrecalentarPNGComprobante(el);
+  if(typeof navigator.share!=='function'||typeof File!=='function'){
+    try{
+      const o=await aqPrepararPNGComprobante(el,nombre);
+      showNotif('Tu navegador no permite compartir PNG desde esta página. Usa Descargar PNG.','#e65100');
+      aqSolicitarDescargaPNG(o.links);
+    }catch(e){alert('No se pudo generar el comprobante: '+(e?.message||'Error desconocido'));}
+  }else{
+    showNotif('Preparando comprobante; toca Compartir cuando el botón se habilite.','#1565c0');
+  }
+  return false;
 }
 // Recibos de planilla que se abren en ventanas separadas.
 async function aqDescargarReciboVentana(doc,nombre,compartir=false){

@@ -6902,7 +6902,25 @@ function generarMsgWSP(venta,items,total,esCredito){
   return msg;
 }
 
-async function cambioEstado(id,e){await sb.from('ventas').update({estado:e}).eq('id',id);await loadLight();renderHistorial();fillVSelects();showNotif('Estado actualizado');}
+async function cambioEstado(id,e){
+  const v=D.ventas.find(x=>Number(x.id)===Number(id));
+  if(!v)return;
+  if(!String(v.notas||'').startsWith('📦 PEDIDO:')){
+    showNotif('Los estados de ventas confirmadas requieren una operación segura autorizada.','#e65100');
+    renderHistorial();return;
+  }
+  if(e==='Entregado'){abrirEntregarPedido(Number(id));renderHistorial();return;}
+  if(!['Pendiente','Preparando','En Camino'].includes(e)){
+    showNotif('Estado no autorizado desde esta pantalla','#c62828');renderHistorial();return;
+  }
+  try{
+    const {data,error}=await sb.rpc('aq_estado_pedido_auth_v1',{
+      p_venta_id:Number(id),p_estado:e,p_empleado_id:null
+    });
+    if(error||!data?.ok)throw error||new Error('No se confirmó el cambio');
+    await loadLight();renderHistorial();fillVSelects();showNotif('Estado del pedido actualizado');
+  }catch(err){showNotif('Estado no cambiado: '+(err.message||err),'#c62828');renderHistorial();}
+}
 let _evItems=[]; // items actuales en edición
 
 function openEditVenta(id){
@@ -14545,10 +14563,10 @@ async function asignarPedido(ventaId, clienteId){
   openModal('modal-asignar');
 }
 async function confirmarAsignacion(ventaId,empleadoId,empleadoNombre){
-  await sb.from('ventas').update({
-    estado:'Preparando',
-    notas:'Asignado a: '+empleadoNombre
-  }).eq('id',ventaId);
+  const {data,error}=await sb.rpc('aq_estado_pedido_auth_v1',{
+    p_venta_id:Number(ventaId),p_estado:'Preparando',p_empleado_id:Number(empleadoId)
+  });
+  if(error||!data?.ok)throw error||new Error('No se pudo asignar el pedido');
   // Notificar al empleado asignado
   if(empleadoId){
     const emp=D.empleados.find(e=>e.id===empleadoId);
@@ -17325,43 +17343,40 @@ async function guardarNuevoPedido(){
   const fecha=document.getElementById('np-fecha').value||hoy();
   const notas=document.getElementById('np-notas').value;
   aqActualizarPermisosDescuento();
-  const descg=aqEsJefePrecio()?(parseFloat(document.getElementById('np-descg')?.value)||0):0;
+  const descg=aqEsJefePrecio()?(Number(document.getElementById('np-descg')?.value)||0):0;
   if(!npItems.length){showNotif('Agrega al menos un producto','#c62828');return;}
-  const subtotal=npItems.reduce((s,i)=>s+i.precio*i.cant,0);
-  const total=Math.max(0,subtotal-descg);
   const bonifs=npItems.filter(i=>i.bonifCant>0).map(i=>i.bonifNombre||'Bonif').join('; ');
-  // Insertar venta pendiente
-  const{data:venta}=await sb.from('ventas').insert({
-    fecha,cliente_id:cid?parseInt(cid):null,
-    total,pagado:0,entrega:'A Domicilio',
-    notas:'📦 PEDIDO: '+notas,
-    estado:'Pendiente',
-    desc_gral:descg,
-    usuario_id:CU?.id||null,
-    bonificaciones:bonifs||null
-  }).select().single();
-  if(!venta){showNotif('Error al registrar pedido','#c62828');return;}
-  // Insertar items con bonificación
-  await sb.from('venta_items').insert(npItems.map(i=>({
-    venta_id:venta.id,producto_id:i.pid,
-    nombre:i.nombre,cant:i.cant,precio:i.tieneOferta?i.precioOriginal:i.precio,
+  const pedido={fecha,cliente_id:cid?Number(cid):null,notas,desc_gral:descg,bonificaciones:bonifs};
+  const items=npItems.map(i=>({
+    producto_id:Number(i.pid),nombre:i.nombre,cant:Number(i.cant),
+    precio:i.tieneOferta?Number(i.precioOriginal):Number(i.precio),
     descuento:i.tieneOferta?Math.max(0,Math.round((i.precioOriginal-i.precio)*100)/100):0,
-    bonif_nombre:i.bonifNombre||null,
-    bonif_cant:i.bonifCant||0
-  })));
-  closeModal('modal-nuevo-pedido');
-  const{data:rv}=await sb.from('ventas').select('*,clientes(nombre)').order('id',{ascending:false}).limit(100);
-  if(rv)D.ventas=rv;
-  renderInicio();renderHistorial();
-  showNotif('📦 Pedido registrado para '+fecha+(bonifs?' · con bonificaciones':''));
-  // Notificar al jefe si quien registra es vendedor
-  if(CU&&!SOLO_JEFE.includes(CU.rol)){
-    const jefe=D.usuarios.find(u=>u.rol==='jefe');
-    if(jefe){
-      const cliNom=document.getElementById('np-cli-input')?.value||'Cliente';
-      await enviarNotificacion(jefe.id,'📦 Nuevo pedido',''+CU.nombre+' registró un pedido de '+cliNom+' para '+fecha,'pedido');
+    bonif_nombre:i.bonifNombre||null,bonif_cant:Number(i.bonifCant)||0,
+    bonif_prod_id:null
+  }));
+  const payload={pedido,items};
+  try{
+    const nonce=aqNonceOperacion('crear-pedido',payload);
+    const {data,error}=await sb.rpc('aq_crear_pedido_auth_v1',{
+      p_nonce:nonce,p_pedido:pedido,p_items:items
+    });
+    if(error||!data?.ok)throw error||new Error('No se confirmó el pedido');
+    aqConfirmarOperacion('crear-pedido');
+    closeModal('modal-nuevo-pedido');
+    const {data:ventas,error:reloadError}=await sb.from('ventas').select('*,clientes(nombre)').order('id',{ascending:false}).limit(100);
+    if(ventas)D.ventas=ventas;
+    renderInicio();renderHistorial();renderPedidosPendientesVentas();
+    if(reloadError)showNotif('Pedido guardado; actualiza el historial para verlo','#e65100');
+    else showNotif(data.repetida?'Pedido ya registrado':'📦 Pedido programado #'+data.id+' guardado sin descontar existencias');
+    if(CU&&!SOLO_JEFE.includes(CU.rol)){
+      const jefe=D.usuarios.find(u=>u.rol==='jefe');
+      if(jefe){
+        const nombre=document.getElementById('np-cli-input')?.value||'Cliente';
+        try{await enviarNotificacion(jefe.id,'📦 Nuevo pedido',CU.nombre+' registró un pedido de '+nombre+' para '+fecha,'pedido');}
+        catch(error){console.warn('Pedido guardado; no se pudo notificar:',error);}
+      }
     }
-  }
+  }catch(e){showNotif('No se creó el pedido: '+(e.message||e),'#c62828');}
 }
 
 async function abrirEntregarPedido(ventaId){
@@ -17385,76 +17400,36 @@ async function abrirEntregarPedido(ventaId){
 }
 
 async function confirmarEntregaPedido(){
-  const vid=parseInt(document.getElementById('ep-venta-id').value);
-  const pagado=parseFloat(document.getElementById('ep-pagado').value)||0;
+  const vid=Number(document.getElementById('ep-venta-id').value);
+  const pagado=Number(document.getElementById('ep-pagado').value)||0;
   const esCredito=document.getElementById('ep-credito').value==='1';
   const medioPago=aqCajaMetodoSeleccionado('ep-medio-pago');
-  const v=D.ventas.find(x=>x.id===vid);
-  if(!v)return;
+  const v=D.ventas.find(x=>Number(x.id)===vid);
+  if(!v){showNotif('Pedido no encontrado','#c62828');return;}
+  const payload={p_venta_id:vid,p_pagado:esCredito?0:pagado,
+    p_medio:medioPago,p_es_credito:esCredito};
   showLoad(true);
-  // Descontar stock ahora que se entrega
-  const{data:items}=await sb.from('venta_items').select('*').eq('venta_id',vid);
-  const promesas=[];
-  for(const item of(items||[])){
-    const prod=D.prods.find(p=>p.id===item.producto_id);
-    if(prod){
-      const ns=Math.max(0,parseInt(prod.stock||0)-parseInt(item.cant));
-      prod.stock=ns;
-      promesas.push(sb.from('productos').update({stock:ns}).eq('id',prod.id));
-    }
-  }
-  // Actualizar venta a Entregado
-  promesas.push(sb.from('ventas').update({
-    estado:'Entregado',
-    pagado:esCredito?0:pagado,
-    fecha:hoy(),
-    usuario_id:CU?.id||null
-  }).eq('id',vid));
-  // Registrar en caja HASTA AHORA que de verdad se entrega y se cobra (no cuando se programó el pedido)
-  if(!esCredito&&pagado>0){
-    promesas.push(sb.from('caja').insert({
-      fecha:hoy(),
-      tipo:'venta',
-      monto:pagado,
-      notas:aqCajaAnotarMedio('Venta #'+vid+' (pedido entregado) — '+(v.clientes?.nombre||v.nombre_mostrador||'Mostrador'),medioPago),
-      usuario_id:CU?.id||null,
-      venta_id:vid
-    }));
-    // Si ya existía una deuda de cuando se tomó el pedido y ahora sí pagó, saldarla (evita que quede pendiente por error)
-    const credExistente=D.creditos.find(c=>c.concepto==='Venta #'+vid&&(parseFloat(c.monto||0)-parseFloat(c.pagado||0))>0);
-    if(credExistente){
-      promesas.push(sb.from('creditos').update({pagado:credExistente.monto,estado:'Pagado'}).eq('id',credExistente.id));
-    }
-  }
-  // Si es crédito, crear registro — solo si no se creó ya uno al momento de tomar el pedido (evita duplicar la deuda)
-  if(esCredito&&v.cliente_id){
-    const yaExiste=D.creditos.some(c=>c.concepto==='Venta #'+vid);
-    if(!yaExiste){
-      promesas.push(sb.from('creditos').insert({
-        cliente_id:v.cliente_id,concepto:'Venta #'+vid,
-        monto:v.total,pagado:0,fecha:hoy(),estado:'Pendiente',
-        notas:'Desde pedido programado'
-      }));
-    }
-  }
-  await Promise.all(promesas);
-  // Recargar datos
-  const[rv,rp,rc]=await Promise.all([
-    sb.from('ventas').select('*,clientes(nombre)').order('id',{ascending:false}).limit(100),
-    sb.from('productos').select('id,nombre,precio,costo,stock,minstock,categoria,retornable,oferta_precio,oferta_desc,bonif_desc,bonif_cant,bonif_prod,activo'),
-    sb.from('creditos').select('*,clientes(nombre)').order('id',{ascending:false}),
-  ]);
-  if(rv.data)D.ventas=rv.data;
-  if(rp.data)D.prods=rp.data;
-  if(rc.data)D.creditos=rc.data;
-  closeModal('modal-entregar-pedido');
-  showLoad(false);
-  renderInicio();
-  renderHistorial();
-  renderPedidosPendientesVentas();
-  showNotif('✅ Pedido entregado y cobrado');
+  try{
+    const nonce=aqNonceOperacion('entregar-pedido-'+vid,payload);
+    const {data,error}=await sb.rpc('aq_entregar_pedido_auth_v1',{...payload,p_nonce:nonce});
+    if(error||!data?.ok)throw error||new Error('No se confirmó la entrega');
+    aqConfirmarOperacion('entregar-pedido-'+vid);
+    const[rv,rp,rc]=await Promise.all([
+      sb.from('ventas').select('*,clientes(nombre)').order('id',{ascending:false}).limit(100),
+      sb.from('productos').select('id,nombre,precio,costo,stock,minstock,categoria,retornable,oferta_precio,oferta_desc,bonif_desc,bonif_cant,bonif_prod,activo'),
+      sb.from('creditos').select('*,clientes(nombre)').order('id',{ascending:false})
+    ]);
+    if(rv.data)D.ventas=rv.data;if(rp.data)D.prods=rp.data;if(rc.data)D.creditos=rc.data;
+    closeModal('modal-entregar-pedido');
+    renderInicio();renderHistorial();renderPedidosPendientesVentas();
+    showNotif(data.repetida?'Pedido ya entregado; no se volvió a cobrar':
+      '✅ Pedido entregado — '+(esCredito?'crédito registrado':'caja registrada'),'#2e7d32');
+  }catch(e){
+    showNotif('No se confirmó la entrega: '+(e.message||e)+'. Revisa historial antes de reintentar.','#c62828');
+  }finally{showLoad(false);}
 }
 
+// ══════════════════════════════════════════
 // ══════════════════════════════════════════
 //  ENVASES AUTOMÁTICOS EN VENTA
 // ══════════════════════════════════════════

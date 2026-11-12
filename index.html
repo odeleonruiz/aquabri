@@ -12796,7 +12796,7 @@ async function aqCargarVendedoresReportes(){
   let usuarios=usuariosPrevios;
   let huboError=false;
   try{
-    const {data,error}=await sb.from('usuarios').select('id,nombre,usuario,rol,estado').order('nombre',{ascending:true});
+    const {data,error}=await sb.rpc('aq_usuarios_listar_seguro_v1');
     if(error)throw error;
     if(Array.isArray(data)){
       usuarios=data;
@@ -14471,29 +14471,23 @@ async function confirmarPagoComision(empId, nombre, periodo){
 
 function handleFotoUpload(input){const file=input.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{userFotoBase64=e.target.result;document.getElementById('u-foto-prev').src=e.target.result;document.getElementById('u-foto-prev').style.display='';document.getElementById('u-foto-fb').style.display='none';};r.readAsDataURL(file);}
 async function saveUser(){
+  if(!CU||CU.rol!=='jefe'){showNotif('Solo el jefe puede administrar usuarios','#c62828');return;}
   const nom=document.getElementById('unom').value.trim();
   const usr=document.getElementById('uusr').value.trim();
   const pass=document.getElementById('upass').value;
+  const id=Number(document.getElementById('uid').value)||null;
+  const rol=document.getElementById('urol').value;
   if(!nom||!usr){showNotif('Nombre y usuario requeridos','#c62828');return;}
-  const id=document.getElementById('uid').value;
-  if(id){
-    // Editar — NO permitir cambiar nombre
-    const uExist=D.usuarios.find(x=>x.id===parseInt(id));
-    const obj={rol:document.getElementById('urol').value,foto:userFotoBase64||''};
-    const esJefeSave=CU&&SOLO_JEFE.includes(CU.rol);
-    if(esJefeSave){
-      obj.nombre=nom;
-      obj.usuario=usr;
-    }
-    if(pass)obj.pass=pass;
-    // Ignorar cambio de nombre silenciosamente
-    await sb.from('usuarios').update(obj).eq('id',id);
-  } else {
-    if(!pass){showNotif('Contraseña requerida','#c62828');return;}
-    await sb.from('usuarios').insert({nombre:nom,usuario:usr,pass,rol:document.getElementById('urol').value,foto:userFotoBase64||''});
-  }
-  await loadAll();clearUserForm();renderUsers();cargarPermisosCustom().then(renderPermisosEditor);showNotif('✅ Usuario guardado','#2e7d32');
+  try{
+    const {data,error}=await sb.rpc('aq_guardar_usuario_seguro_v1',{
+      p_id:id,p_nombre:nom,p_usuario:usr,p_password:pass,p_rol:rol,p_foto:userFotoBase64||''
+    });
+    if(error||!data?.id)throw error||new Error('No se pudo guardar el usuario');
+    await loadAll();clearUserForm();renderUsers();cargarPermisosCustom().then(renderPermisosEditor);
+    showNotif('✅ Usuario guardado','#2e7d32');
+  }catch(error){console.error(error);showNotif('No se pudo guardar el usuario','#c62828');}
 }
+
 function renderUsers(){document.getElementById('usr-tbody').innerHTML=D.usuarios.map(u=>`<tr><td>${u.id}</td><td>${u.foto?`<img src="${u.foto}" style="width:30px;height:30px;border-radius:50%;object-fit:cover">`:'<span style="font-size:20px">👤</span>'}</td><td><b>${u.nombre}</b></td><td><code>${u.usuario}</code></td><td><span class="badge ${u.rol==='jefe'?'baz':'bgr'}">${u.rol}</span></td><td>${u.id===1?'<span class="tmuted" style="font-size:10px">Protegido</span>':`<button class="btn bsm" onclick="editUser(${u.id})">✏️</button> <button class="btn bd bsm" onclick="delUser(${u.id})">🗑</button>`}</td></tr>`).join('');}
 function editUser(id){
   const u=D.usuarios.find(x=>x.id===id);if(!u)return;
@@ -14517,7 +14511,13 @@ function editUser(id){
   if(u.foto){document.getElementById('u-foto-prev').src=u.foto;document.getElementById('u-foto-prev').style.display='';document.getElementById('u-foto-fb').style.display='none';}
   document.getElementById('uft').textContent='Editar Usuario — '+u.nombre;
 }
-async function delUser(id){if(id===1){showNotif('No puedes eliminar al Jefe','#c62828');return;}if(!confirm('¿Eliminar usuario?'))return;const emp=D.empleados.find(e=>e.usuario_id===id);await sb.from('usuarios').delete().eq('id',id);await loadLight();renderUsers();showNotif('Usuario eliminado');}
+async function delUser(id){
+  if(CU?.rol!=='jefe'||id===CU.id){showNotif('No puedes desactivar al Jefe','#c62828');return;}
+  if(!confirm('¿Desactivar este usuario sin borrar su historial?'))return;
+  const {data,error}=await sb.rpc('aq_desactivar_usuario_seguro_v1',{p_id:id});
+  if(error||!data){showNotif('No se pudo desactivar el usuario','#c62828');return;}
+  await loadAll();renderUsers();showNotif('Usuario desactivado; historial conservado','#2e7d32');
+}
 function clearUserForm(){
   const nomInp=document.getElementById('unom');
   if(nomInp){nomInp.disabled=false;nomInp.style.background='';nomInp.style.color='';nomInp.title='';}
@@ -17681,8 +17681,7 @@ async function abrirLiquidacionGrupo(ids){
   cargaAgrupada.carga_items=Object.values(itemsMap);
   _liqCargaActual=cargaAgrupada;
   // Buscar ventas del empleado del día
-  const{data:usuEmp}=await sb.from('usuarios').select('id').eq('empleado_id',c0.empleado_id).maybeSingle();
-  const usuarioId=usuEmp?.id||null;
+  const usuarioId=(D.usuarios||[]).find(u=>u.empleado_id===c0.empleado_id)?.id||null;
   let ventasQuery=sb.from('ventas')
     .select('*,clientes(nombre),venta_items(*,productos(nombre,precio))')
     .gte('fecha',c0.fecha).order('id',{ascending:false});
@@ -17768,8 +17767,7 @@ async function abrirLiquidacion(cargaId){
   carga._emp=empData;
   _liqCargaActual=carga;
   // Buscar usuario ligado al empleado para filtrar sus ventas
-  const{data:usuEmp}=await sb.from('usuarios').select('id').eq('empleado_id',carga.empleado_id).maybeSingle();
-  const usuarioId=usuEmp?.id||null;
+  const usuarioId=(D.usuarios||[]).find(u=>u.empleado_id===carga.empleado_id)?.id||null;
   // Traer TODAS las ventas desde la fecha de la carga (sin filtrar por estado para no perder ninguna)
   let ventasQuery=sb.from('ventas')
     .select('*,clientes(nombre),venta_items(*,productos(nombre,precio))')
@@ -18945,7 +18943,7 @@ async function guardarPermisos(){
   if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el Jefe puede guardar permisos','#c62828');return;}
   showLoad(true);
   const promesas=Object.entries(_permisosCustom).map(([uid,perms])=>
-    sb.from('usuarios').update({permisos_custom:JSON.stringify(perms)}).eq('id',parseInt(uid))
+    sb.rpc('aq_permisos_usuario_guardar_seguro_v1',{p_id:parseInt(uid),p_permisos_custom:JSON.stringify(perms)})
   );
   await Promise.all(promesas);
   showLoad(false);
@@ -18961,7 +18959,7 @@ async function guardarPermisos(){
 
 async function cargarPermisosCustom(){
   // Cargar permisos_custom de todos los usuarios
-  const{data}=await sb.from('usuarios').select('id,permisos_custom').not('permisos_custom','is',null);
+  const data=D.usuarios||[];
   (data||[]).forEach(u=>{
     if(u.permisos_custom)try{_permisosCustom[u.id]=JSON.parse(u.permisos_custom);}catch(e){}
   });
@@ -19519,8 +19517,7 @@ async function actualizarStockRuta(){
   let html='';
   for(const carga of cargas){
     // Buscar usuario del empleado
-    const{data:usuEmp}=await sb.from('usuarios').select('id').eq('empleado_id',carga.empleado_id).single();
-    const usuarioId=usuEmp?.id||null;
+    const usuarioId=(D.usuarios||[]).find(u=>u.empleado_id===carga.empleado_id)?.id||null;
 
     // Ventas del rutero desde la fecha de carga
     let ventasQ=sb.from('ventas').select('*,venta_items(producto_id,cant)').eq('estado','Entregado').gte('fecha',carga.fecha);

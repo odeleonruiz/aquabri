@@ -32,3 +32,16 @@
 5. Probar dispositivos en producción con ventas reales sin exponer a pérdida de datos, ejecutar Supabase Security Advisor, verificar errores y tener reversión preparada.
 
 **Esta rama es desarrollo/prototipo, NO una versión liberada o validada para venta.**
+
+
+## QA adicional tras correcciones
+- [x] Archivo y restauración seguros de clientes, sin eliminar historial financiero.
+- [x] RPC de RRHH, ausencias, metas y configuración porcentual de comisiones.
+- [x] Nómina y pagos de comisiones idempotentes; pruebas transaccionales reversibles.
+- [x] Pedidos programados: reserva sin stock, entrega atómica de caja/crédito y stock.
+- [x] Revisión sintáctica de 14 scripts de interfaz.
+- [ ] Migrar al 100% las escrituras heredadas restantes de otros módulos.
+- [ ] Auditoría individual de funciones SECURITY DEFINER y detección de contraseñas filtradas.
+- [ ] Pruebas end-to-end con usuarios reales en móviles y sesión revocada.
+- [ ] Verificar backup completo de producción y restaurarlo en entorno aislado.
+- [ ] Ventana de cambio, reversión verificada y promoción autorizada: **pendiente**.

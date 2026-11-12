@@ -13448,27 +13448,24 @@ function pagarComisionRRHH(empId, nombre, monto, mes){
   modal.classList.add('open');
 }
 
-async function confirmarPagoComisionRRHH(empId, nombre, mes){
-  const monto=parseFloat(document.getElementById('pc-monto').value)||0;
+async function confirmarPagoComisionRRHH(empId,nombre,mes){
+  const monto=Number(document.getElementById('pc-monto').value)||0;
   const fecha=document.getElementById('pc-fecha').value||hoy();
   const notas=document.getElementById('pc-notas').value||'';
-  if(!monto){showNotif('Ingresa un monto','#c62828');return;}
+  if(monto<=0){showNotif('Ingresa un monto válido','#c62828');return;}
+  const payload={p_empleado:Number(empId),p_monto:monto,p_fecha:fecha,p_periodo:mes,p_notas:notas};
+  const nonce=aqNonceOperacion('comision-rrhh',payload);
   showLoad(true);
-  // Registrar en pagos_comisiones
-  await sb.from('pagos_comisiones').insert({empleado_id:empId,monto,fecha,periodo:mes,notas,pagado_por:CU?.nombre||'Jefe'});
-  // Registrar en pagos de empleados (aparece en historial de RRHH)
-  await sb.from('pagos').insert({empleado_id:empId,tipo:'Comisión mensual',monto,desc_vales:0,neto:monto,fecha,notas:'Comisión '+mes+(notas?' — '+notas:'')});
-  // Registrar en gastos
-  await sb.from('gastos').insert({fecha,descripcion:'Comisión '+nombre+' — '+mes,monto,notas,usuario_id:CU?.id||null});
-  document.getElementById('modal-pago-comision').classList.remove('open');
-  await loadAll();
-  renderComisionesRRHH();
-  renderHistorialComisionesRRHH();
-  renderPagos();
-  showLoad(false);
-  showNotif('✅ Comisión de '+nombre+' pagada — '+fQ(monto));
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_pagar_comision_auth_v1',{...payload,p_nonce:nonce});
+    if(error||!data?.ok)throw error||new Error('No se confirmó el pago');
+    aqConfirmarOperacion('comision-rrhh');
+    document.getElementById('modal-pago-comision').classList.remove('open');
+    await loadAll();renderComisionesRRHH();renderHistorialComisionesRRHH();renderPagos();
+    showNotif(data.repetida?'Esta comisión ya se registró':'✅ Comisión pagada y registrada sin gasto duplicado: '+fQ(monto));
+  }catch(e){showNotif('No se registró la comisión: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
 }
-
 async function renderHistorialComisionesRRHH(){
   const el=document.getElementById('com-rrhh-historial');if(!el)return;
   let pagos=null;
@@ -14019,36 +14016,52 @@ function autoFillPago(){
   </div>`;
   wrap.style.display='';
 }
+// Claves conservadas durante reintentos para impedir dobles pagos tras cortes de red.
+const _aqRpcNoncePendientes=new Map();
+function aqNonceOperacion(clave,datos){
+  const huella=JSON.stringify(datos);
+  const previo=_aqRpcNoncePendientes.get(clave);
+  if(previo&&previo.huella===huella)return previo.nonce;
+  if(!globalThis.crypto?.randomUUID)throw new Error('Se requiere navegador HTTPS para registrar pagos seguros');
+  const nonce=crypto.randomUUID();
+  _aqRpcNoncePendientes.set(clave,{huella,nonce});
+  return nonce;
+}
+function aqConfirmarOperacion(clave){_aqRpcNoncePendientes.delete(clave);}
 async function savePago(){
-  const eid=parseInt(document.getElementById("pe").value);
-  const m=parseFloat(document.getElementById("pm").value)||0;
-  if(!m){showNotif("Ingresa un monto","#c62828");return;}
-  const dv=parseFloat(document.getElementById("pdv").value)||0;
-  const descAus=parseFloat(document.getElementById("p-desc-aus")?.value)||0;
-  const ausText=document.getElementById("p-ausencias")?.value||'';
-  const emp=D.empleados.find(e=>e.id===eid);
-  const tipo=document.getElementById("pt").value;
-  const fecha=document.getElementById("pf").value;
-  const neto=m-dv-descAus;
-  const detalle=(dv>0?"\nDesc. vales: -Q"+dv.toFixed(2):"")+(descAus>0?"\nDesc. ausencias (días "+ausText+"): -Q"+descAus.toFixed(2):"")+"\nNeto a pagar: Q"+neto.toFixed(2);
-  if(!confirm("¿Registrar pago a "+(emp?.nombre||"empleado")+"?\n\nTipo: "+tipo+"\nMonto: Q"+m.toFixed(2)+detalle+"\nFecha: "+fecha))return;
-  await sb.from("vales").update({estado:"Descontado"}).eq("empleado_id",eid).eq("estado","Pendiente");
-  const notasFinal=(document.getElementById("pn2").value+(ausText?'\nAusencias días: '+ausText:'')).trim();
-  await sb.from("pagos").insert({empleado_id:eid,tipo,monto:m,desc_vales:dv+descAus,neto,fecha,notas:notasFinal});
-  if(window._ausenciasAutoIds&&window._ausenciasAutoIds.length){
-    await sb.from('ausencias').update({liquidada:true}).in('id',window._ausenciasAutoIds);
+  const eid=Number(document.getElementById('pe').value);
+  const monto=Number(document.getElementById('pm').value)||0;
+  const vales=Number(document.getElementById('pdv').value)||0;
+  const ausencias=Number(document.getElementById('p-desc-aus')?.value)||0;
+  const dias=document.getElementById('p-ausencias')?.value||'';
+  const emp=D.empleados.find(e=>Number(e.id)===eid);
+  const tipo=document.getElementById('pt').value;
+  const fecha=document.getElementById('pf').value;
+  const neto=monto-vales-ausencias;
+  if(monto<=0||neto<0){showNotif('Monto y descuentos inválidos','#c62828');return;}
+  const detalle=(vales>0? '\nDesc. vales: -Q'+vales.toFixed(2):'')+
+    (ausencias>0?'\nDesc. ausencias: -Q'+ausencias.toFixed(2):'')+
+    '\nNeto a pagar: Q'+neto.toFixed(2);
+  if(!confirm('¿Registrar pago a '+(emp?.nombre||'empleado')+'?\n\n'+tipo+
+    '\nMonto: Q'+monto.toFixed(2)+detalle+'\nFecha: '+fecha))return;
+  const notasFinal=(document.getElementById('pn2').value+(dias?'\nAusencias días: '+dias:'')).trim();
+  const payload={p_empleado:eid,p_tipo:tipo,p_monto:monto,p_fecha:fecha,
+    p_notas:notasFinal,p_desc_vales:vales,p_desc_ausencias:ausencias,
+    p_ausencias:(window._ausenciasAutoIds||[]).map(Number)};
+  try{
+    const nonce=aqNonceOperacion('nomina',payload);
+    const {data,error}=await sb.rpc('aq_rrhh_pagar_auth_v1',{...payload,p_nonce:nonce});
+    if(error||!data?.ok)throw error||new Error('Pago no confirmado');
+    aqConfirmarOperacion('nomina');
     window._ausenciasAutoIds=[];
-  }
-  window._pagarSemanaAnterior=false; // Reset flag después de pagar
-  // Limpiar campos ausencias
-  const ausEl=document.getElementById("p-ausencias");if(ausEl)ausEl.value='';
-  const descAusEl=document.getElementById("p-desc-aus");if(descAusEl)descAusEl.value='0';
-  const infoEl=document.getElementById("p-ausencias-info");if(infoEl)infoEl.textContent='';
-  await loadAll();renderPagos();renderVales();renderCalPagos();renderAusenciasPendientes();
-  renderNominaInicio(); // Actualizar alerta pendiente en Inicio
-  // Recargar tarjeta para mostrar "ya pagado esta semana"
-  autoFillPago();
-  showNotif("✅ Pago registrado a "+(emp?.nombre||""),"#2e7d32");
+    window._pagarSemanaAnterior=false;
+    const ausEl=document.getElementById('p-ausencias');if(ausEl)ausEl.value='';
+    const descAusEl=document.getElementById('p-desc-aus');if(descAusEl)descAusEl.value='0';
+    const infoEl=document.getElementById('p-ausencias-info');if(infoEl)infoEl.textContent='';
+    await loadAll();renderPagos();renderVales();renderCalPagos();renderAusenciasPendientes();
+    renderNominaInicio();autoFillPago();
+    showNotif(data.repetida?'El pago ya estaba registrado':'✅ Pago confirmado para '+(emp?.nombre||''),'#2e7d32');
+  }catch(e){showNotif('No se confirmó el pago: '+(e.message||e),'#c62828');}
 }
 
 // ── CALENDARIO DE PAGOS SEMANALES ────────────────────────────────────────────
@@ -14056,35 +14069,49 @@ let _calPagosMesOffset=0;
 function calPagosMes(delta){_calPagosMesOffset+=delta;renderCalPagos();}
 
 async function registrarPagoRetroactivo(empId,fechaSabado,monto){
-  const emp=D.empleados.find(e=>e.id===empId);
-  if(!emp)return;
-  if(emp.fecha_ingreso&&getSabadoFin(fechaSabado)<emp.fecha_ingreso){showNotif('⚠️ Esa semana es anterior a la fecha de ingreso del empleado','#c62828');return;}
-  if(!confirm(`¿Registrar el pago de ${emp.nombre} de la semana del ${fechaSabado.slice(8)}/${fechaSabado.slice(5,7)} por ${fQ(monto)}?\n\n(Esto solo actualiza el sistema, asumiendo que ya se lo pagaste en efectivo)`))return;
+  const emp=D.empleados.find(e=>e.id===empId);if(!emp)return;
+  if(emp.fecha_ingreso&&getSabadoFin(fechaSabado)<emp.fecha_ingreso){showNotif('Semana anterior al ingreso','#c62828');return;}
+  if(!confirm(`¿Registrar pago histórico de ${emp.nombre} por ${fQ(monto)} para la semana del ${fechaSabado}? Solo si ya se pagó.`))return;
   showLoad(true);
-  const res=await sb.from('pagos').insert({empleado_id:empId,tipo:'Sueldo semanal',monto,desc_vales:0,neto:monto,fecha:fechaSabado,notas:'Pago retroactivo — puesto al día'});
-  showLoad(false);
-  if(res.error){showNotif('❌ Error al registrar: '+res.error.message,'#c62828');return;}
-  await loadAll();renderCalPagos();showNotif('✅ Pago registrado');
+  try{
+    const payload={p_empleado:Number(empId),p_monto:Number(monto),p_fecha:fechaSabado,
+      p_notas:'Pago retroactivo — puesto al día'};
+    const key='retro-'+empId+'-'+fechaSabado;
+    const {data,error}=await sb.rpc('aq_rrhh_pagar_retro_auth_v1',{
+      ...payload,p_nonce:aqNonceOperacion(key,payload)
+    });
+    if(error||!data?.ok)throw error||new Error('Pago histórico no confirmado');
+    aqConfirmarOperacion(key);
+    await loadAll();renderCalPagos();
+    showNotif(data.repetida?'Ese pago ya estaba registrado':'✅ Pago retroactivo registrado');
+  }catch(e){showNotif('No se registró: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
 }
 async function ponerAlDia(empId,montoPago){
-  const emp=D.empleados.find(e=>e.id===empId);
-  if(!emp)return;
-  const anio=(new Date(new Date().getFullYear(),new Date().getMonth()+_calPagosMesOffset,1)).getFullYear();
-  const mes=(new Date(new Date().getFullYear(),new Date().getMonth()+_calPagosMesOffset,1)).getMonth();
+  const emp=D.empleados.find(e=>e.id===empId);if(!emp)return;
+  const fechaMes=new Date(new Date().getFullYear(),new Date().getMonth()+_calPagosMesOffset,1);
+  const anio=fechaMes.getFullYear(),mes=fechaMes.getMonth();
   const sabs=getSabadosMes(anio,mes);
   const mesIni=`${anio}-${String(mes+1).padStart(2,'0')}-01`;
   const mesFin=new Date(anio,mes+1,0).toISOString().slice(0,10);
   const pagosMes=D.pagos.filter(p=>p.empleado_id===empId&&p.tipo==='Sueldo semanal'&&p.fecha>=mesIni&&p.fecha<=mesFin);
   const pendientes=sabs.filter(s=>s<=hoy()&&!(emp.fecha_ingreso&&getSabadoFin(s)<emp.fecha_ingreso)&&!pagosMes.some(p=>p.fecha>=s&&p.fecha<=getSabadoFin(s)));
   if(!pendientes.length)return;
-  if(!confirm(`¿Registrar ${pendientes.length} pago(s) atrasado(s) de ${emp.nombre} por ${fQ(montoPago)} cada uno (total ${fQ(montoPago*pendientes.length)})?\n\n(Esto solo actualiza el sistema, asumiendo que ya se los pagaste en efectivo)`))return;
+  if(!confirm(`¿Registrar ${pendientes.length} pagos atrasados por ${fQ(montoPago)} cada uno? Solo si ya los pagaste.`))return;
   showLoad(true);
-  for(const s of pendientes){
-    const res=await sb.from('pagos').insert({empleado_id:empId,tipo:'Sueldo semanal',monto:montoPago,desc_vales:0,neto:montoPago,fecha:s,notas:'Pago retroactivo — puesto al día'});
-    if(res.error){showLoad(false);showNotif('❌ Error al registrar '+s+': '+res.error.message,'#c62828');return;}
-  }
-  showLoad(false);
-  await loadAll();renderCalPagos();showNotif('✅ '+emp.nombre+' puesto al día');
+  let registrados=0;
+  try{
+    for(const s of pendientes){
+      const payload={p_empleado:Number(empId),p_monto:Number(montoPago),p_fecha:s,p_notas:'Pago retroactivo — puesto al día'};
+      const key='retro-'+empId+'-'+s;
+      const {data,error}=await sb.rpc('aq_rrhh_pagar_retro_auth_v1',{...payload,p_nonce:aqNonceOperacion(key,payload)});
+      if(error||!data?.ok)throw error||new Error('No confirmado: '+s);
+      aqConfirmarOperacion(key);if(!data.repetida)registrados++;
+    }
+    await loadAll();renderCalPagos();
+    showNotif('✅ '+registrados+' pagos históricos registrados');
+  }catch(e){showNotif('Error al actualizar pagos: '+(e.message||e)+'; consulta el historial antes de reintentar','#c62828');}
+  finally{showLoad(false);}
 }
 function renderCalPagos(){
   const tituloEl=document.getElementById('cal-pagos-titulo');
@@ -14213,18 +14240,30 @@ async function renderPagos(mas=false){
 }
 
 async function delPago(id){
-  const p=D.pagos.find(x=>x.id===id)||aqPagosHistFilas.find(x=>x.id===id);
-  const emp=p?.empleados?.nombre||"empleado";
-  const monto=p?"Q"+parseFloat(p.neto||0).toFixed(2):"";
-  if(!confirm("¿Eliminar este pago?\n\n"+emp+" — "+monto+"\nFecha: "+(p?.fecha||"")+"\n\n⚠️ El empleado quedará como no pagado por este período."))return;
-  await sb.from("pagos").delete().eq("id",id);
-  await loadAll();renderPagos();
-  autoFillPago();
-  showNotif("Pago eliminado — "+emp+" queda sin pago registrado","#e65100");
+  showNotif('Para proteger el historial, la eliminación directa de pagos está deshabilitada en pruebas. Requiere anulación auditada.','#e65100');
 }
-async function saveVale(){const eid=parseInt(document.getElementById('ve').value);const m=parseFloat(document.getElementById('vam').value)||0;if(!m)return;await sb.from('vales').insert({empleado_id:eid,tipo:document.getElementById('vt').value,monto:m,fecha:document.getElementById('vaf').value,descripcion:document.getElementById('vad').value,autorizado_por:CU?.nombre||'Jefe',estado:'Pendiente'});await loadAll();renderVales();showNotif('Vale emitido');}
+async function saveVale(){
+  const eid=Number(document.getElementById('ve').value);
+  const monto=Number(document.getElementById('vam').value)||0;
+  const payload={p_empleado:eid,p_monto:monto,p_tipo:document.getElementById('vt').value,
+    p_fecha:document.getElementById('vaf').value,
+    p_descripcion:document.getElementById('vad').value};
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_emitir_vale_auth_v1',{...payload,p_nonce:aqNonceOperacion('vale',payload)});
+    if(error||!data?.ok)throw error||new Error('Vale no confirmado');
+    aqConfirmarOperacion('vale');
+    await loadAll();renderVales();showNotif(data.repetida?'Vale ya registrado':'✅ Vale emitido');
+  }catch(e){showNotif('No se guardó el vale: '+(e.message||e),'#c62828');}
+}
 function renderVales(){document.getElementById('vales-tbody').innerHTML=D.vales.map(v=>`<tr><td>${v.fecha}</td><td>${v.empleados?.nombre||'—'}</td><td>${v.tipo}</td><td><b>${fQ(v.monto)}</b></td><td>${sBadge(v.estado)}</td><td><button class="btn bd bsm" onclick="delVale(${v.id})">🗑</button></td></tr>`).join('');const pend=D.vales.filter(v=>v.estado==='Pendiente');document.getElementById('vales-pend').innerHTML=pend.map(v=>`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee;font-size:11px"><span><b>${v.empleados?.nombre||'—'}</b> — ${v.tipo}</span><span>${fQ(v.monto)}</span></div>`).join('')||'<p class="tmuted">Sin pendientes ✅</p>';}
-async function delVale(id){if(!confirm('¿Eliminar?'))return;await sb.from('vales').delete().eq('id',id);await loadAll();renderVales();}
+async function delVale(id){
+  if(!confirm('¿Anular el vale? Se conservará en el historial.'))return;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_anular_vale_auth_v1',{p_vale_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('No confirmado');
+    await loadAll();renderVales();showNotif('Vale anulado; historial conservado');
+  }catch(e){showNotif('No se pudo anular: '+(e.message||e),'#c62828');}
+}
 
 function fillComSel(){const opts=D.empleados.map(e=>`<option value="${e.id}">${e.nombre}</option>`).join('');const s=document.getElementById('come');if(s)s.innerHTML=opts;const s2=document.getElementById('com-compartir');if(s2)s2.innerHTML='<option value="">— Ninguno —</option>'+opts;}
 async function saveComision(){

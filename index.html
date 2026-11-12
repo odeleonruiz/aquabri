@@ -5203,10 +5203,10 @@ async function marcarVisitadoDesdeVentas(){
   if(!siguiente){showNotif('🎉 Todos los clientes visitados','#2e7d32');return;}
   const cid=siguiente.clientes?.id;
   if(cid){
-    await marcarVisitadoDirecto(cid, true); // true = sin compra
+    if(!await marcarVisitadoDirecto(cid, true))return;
   } else {
+    if(!await aqMarcarParadaSegura(siguiente.id))return;
     siguiente.estado='Visitado';
-    await sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',siguiente.id);
   }
   actualizarNavPanel();
   actualizarPanelRutaVentas();
@@ -5578,7 +5578,10 @@ async function cobrar(enviarWsp=false){
     if(!window._visitasHoy)window._visitasHoy={};
     window._visitasHoy[cidInt]=fechaVenta;
     // Guardar visita permanente con la fecha real de la venta
-    sb.from('visitas').insert({cliente_id:cidInt,fecha:fechaVenta,usuario_id:CU?.id||null,notas:'Auto desde venta #'+venta.id});
+    if(!await aqRegistrarVisitaSegura(cidInt,false,fechaVenta,venta.id,true)){
+      console.warn('La venta fue confirmada, pero faltó sincronizar la visita de ruta');
+      showNotif('Venta guardada; la visita quedó pendiente de sincronizar.','#e65100');
+    }
     // Actualizar D.ventas en memoria para que sugerencias se refresquen sin esperar BD
     const ventaLocal={id:venta.id,cliente_id:cidInt,fecha:fechaVenta,total,estado,clientes:D.clientes.find(c=>c.id===cidInt)?{nombre:D.clientes.find(c=>c.id===cidInt).nombre}:null};
     if(!D.ventas.find(v=>v.id===venta.id))D.ventas.unshift(ventaLocal);
@@ -5594,7 +5597,7 @@ async function cobrar(enviarWsp=false){
         const parada=navParadas.find(p=>p.cliente_id===cidInt||p.clientes?.id===cidInt);
         if(parada&&parada.estado!=='Visitado'){
           parada.estado='Visitado';
-          sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',parada.id);
+          // La visita y el estado de ruta se actualizan juntos mediante la RPC autenticada.
           actualizarNavPanel();
           actualizarPanelRutaVentas();
         }
@@ -5641,7 +5644,7 @@ async function cobrar(enviarWsp=false){
     const parada=navParadas.find(p=>p.cliente_id===parseInt(cid)||p.clientes?.id===parseInt(cid));
     if(parada&&parada.estado!=='Visitado'){
       parada.estado='Visitado';
-      sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',parada.id);
+      // La visita y el estado de ruta se actualizan juntos mediante la RPC autenticada.
       actualizarNavPanel();
     }
   }
@@ -6780,7 +6783,7 @@ async function registrarClienteDesdeVenta(nombre,prefix='v'){
       if(res.mensaje)showNotif(res.mensaje,'#e65100');
     }catch(e){showNotif('Error al registrar cliente: '+(e.message||e),'#c62828');return;}
     if(nuevo?.id){
-      await sb.from('visitas').insert({cliente_id:nuevo.id,fecha:hoy(),usuario_id:CU?.id||null,notas:'Registrado desde venta'});
+      await aqRegistrarVisitaSegura(nuevo.id,false,hoy(),null,true);
       await loadLight();
       const hid=document.getElementById(prefix+'-cli');
       const inp=document.getElementById(prefix+'-cli-input');
@@ -7967,30 +7970,48 @@ function navegarA(lat,lng,nombre){
   showNotif(`🗺 Abriendo Google Maps → ${nombre||'Cliente'}`);
 }
 
+// Visitas y paradas: escrituras solo mediante RPC autenticadas de staging.
+async function aqRegistrarVisitaSegura(clienteId,sinCompra=false,fecha=null,ventaId=null,silencio=false){
+  try{
+    const {data,error}=await sb.rpc('aq_marcar_visita_auth_v1',{
+      p_cliente_id:Number(clienteId),p_sin_compra:!!sinCompra,
+      p_fecha:fecha||null,p_venta_id:ventaId||null
+    });
+    if(error||!data?.ok)throw error||new Error('La visita no fue confirmada');
+    return true;
+  }catch(e){
+    console.error('AQUABRI: visita no guardada',e);
+    if(!silencio)showNotif('No se pudo registrar la visita: '+(e?.message||e),'#c62828');
+    return false;
+  }
+}
+async function aqMarcarParadaSegura(paradaId,silencio=false){
+  try{
+    const {data,error}=await sb.rpc('aq_marcar_parada_auth_v1',{p_parada_id:Number(paradaId)});
+    if(error||!data?.ok)throw error||new Error('La parada no fue confirmada');
+    return true;
+  }catch(e){
+    console.error('AQUABRI: parada no actualizada',e);
+    if(!silencio)showNotif('No se pudo completar la parada: '+(e?.message||e),'#c62828');
+    return false;
+  }
+}
 async function marcarVisitadoDirecto(cid,sinCompra=false){
+  if(!await aqRegistrarVisitaSegura(cid,sinCompra))return false;
   estadosParadas[cid]='visitado';
   actualizarColorMarker(cid);
   if(!window._visitasHoy)window._visitasHoy={};
   window._visitasHoy[cid]=hoy();
   if(!window._todasVisitas)window._todasVisitas=[];
-  window._todasVisitas.push({cliente_id:cid,fecha:hoy()});
-  const notasVisita=sinCompra?'Sin compra':'Marcado desde mapa';
-  await sb.from('visitas').insert({cliente_id:cid,fecha:hoy(),usuario_id:CU?.id||null,notas:notasVisita});
-  // buscar en TODAS las rutas de hoy, no solo la activa
-  const{data:paradasCliente}=await sb.from('ruta_paradas')
-    .select('id,ruta_id,rutas(fecha)')
-    .eq('cliente_id',cid)
-    .eq('estado','Pendiente');
-  if(paradasCliente?.length){
-    for(const p of paradasCliente){
-      if(p.rutas?.fecha===hoy())await sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',p.id);
-    }
+  if(!window._todasVisitas.some(v=>Number(v.cliente_id)===Number(cid)&&v.fecha===hoy())){
+    window._todasVisitas.push({cliente_id:cid,fecha:hoy()});
   }
   const pm=navParadas.find(x=>x.cliente_id===cid||x.clientes?.id===cid);
   if(pm)pm.estado='Visitado';
   if(navRutaActiva){actualizarNavPanel();renderRutas();actualizarPanelRutaVentas();}
   if(_rutaInteligente&&_rutaInteligente.length>0)setTimeout(()=>mostrarLotePorVisitar(0),400);
   showNotif(sinCompra?'📍 Visita sin compra guardada ✅':'✅ Visita guardada');
+  return true;
 }
 
 async function iniciarNavegacionRuta(rid){
@@ -8040,7 +8061,7 @@ async function iniciarNavegacionRuta(rid){
         p.estado='Visitado';
         estadosParadas[cid]='visitado';
         // Actualizar en Supabase también
-        sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',p.id);
+        aqMarcarParadaSegura(p.id,true);
         actualizarColorMarker(cid);
         return;
       }
@@ -8198,8 +8219,11 @@ async function marcarVisitado(){
     }
   }
 
+  const visitaGuardada=p.clientes?.id
+    ?await marcarVisitadoDirecto(p.clientes.id,true)
+    :await aqMarcarParadaSegura(p.id);
+  if(!visitaGuardada)return;
   p.estado='Visitado';
-  await sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',p.id);
   if(p.clientes?.id){estadosParadas[p.clientes.id]='visitado';actualizarColorMarker(p.clientes.id);}
   actualizarNavPanel();
   sincronizarNavFs();
@@ -8228,8 +8252,8 @@ async function marcarSinCompraDesdeNav(){
   const p=pend[0];
   const cid=p.clientes?.id||p.cliente_id;
   if(!cid){
+    if(!await aqMarcarParadaSegura(p.id))return;
     p.estado='Visitado';
-    await sb.from('ruta_paradas').update({estado:'Visitado'}).eq('id',p.id);
     actualizarNavPanel();
     sincronizarNavFs();
     actualizarPanelRutaVentas();

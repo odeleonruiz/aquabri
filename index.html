@@ -22,6 +22,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- Google Maps se carga dinámicamente al abrir el mapa -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- Comprobante: captura visual local, sin depender de CDNs en iPhone -->
+<script defer src="./vendor/html2canvas-1.4.1.min.js"></script>
 <style>:root{--azul:#1565c0;--azul2:#1976d2;--azul3:#42a5f5;--azulc:#e3f2fd;--azulm:#bbdefb;--verde:#2e7d32;--verdec:#e8f5e9;--naranja:#e65100;--naranjac:#fff3e0;--rojo:#c62828;--rojoc:#ffebee;--amarillo:#f57f17;--amarilloc:#fffde7;--morado:#6a1b9a;--moradoc:#f3e5f5;--teal:#00695c;--tealc:#e0f2f1;--gris:#546e7a;--grisc:#eceff1;--fondo:#e8f4fd;--card:#fff;--texto:#1a237e;--texto2:#37474f;--borde:#b0bec5;--sombra:0 2px 8px rgba(21,101,192,.10);--radio:10px;--sw:250px;}*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}html{overflow-x:hidden;max-width:100vw;}body{font-family:'Segoe UI',sans-serif;background:var(--fondo);color:var(--texto2);min-height:100vh;overflow-x:hidden;max-width:100vw;width:100%;}#loading-screen{position:fixed;inset:0;background:linear-gradient(135deg,#1565c0,#42a5f5);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;color:#fff;}.spin{width:46px;height:46px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:14px;}@keyframes spin{to{transform:rotate(360deg);}}#login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#1565c0,#42a5f5);display:none;align-items:center;justify-content:center;z-index:9998;padding:16px;}#login-screen.show{display:flex;}.lcard{background:#fff;border-radius:18px;padding:32px 28px;width:100%;max-width:340px;box-shadow:0 8px 32px rgba(21,101,192,.25);text-align:center;}.lcard h2{font-size:20px;font-weight:700;color:var(--azul);margin-bottom:4px;}.lcard p{color:var(--gris);font-size:12px;margin-bottom:20px;}.logo-login{width:72px;height:72px;border-radius:14px;object-fit:contain;margin:0 auto 10px;display:block;}.logo-fb{font-size:48px;margin-bottom:10px;}.lcard input{width:100%;border:1.5px solid var(--borde);border-radius:8px;padding:11px 12px;font-size:14px;margin-bottom:11px;outline:none;transition:border .2s;}.lcard input:focus{border-color:var(--azul2);}.btn-login{width:100%;background:var(--azul);color:#fff;border:none;border-radius:8px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;}.lerr{color:var(--rojo);font-size:12px;margin-top:6px;min-height:16px;}#app{display:none;min-height:100vh;max-width:100vw;}#app.show{display:flex;}#sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:199;}#sb-overlay.show{display:block;}#sidebar{width:var(--sw);background:#0d3b6e;color:#fff;display:flex;flex-direction:column;height:100vh;position:fixed;left:0;top:0;z-index:200;transition:transform .25s ease;overflow-y:auto;overflow-x:hidden;}#sidebar::-webkit-scrollbar{width:4px;}#sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:2px;}#sidebar.hidden{transform:translateX(-100%);}.sb-head{padding:14px 12px 10px;border-bottom:1px solid rgba(255,255,255,.1);flex-shrink:0;}.sb-logo{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:700;}.sb-logo img{width:36px;height:36px;border-radius:7px;object-fit:contain;flex-shrink:0;}.sb-logo .lfb{width:36px;height:36px;border-radius:7px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}.sb-user{margin-top:9px;display:flex;align-items:center;justify-content:space-between;font-size:11px;color:rgba(255,255,255,.65);}.sb-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;}.sb-avatar-fb{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;}.sb-uinfo{display:flex;align-items:center;gap:7px;}.btn-salir{background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.85);padding:3px 9px;border-radius:5px;cursor:pointer;font-size:10px;}.sb-nav{flex:1;padding:6px 0 20px;}.sb-gt{font-size:9px;font-weight:700;color:rgba(255,255,255,.35);padding:10px 12px 2px;text-transform:uppercase;letter-spacing:.7px;}.sb-btn{display:flex;align-items:center;gap:9px;width:100%;background:none;border:none;color:rgba(255,255,255,.75);padding:9px 12px;cursor:pointer;font-size:12px;font-weight:500;text-align:left;transition:.15s;border-left:3px solid transparent;}.sb-btn:hover{background:rgba(255,255,255,.08);color:#fff;}.sb-btn.active{background:rgba(255,255,255,.13);color:#fff;border-left-color:var(--azul3);}.sb-btn .ic{font-size:15px;width:20px;text-align:center;flex-shrink:0;}#main-wrap{flex:1;min-width:0;margin-left:var(--sw);display:flex;flex-direction:column;min-height:100vh;transition:margin-left .25s;}#main-wrap.full{margin-left:0;}.topbar{background:var(--azul);color:#fff;height:50px;display:flex;align-items:center;padding:0 12px;gap:10px;position:sticky;top:0;z-index:100;box-shadow:0 2px 6px rgba(0,0,0,.2);min-width:0;}.tb-toggle{background:none;border:none;color:#fff;font-size:22px;cursor:pointer;padding:4px 6px;border-radius:5px;line-height:1;flex-shrink:0;}.tb-title{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}main{padding:12px;flex:1;min-width:0;}.page{display:none;}.page.active{display:block;}.sec-title{font-size:15px;font-weight:700;color:var(--azul);margin-bottom:12px;}.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px;margin-bottom:14px;}.kpi-card{background:var(--card);border-radius:var(--radio);padding:12px 14px;box-shadow:var(--sombra);display:flex;align-items:center;gap:10px;border-left:4px solid var(--azul3);}.kpi-ic{font-size:22px;}.kpi-lbl{font-size:10px;color:var(--gris);font-weight:500;}.kpi-val{font-size:18px;font-weight:700;color:var(--azul);}.card{background:var(--card);border-radius:var(--radio);padding:14px;box-shadow:var(--sombra);margin-bottom:12px;min-width:0;}.card-title{font-size:13px;font-weight:600;color:var(--azul);margin-bottom:10px;}.tabs{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;}.tab{background:#fff;border:1.5px solid var(--azulm);color:var(--azul);padding:5px 13px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:500;transition:.2s;}.tab.active,.tab:hover{background:var(--azul);color:#fff;border-color:var(--azul);}.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;overflow-x:auto;border-radius:8px;border:1px solid var(--azulm);}table{width:100%;border-collapse:collapse;font-size:11px;}thead tr{background:var(--azul);color:#fff;}th{padding:8px 9px;text-align:left;font-weight:600;white-space:nowrap;}tbody tr{border-bottom:1px solid #eee;}tbody tr:hover{background:var(--azulc);}td{padding:7px 9px;vertical-align:middle;}.fg{display:flex;flex-direction:column;gap:3px;}label{font-size:11px;font-weight:600;color:var(--texto);}input,select,textarea{border:1.5px solid var(--borde);border-radius:7px;padding:8px 10px;font-size:13px;font-family:inherit;outline:none;transition:border .2s;background:#fff;color:var(--texto2);width:100%;}input:focus,select:focus,textarea:focus{border-color:var(--azul2);}.btn{padding:8px 14px;border-radius:7px;border:none;font-size:11px;font-weight:600;cursor:pointer;transition:.2s;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;}.bp{background:var(--azul);color:#fff;}.bp:hover{background:var(--azul2);}.bs{background:var(--verde);color:#fff;}.bd{background:var(--rojo);color:#fff;}.bw{background:var(--amarillo);color:#fff;}.bpu{background:var(--morado);color:#fff;}.bi{background:#0288d1;color:#fff;}.bt{background:var(--teal);color:#fff;}.bsm{padding:4px 8px;font-size:10px;}.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;}.bv{background:var(--verdec);color:var(--verde);}.br{background:var(--rojoc);color:var(--rojo);}.bn{background:var(--naranjac);color:var(--naranja);}.by{background:var(--amarilloc);color:var(--amarillo);}.baz{background:var(--azulc);color:var(--azul);}.bgr{background:var(--grisc);color:var(--gris);}.bmo{background:var(--moradoc);color:var(--morado);}.btl{background:var(--tealc);color:var(--teal);}.pw{background:#e0e0e0;border-radius:20px;height:9px;overflow:hidden;}.pb{height:100%;border-radius:20px;background:linear-gradient(90deg,var(--azul),var(--azul3));transition:width .4s;}.modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:600;padding:12px;overflow-y:auto;}.modal-ov.open{display:flex;}.modal{background:#fff;border-radius:14px;padding:20px;width:100%;max-width:600px;max-height:93vh;overflow-y:auto;}.modal-title{font-size:14px;font-weight:700;color:var(--azul);margin-bottom:12px;}.mfoot{display:flex;gap:7px;justify-content:flex-end;margin-top:13px;flex-wrap:wrap;}.notif{position:fixed;top:58px;right:12px;background:var(--verde);color:#fff;padding:9px 16px;border-radius:8px;font-size:12px;font-weight:600;z-index:9999;display:none;box-shadow:0 4px 14px rgba(0,0,0,.2);max-width:300px;}.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;min-width:0;}.g2>*{min-width:0;}.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;min-width:0;}.g3>*{min-width:0;}.gf{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;}.fge{display:flex;gap:7px;align-items:flex-end;flex-wrap:wrap;}.fe{display:flex;justify-content:flex-end;gap:6px;margin-top:10px;flex-wrap:wrap;}.ms{background:var(--azulc);border-radius:7px;padding:9px 11px;}.ms .mv{font-size:16px;font-weight:700;color:var(--azul);}.ms .ml{font-size:10px;color:var(--gris);}.divider{border:none;border-top:1.5px solid var(--azulm);margin:10px 0;}.tmuted{color:var(--gris);font-size:11px;padding:8px 0;}.wb{background:linear-gradient(135deg,#1565c0,#42a5f5);color:#fff;border-radius:var(--radio);padding:14px 18px;margin-bottom:14px;}.wb h1{font-size:16px;font-weight:700;}.wb p{font-size:11px;opacity:.85;margin-top:2px;}.oferta-tag{background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:5px;padding:2px 7px;font-size:10px;font-weight:600;}.chip-tipo{font-size:11px;padding:4px 10px;border-radius:20px;background:#e3f2fd;color:#1565c0;cursor:pointer;font-weight:600;border:1.5px solid #1565c0;transition:all .15s;display:inline-block;}.chip-tipo:hover,.chip-tipo.activo{background:#1565c0;color:#fff;}.bonif-tag{background:#fff3e0;color:#e65100;border:1px solid #ffcc80;border-radius:5px;padding:2px 7px;font-size:10px;font-weight:600;}.avatar-preview{width:60px;height:60px;border-radius:50%;object-fit:cover;border:3px solid var(--azulm);}#map-clientes{height:400px;border-radius:10px;border:2px solid var(--azulm);position:relative;transition:all .3s ease;}#map-clientes.fullscreen{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;z-index:8000!important;border-radius:0!important;border:none!important;}#map-fullscreen-btn{position:absolute;top:8px;right:8px;z-index:100;background:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:16px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.2);touch-action:manipulation}#map-fullscreen-exit{display:none;position:fixed;top:10px;right:10px;z-index:9001;background:#1565c0;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3)}#map-fullscreen-exit.show{display:block}.map-toolbar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}.route-badge{background:#ff6f00;color:#fff;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:700;}
 .zona-chip{background:#fff;border:2px solid var(--azulm);border-radius:12px;padding:10px 12px;cursor:pointer;font-size:12px;font-weight:600;color:var(--azul);text-align:center;transition:.15s;user-select:none;display:flex;flex-direction:column;align-items:center;gap:2px;}
 .zona-chip:hover{border-color:var(--azul);box-shadow:0 2px 8px rgba(21,101,192,.15);}
@@ -6276,26 +6278,33 @@ async function cargarHtml2Canvas(){
   if(typeof window.html2canvas==='function')return window.html2canvas;
   if(aqHtml2CanvasEnCarga)return aqHtml2CanvasEnCarga;
   aqHtml2CanvasEnCarga=(async()=>{
+    // La copia local está publicada con AQUABRI; los CDN son solo respaldo.
     const rutas=[
+      './vendor/html2canvas-1.4.1.min.js',
       'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
-      'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
-      'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js'
+      'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'
     ];
     for(const ruta of rutas){
       if(typeof window.html2canvas==='function')return window.html2canvas;
       try{
-        await new Promise((res,rej)=>{
-          const script=document.createElement('script');script.src=ruta;script.async=true;
+        await new Promise((resolve,reject)=>{
+          const script=document.createElement('script');
+          script.src=ruta;script.async=true;
           let terminado=false;
-          const timeout=setTimeout(()=>{if(!terminado){terminado=true;script.remove();rej(new Error('Tiempo de carga agotado'));}},9000);
-          script.onload=()=>{if(!terminado){terminado=true;clearTimeout(timeout);res();}};
-          script.onerror=()=>{if(!terminado){terminado=true;clearTimeout(timeout);script.remove();rej(new Error('No cargó la librería'));}};
+          const finalizar=(error)=>{
+            if(terminado)return;
+            terminado=true;clearTimeout(timeout);
+            if(error){script.remove();reject(error);}else resolve();
+          };
+          const timeout=setTimeout(()=>finalizar(new Error('Tiempo de carga agotado')),ruta.startsWith('./')?5000:6500);
+          script.onload=()=>finalizar();
+          script.onerror=()=>finalizar(new Error('No se pudo cargar el conversor'));
           document.head.appendChild(script);
         });
         if(typeof window.html2canvas==='function')return window.html2canvas;
-      }catch(err){console.warn('No fue posible cargar conversor PNG desde',ruta,err);}
+      }catch(err){console.warn('Conversor PNG no disponible en',ruta,err);}
     }
-    throw new Error('No se pudo cargar el generador de imagen. Revisa la conexión a internet o los bloqueadores del navegador.');
+    throw new Error('No se pudo cargar el generador PNG local ni sus alternativas. Recarga AQUABRI e inténtalo de nuevo.');
   })();
   try{return await aqHtml2CanvasEnCarga;}
   finally{aqHtml2CanvasEnCarga=null;}
@@ -6351,7 +6360,8 @@ async function aqCapturarComprobanteEnCanvas(el){
     const canvas=await Promise.race([
       convertir(el,{
         backgroundColor:'#ffffff',
-        scale:Math.min(2,Math.max(1,1800/ancho)),
+        // Limitar píxeles para evitar fallos de memoria en Safari/iPhone.
+        scale:Math.min(2,Math.max(0.65,1800/ancho),Math.sqrt(5500000/(ancho*alto))),
         useCORS:true,allowTaint:false,logging:false,
         width:ancho,height:alto,imageTimeout:8000
         // No cambiar el tema del documento clon: debe verse igual que en pantalla.
@@ -6393,20 +6403,47 @@ function aqCanvasBlobSeguro(canvas){
 }
 let aqCachePNGComprobante=null;
 function aqEstadoBotonesCompartir(estado){
-  // El botón de iOS solo queda disponible cuando el archivo existe realmente.
   for(const modal of ['modal-ticket','modal-saldo_pendiente']){
     const root=document.getElementById(modal);
     if(!root?.classList.contains('open'))continue;
+    const pie=root.querySelector('.mfoot');
+    let aviso=root.querySelector('.aq-png-estado');
+    if(!aviso&&pie){
+      aviso=document.createElement('div');
+      aviso.className='aq-png-estado';
+      aviso.setAttribute('role','status');
+      aviso.setAttribute('aria-live','polite');
+      aviso.style.cssText='font-size:12px;text-align:center;padding:7px 10px;margin:8px 0;border-radius:8px;background:#f1f7ff;color:#184c81;';
+      pie.insertAdjacentElement('beforebegin',aviso);
+    }
+    if(aviso){
+      aviso.textContent=estado==='preparando'
+        ?'⏳ Preparando el PNG fiel al comprobante…'
+        :estado==='lista'
+          ?'✅ Imagen lista. Puedes compartirla o descargarla.'
+          :'⚠️ No se pudo preparar la imagen. Toca Reintentar PNG.';
+      aviso.style.color=estado==='error'?'#a52828':estado==='lista'?'#176c36':'#184c81';
+      aviso.style.background=estado==='error'?'#fff0f0':estado==='lista'?'#e8f5e9':'#f1f7ff';
+    }
     root.querySelectorAll('button[onclick*="compartirImagenComprobante"]').forEach(btn=>{
       if(!btn.dataset.aqEtiquetaCompartir)btn.dataset.aqEtiquetaCompartir=btn.innerHTML;
       if(estado==='preparando'){
-        // Jamás bloquear permanentemente el botón: puede usarse un PNG local.
-        btn.disabled=false;btn.textContent='📤 Compartir imagen';
+        btn.disabled=true;
+        btn.textContent='⏳ Preparando PNG…';
+        btn.title='Espera a que la imagen esté lista';
+      }else if(estado==='error'){
+        btn.disabled=false;
+        btn.textContent='🔄 Reintentar PNG';
+        btn.title='Volver a preparar la imagen del comprobante';
       }else{
         btn.disabled=false;
         btn.innerHTML=btn.dataset.aqEtiquetaCompartir;
-        btn.title=estado==='error'?'No se pudo preparar la imagen. Toca para intentar de nuevo.':'Imagen lista para compartir';
+        btn.title='Compartir la imagen exacta del documento visible';
       }
+    });
+    root.querySelectorAll('button[onclick*="descargarTicketPDF"]').forEach(btn=>{
+      btn.disabled=estado==='preparando';
+      btn.title=estado==='preparando'?'Preparando imagen…':'Descargar PNG del documento visible';
     });
   }
 }
@@ -6421,22 +6458,26 @@ function aqPrecalentarPNGComprobante(el){
   aqCachePNGComprobante=cache;
   aqEstadoBotonesCompartir('preparando');
   cache.promesa=(async()=>{
-    const canvas=await aqCapturarComprobanteEnCanvas(el);
-    const blob=await aqCanvasBlobSeguro(canvas);
-    if(aqCachePNGComprobante===cache && el.innerHTML===firma){
-      cache.blob=blob;
-      aqEstadoBotonesCompartir('lista');
+    try{
+      const canvas=await aqCapturarComprobanteEnCanvas(el);
+      const blob=await aqCanvasBlobSeguro(canvas);
+      if(!blob||blob.size<100)throw new Error('El archivo PNG está vacío');
+      if(aqCachePNGComprobante===cache&&el.innerHTML===firma){
+        cache.blob=blob;
+        aqEstadoBotonesCompartir('lista');
+      }
+      return blob;
+    }catch(e){
+      if(aqCachePNGComprobante===cache){
+        aqCachePNGComprobante=null;
+        aqEstadoBotonesCompartir('error');
+      }
+      console.warn('Error al preparar PNG del comprobante:',e);
+      throw e;
     }
-    return blob;
   })();
-  cache.promesa.catch(e=>{
-    if(aqCachePNGComprobante===cache){
-      aqCachePNGComprobante=null;
-      aqEstadoBotonesCompartir('error');
-      showNotif('No se pudo preparar la imagen. Toca Compartir para reintentar.','#c62828');
-    }
-    console.warn('Preparación previa de PNG no disponible:',e);
-  });
+  // El precalentamiento ocurre sin un await: manejar aquí su rechazo.
+  cache.promesa.catch(()=>{});
 }
 async function generarImagenComprobante(){return aqCapturarComprobanteEnCanvas(aqDocumentoVisible());}
 function aqValidarDetalleVentaComprobante(){
@@ -6584,36 +6625,32 @@ async function compartirImagenComprobante(){
   const nombre=aqNombrePNGComprobante();
   const cache=aqCachePNGComprobante;
   const blob=cache?.el===el&&cache?.firma===el?.innerHTML?cache.blob:null;
-  // CRÍTICO Safari: la llamada a navigator.share debe ocurrir en el clic ORIGINAL,
-  // antes de cualquier await, captura, descarga o promesa.
-  if(blob&&typeof navigator.share==='function'&&typeof File==='function'){
-    if(btn){btn.dataset.aqGenerando='1';btn.disabled=true;}
-    try{
-      const estado=await aqCompartirPNG(blob,nombre);
-      aqUltimoEstadoCompartirPNG=estado;
-      if(estado==='compartido'){showNotif('✅ Menú de compartir completado','#2e7d32');return true;}
-      if(estado==='cancelado')return false;
-      // Navegador sin capacidad para archivos: ofrecer PNG manual, sin afirmar envío.
-      aqAbrirAlternativaCompartirPNG(blob,nombre,aqErrorCompartirPNG);
-      return false;
-    }catch(e){
-      console.error('Compartir comprobante:',e);
-      aqAbrirAlternativaCompartirPNG(blob,nombre,e?.message||'Error inesperado');
-      return false;
-    }finally{if(btn){btn.disabled=false;delete btn.dataset.aqGenerando;}}
+  if(!blob){
+    // En iOS el botón permanece deshabilitado durante la preparación.
+    // Si hubo error, este toque reintenta; no promete compartir en dos clics.
+    aqPrecalentarPNGComprobante(el);
+    return false;
   }
-  // Si todavía no hay imagen, generarla sin bloquear el botón. La segunda
-  // pulsación abrirá el menú nativo; la descarga siempre queda disponible.
-  aqPrecalentarPNGComprobante(el);
-  if(typeof navigator.share!=='function'||typeof File!=='function'){
-    try{
-      const o=await aqPrepararPNGComprobante(el,nombre);
-      aqAbrirAlternativaCompartirPNG(o.blob,nombre,'No existe la función de compartir archivos');
-    }catch(e){alert('No se pudo generar el comprobante: '+(e?.message||'Error desconocido'));}
-  }else{
-    showNotif('Preparando comprobante; toca Compartir cuando el botón se habilite.','#1565c0');
+  if(btn){btn.dataset.aqGenerando='1';btn.disabled=true;}
+  try{
+    // IMPORTANTE: navigator.share se invoca en este mismo gesto del usuario.
+    // No hay await de captura ni de descarga antes de abrir la hoja nativa.
+    const estado=await aqCompartirPNG(blob,nombre);
+    aqUltimoEstadoCompartirPNG=estado;
+    if(estado==='compartido'){
+      showNotif('✅ Se abrió el menú de compartir el PNG.','#2e7d32');
+      return true;
+    }
+    if(estado==='cancelado')return false;
+    aqAbrirAlternativaCompartirPNG(blob,nombre,aqErrorCompartirPNG);
+    return false;
+  }catch(e){
+    console.error('Compartir comprobante:',e);
+    aqAbrirAlternativaCompartirPNG(blob,nombre,e?.message||'Error inesperado');
+    return false;
+  }finally{
+    if(btn){btn.disabled=false;delete btn.dataset.aqGenerando;}
   }
-  return false;
 }
 // Recibos de planilla que se abren en ventanas separadas.
 async function aqDescargarReciboVentana(doc,nombre,compartir=false){

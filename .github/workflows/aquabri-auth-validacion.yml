@@ -1,0 +1,32 @@
+name: AQUABRI validación de acceso seguro
+on:
+  push:
+    branches: [security/auth-server-bridge-20261112]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validar-js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Revisar sintaxis de scripts internos
+        run: |
+          node <<'NODE'
+          const fs = require('fs'), vm = require('vm'), assert = require('assert');
+          const html = fs.readFileSync('index.html','utf8');
+          const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+          let count=0;
+          for(const [i, entry] of scripts.entries()){
+            const attr=entry[1], code=entry[2];
+            if(/\bsrc\s*=/.test(attr)||/type\s*=\s*["'](?:application\/json|module)/i.test(attr))continue;
+            if(!code.trim())continue;
+            new vm.Script(code,{filename:'aquabri-script-'+i+'.js'});
+            count++;
+          }
+          assert(count>0,'No se encontraron scripts para validar');
+          console.log('Scripts validados:',count);
+          assert(html.includes("aq_login_usuario_seguro_v1"),'No hay RPC de acceso seguro');
+          assert(html.includes("aq_sesion_perfil_seguro_v1"),'Falta lectura de perfil');
+          assert(!html.includes("x.usuario===u&&x.pass===p"),'Comparación insegura permanece');
+          NODE

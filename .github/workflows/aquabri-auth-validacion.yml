@@ -29,6 +29,10 @@ jobs:
           assert(html.includes("aq_login_usuario_seguro_v1"),'No hay RPC de acceso seguro');
           assert(html.includes("aq_sesion_perfil_seguro_v1"),'Falta lectura de perfil');
           assert(!html.includes("x.usuario===u&&x.pass===p"),'Comparación insegura permanece');
+          assert(html.includes("aq_vender_sesion_segura_v1"),'Falta RPC de venta segura');
+          assert(html.includes("aq_cobrar_credito_sesion_segura_v1"),'Falta RPC de cobro seguro');
+          assert(!html.includes("sb.from('usuarios')"),'Consulta directa de usuarios permanece');
+          assert(!html.includes("sb.from('sesiones')"),'Acceso directo a sesiones permanece');
           NODE
       - name: Verificar cabecera de sesión en CORS del laboratorio
         run: |

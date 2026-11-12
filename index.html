@@ -6909,7 +6909,7 @@ async function agregarPuntoMapa(clienteId){
   navigator.geolocation.getCurrentPosition(async pos=>{
     const lat=pos.coords.latitude;
     const lng=pos.coords.longitude;
-    await sb.from('clientes').update({lat,lng}).eq('id',clienteId);
+    await aqGuardarClienteCampos(clienteId,{lat,lng});
     const c=D.clientes.find(c=>c.id===clienteId);
     if(c){c.lat=lat;c.lng=lng;}
     renderHistorial();
@@ -7328,7 +7328,7 @@ async function saveCli(){
   const obj={nombre:nom,telefono:document.getElementById('ct').value,direccion:document.getElementById('cd').value,ruta:rutaFinal,lat:latVal,lng:lngVal,tiene_exhibidor:document.getElementById('cexhib').value==='1',descripcion_exhibidor:document.getElementById('cexhib-desc').value,exhibidor_capacidad:parseInt(document.getElementById('cexhib-cap')?.value)||0,exhibidor_costo:parseFloat(document.getElementById('cexhib-costo')?.value)||0,fecha_nacimiento:nacRaw||null,vendedor_id:vendRaw};
   const id=document.getElementById('cid').value;
   if(id){
-    const {error}=await sb.from('clientes').update(obj).eq('id',id);
+    const {error}=await sb.rpc('aq_guardar_cliente_auth_v1',{p_cliente:obj,p_cliente_id:Number(id)});
     if(error){showNotif('Error al guardar cliente: '+error.message,'#c62828');return;}
   } else {
     try{const r=await aqCrearClienteConCaptacion(obj);if(r.mensaje)showNotif(r.mensaje,'#e65100');}
@@ -7460,7 +7460,7 @@ function initMapa(){
           const cid=gmEditandoUbicacion;
           const lat=e.latLng.lat().toFixed(6);
           const lng=e.latLng.lng().toFixed(6);
-          await sb.from('clientes').update({lat:parseFloat(lat),lng:parseFloat(lng)}).eq('id',cid);
+          await aqGuardarClienteCampos(cid,{lat:parseFloat(lat),lng:parseFloat(lng)});
           const cliUpd=D.clientes.find(c=>c.id===cid);
           if(cliUpd){cliUpd.lat=parseFloat(lat);cliUpd.lng=parseFloat(lng);addGmMarker(cliUpd);}
           actualizarContadorSinUbic();
@@ -7911,7 +7911,7 @@ async function guardarRutaDesdeIW(cid){
       .find(r=>normalizarRuta(r)===normalizarRuta(nuevaRuta));
     if(rutaExistente)nuevaRuta=rutaExistente; // usar la versión ya existente
   }
-  await sb.from('clientes').update({ruta:nuevaRuta||null}).eq('id',cid);
+  await aqGuardarClienteCampos(cid,{ruta:nuevaRuta||null});
   c.ruta=nuevaRuta||null;
   if(gmMarkers[cid]?._iw)gmMarkers[cid]._iw.close();
   addGmMarker(c);
@@ -8054,7 +8054,7 @@ async function guardarNuevoCliMapa(){
 
 async function guardarPosCliente(){
   const cid=parseInt(document.getElementById('mk-cli').value);if(!cid)return;
-  await sb.from('clientes').update({lat:parseFloat(mkLat),lng:parseFloat(mkLng)}).eq('id',cid);
+  await aqGuardarClienteCampos(cid,{lat:parseFloat(mkLat),lng:parseFloat(mkLng)});
   closeModal('modal-marcar-cli');cancelarModoMarcar();
   await loadAll();const c=D.clientes.find(x=>x.id===cid);
   if(c&&gmMap)addGmMarker(c);showNotif('✅ Posición guardada');
@@ -21017,20 +21017,22 @@ async function aqActualizarCierreReportes(){
 <script id="aq-captacion-automatica-clientes-v1">
 /* Solo las altas nuevas realizadas por un vendedor asociado a un equipo generan incentivos automáticos.
    La RPC verifica la sesión y la pertenencia al equipo antes de insertar el cliente y el incentivo. */
+// Ediciones de campos de clientes con verificación de permisos en la base de datos.
+async function aqGuardarClienteCampos(id,campos){
+  if(!Number.isSafeInteger(Number(id))||Number(id)<=0)throw new Error('Cliente inválido');
+  const {data,error}=await sb.rpc('aq_guardar_cliente_auth_v1',{p_cliente:campos,p_cliente_id:Number(id)});
+  if(error)throw error;
+  if(!data?.ok)throw new Error('Supabase no confirmó el cambio');
+  return data;
+}
 async function aqCrearClienteConCaptacion(datos){
-  const esVendedor=['vendedor','vendedor_editor'].includes(CU?.rol);
-  if(!esVendedor){
-    const {data,error}=await sb.from('clientes').insert({...datos,creado_por:CU?.nombre||'Jefe'}).select().single();
-    if(error)throw error;
-    return {cliente:data,incentivos:0};
-  }
-  const {data,error}=await sb.rpc('aq_crear_cliente_autocaptacion',{
-    p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_cliente:datos
-  });
-  if(error)throw new Error('La captación automática requiere instalar 03_activar_incentivos_automaticos.sql. '+error.message);
-  const id=Number(data?.cliente_id||0);
-  if(!id)throw new Error('La base de datos no devolvió el cliente creado');
-  return {cliente:{...datos,id,creado_por:CU?.nombre||''},incentivos:Number(data?.incentivos_creados||0),mensaje:data?.mensaje||null};
+  // La creación de clientes nunca aplica incentivos/bonificaciones automáticamente.
+  // El servidor registra el usuario creador desde su JWT, no desde el navegador.
+  const {data,error}=await sb.rpc('aq_guardar_cliente_auth_v1',{p_cliente:datos,p_cliente_id:null});
+  if(error)throw error;
+  const id=Number(data?.id||0);
+  if(!id)throw new Error('Supabase no confirmó el cliente registrado');
+  return {cliente:{...datos,id,creado_por:String(CU?.id||'')},incentivos:0};
 }
 </script>
 <script id="aq-incentivos-migracion-2026">

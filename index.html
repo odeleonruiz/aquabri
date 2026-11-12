@@ -6345,8 +6345,10 @@ async function aqCapturarComprobanteEnCanvas(el){
 }
 let aqCachePNGComprobante=null;
 function aqPrecalentarPNGComprobante(el){
-  if(!el||aqCachePNGComprobante?.el===el)return;
-  const cache={el,promesa:null,blob:null};
+  if(!el)return;
+  const firma=el.innerHTML;
+  if(aqCachePNGComprobante?.el===el&&aqCachePNGComprobante?.firma===firma)return;
+  const cache={el,firma,promesa:null,blob:null};
   aqCachePNGComprobante=cache;
   cache.promesa=(async()=>{
     const canvas=await aqCapturarComprobanteEnCanvas(el);
@@ -6416,14 +6418,14 @@ function aqMostrarEnlacesComprobante(blob,nombre,contenedor){
 }
 async function aqPrepararPNGComprobante(el,nombre,contenedor){
   let blob;
-  if(aqCachePNGComprobante?.el===el){
+  if(aqCachePNGComprobante?.el===el&&aqCachePNGComprobante?.firma===el?.innerHTML){
     try{blob=aqCachePNGComprobante.blob||await aqCachePNGComprobante.promesa;}
     catch(e){aqCachePNGComprobante=null;}
   }
   if(!blob){
     const canvas=await aqCapturarComprobanteEnCanvas(el);
     blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('No se pudo generar PNG')),'image/png'));
-    aqCachePNGComprobante={el,blob,promesa:Promise.resolve(blob)};
+    aqCachePNGComprobante={el,firma:el.innerHTML,blob,promesa:Promise.resolve(blob)};
   }
   const links=aqMostrarEnlacesComprobante(blob,nombre,contenedor);
   return {blob,links,nombre};
@@ -6456,20 +6458,38 @@ async function descargarTicketPDF(){
 async function compartirImagenComprobante(){
   const btn=document.activeElement instanceof HTMLButtonElement?document.activeElement:null;
   if(btn?.dataset.aqGenerando==='1'||!aqValidarDetalleVentaComprobante())return false;
+  const el=aqDocumentoVisible();
+  const nombre=aqNombrePNGComprobante();
   try{
     if(btn){btn.dataset.aqGenerando='1';btn.disabled=true;}
     aqUltimoEstadoCompartirPNG='';
-    showNotif('📤 Preparando imagen para compartir…','#1565c0');
-    const o=await aqPrepararPNGComprobante(aqDocumentoVisible(),aqNombrePNGComprobante());
-    const estado=await aqCompartirPNG(o.blob,o.nombre);
-    aqUltimoEstadoCompartirPNG=estado;
-    if(estado==='compartido'){showNotif('✅ Imagen enviada a la aplicación seleccionada','#2e7d32');return true;}
-    if(estado==='cancelado'){showNotif('Imagen lista; puedes descargarla desde el comprobante.','#1565c0');return false;}
+    // iOS exige activar navigator.share durante el gesto original del usuario.
+    // Nunca esperar un fetch, una captura o una promesa ANTES de abrir el menú.
+    const cache=aqCachePNGComprobante;
+    const lista=cache?.el===el&&cache?.firma===el?.innerHTML&&cache.blob;
+    if(lista){
+      const compartir=aqCompartirPNG(cache.blob,nombre);
+      const estado=await compartir;
+      aqUltimoEstadoCompartirPNG=estado;
+      if(estado==='compartido'){showNotif('✅ Comprobante compartido','#2e7d32');return true;}
+      if(estado==='cancelado')return false;
+    }
+    showNotif('📷 Preparando imagen del comprobante…','#1565c0');
+    const o=await aqPrepararPNGComprobante(el,nombre);
+    if(typeof navigator.share==='function'&&typeof File==='function'&&aqUltimoEstadoCompartirPNG!=='sin_soporte'){
+      // La primera pulsación puede utilizarse para terminar la captura.
+      // Solicitar una segunda pulsación conserva el gesto necesario en Safari/iPhone.
+      showNotif('✅ Imagen lista. Toca «Compartir imagen» otra vez para elegir WhatsApp.','#2e7d32');
+      return false;
+    }
     aqSolicitarDescargaPNG(o.links);
-    showNotif('📷 Imagen lista. Si no se abrió Compartir, descárgala o ábrela debajo del comprobante.','#2e7d32');
+    showNotif('📷 Imagen lista. Abre o descarga el comprobante debajo.','#2e7d32');
     return true;
-  }catch(e){console.error('Compartir comprobante:',e);alert('No se pudo generar el PNG: '+(e?.message||'Error desconocido'));return false;}
-  finally{if(btn){btn.disabled=false;delete btn.dataset.aqGenerando;}}
+  }catch(e){
+    console.error('Compartir comprobante:',e);
+    alert('No se pudo preparar la imagen: '+(e?.message||'Error desconocido')+'. Puedes imprimir el comprobante.');
+    return false;
+  }finally{if(btn){btn.disabled=false;delete btn.dataset.aqGenerando;}}
 }
 // Recibos de planilla que se abren en ventanas separadas.
 async function aqDescargarReciboVentana(doc,nombre,compartir=false){

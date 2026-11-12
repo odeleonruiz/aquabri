@@ -83,3 +83,23 @@ Clientes activos 2, archivados 0, historial de archivos 0, empleados 0, pagos 0,
 - No fue posible probar en iPhone/Android con credenciales reales desde esta herramienta. Las pruebas SQL con contexto JWT simulado no sustituyen pruebas de navegador, sesión revocada y conectividad.
 - No existe una copia integral **verificada y restaurada** de producción obtenida en esta sesión: las herramientas conectadas no ofrecen exportación física y restauración probada de la base. Requiere comprobar respaldos de Supabase y restaurar un backup aislado; un backup de políticas o rama GitHub **no** respalda ventas/clientes.
 - **No promover a producción, no activar RLS de staging en producción, ni fusionar index de staging a main.**
+
+
+## Seguridad adicional del historial y módulos pendientes — 12 noviembre 2026
+- Se consultó producción en modo **solo lectura**. Existían 5,236 ventas, 6,428 artículos, 760 créditos, 4,866 movimientos de caja y 90 ventas anuladas conservadas. Última comprobación a las 00:09 GT: **cuatro huellas de integridad coinciden** con el corte guardado en `QA_CONTROL_HISTORIAL_PRODUCCION.md` y `QA_CONTROL_HISTORIAL_VERIFICAR.sql`. **No es backup físico/lógico.**
+- Staging: `aq_staging_guardia_historial_ventas_no_delete_truncate` instala triggers para rechazar DELETE y TRUNCATE de ventas/venta_items. DELETE de ambos comprobado como denegado. No se intentó TRUNCATE CASCADE por ser destructivo.
+- Staging: `aq_staging_envases_movimientos_atomicos_con_venta_y_caja_v1` crea entradas, préstamos, devoluciones y ventas como una transacción por nonce. QA reversible: entrada 10 → préstamo 2 → devolución 1 → venta 3 = bodega 6, saldo cliente 1; una factura + artículo y un solo ingreso de caja. Reintento de venta sin duplicar.
+- Staging: `aq_staging_rrhh_salidas_historial_anulacion_no_delete` permite apertura, cierre y anulación sin DELETE. QA reversible: 2 salidas conservadas, una anulada, cierre no anulable.
+- Staging: `aq_staging_puntos_inscripcion_caja_y_historico_atomico` inscribe cliente de forma atómica. QA reversible de membresía Q35: una factura, un ítem, un cobro; desactivación mantiene histórico y puntos anteriores.
+- Staging: `aq_staging_puntos_qr_canje_atomico_sin_perder_historial` consume QR, puntos, stock, registro de venta en una transacción. QA reversible: stock 51→50, 1 venta + 1 ítem, 10 puntos canjeados, caja 0, QR usado. Reintento seguro.
+- Revisados permisos de las funciones `SECURITY DEFINER`: 72 accesibles a `authenticated`, 0 a `anon`, y todas las accesibles contienen referencias a los mecanismos de autenticación/identidad (esto es verificación estática parcial, **no prueba exhaustiva** de autorización). Las advertencias del Security Advisor de `SECURITY DEFINER` requieren análisis por función.
+- En QA se corrigió conflicto de nombres `guardarLiquidacion()` entre liquidación de personal y de cargas. Los módulos de cargas (crear, recargar, finalizar, eliminar y liquidar cargas) quedaron con rechazo explícito, sin escrituras falsas, hasta adaptarlos a RPC atómica.
+- El frontend QA pasó verificación sintáctica de 14 scripts inline, usa únicamente Supabase staging y no desregistra service workers de la raíz. GitHub Pages confirmó publicación exitosa.
+- Los recuentos de staging después de pruebas reversibles: ventas 6, artículos 6, empleados 0, operaciones temporales de envases/canjes/salidas 0, ninguna tabla pública sin RLS, funciones definer ejecutables por `anon`: 0.
+
+### Bloqueos que impiden promoción
+- El respaldo diario de producción y la restauración **no pueden verificarse con los conectores disponibles**. Supabase Pro documenta respaldos diarios accesibles en Dashboard > Database > Backups, pero no se ha verificado el backup específico ni una restauración a proyecto aislado.
+- Liquidación y creación de cargas siguen bloqueadas en QA por falta de transacciones completas para inventario, sobrantes, envases, comisiones y liquidación.
+- Persisten escrituras directas en módulos secundarios de puntos/vehículos/proveedores y otros; no prometer que la versión Auth está lista para operar al 100%.
+- No hay prueba E2E con credenciales reales de jefe/vendedor/revocación en iPhone/Android.
+- No hay copia restaurable validada; **NO modificar RLS/Auth en producción ni fusionar el `index.html` de staging a `main`**.

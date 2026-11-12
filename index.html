@@ -6370,17 +6370,28 @@ async function aqCapturarComprobanteEnCanvas(el){
   const alto=Math.max(Math.ceil(el.scrollHeight),Math.ceil(el.getBoundingClientRect().height),150);
   let temporizador=null;
   try{
+    const escala=Math.min(1.5,Math.max(0.65,1200/ancho),Math.sqrt(3200000/(ancho*alto)));
+    const opciones={
+      backgroundColor:'#ffffff',scale:escala,useCORS:true,allowTaint:false,
+      logging:false,width:ancho,height:alto,imageTimeout:3500,
+      // Evitar que un logo externo sin CORS bloquee toda la captura en Safari.
+      onclone:doc=>{
+        const ticket=doc.getElementById('ticket-contenido');
+        if(ticket){ticket.style.boxShadow='none';ticket.style.animation='none';}
+      }
+    };
+    const capturar=async()=>{
+      try{return await convertir(el,opciones);}
+      catch(error){
+        console.warn('Primer intento PNG falló; reintentando modo compatible iPhone:',error);
+        return await convertir(el,{...opciones,scale:Math.min(1,escala),useCORS:false,
+          imageTimeout:1000,foreignObjectRendering:false});
+      }
+    };
     const canvas=await Promise.race([
-      convertir(el,{
-        backgroundColor:'#ffffff',
-        // Limitar píxeles para evitar fallos de memoria en Safari/iPhone.
-        scale:Math.min(2,Math.max(0.65,1800/ancho),Math.sqrt(5500000/(ancho*alto))),
-        useCORS:true,allowTaint:false,logging:false,
-        width:ancho,height:alto,imageTimeout:8000
-        // No cambiar el tema del documento clon: debe verse igual que en pantalla.
-      }),
+      capturar(),
       new Promise((_,reject)=>{
-        temporizador=setTimeout(()=>reject(new Error('Tiempo de captura agotado')),18000);
+        temporizador=setTimeout(()=>reject(new Error('Tiempo de captura agotado')),14000);
       })
     ]);
     if(canvas?.width>10&&canvas?.height>10)return canvas;
@@ -6454,9 +6465,9 @@ function aqEstadoBotonesCompartir(estado){
     root.querySelectorAll('button[onclick*="compartirImagenComprobante"]').forEach(btn=>{
       if(!btn.dataset.aqEtiquetaCompartir)btn.dataset.aqEtiquetaCompartir=btn.innerHTML;
       if(estado==='preparando'){
-        btn.disabled=true;
+        btn.disabled=false;
         btn.textContent='⏳ Preparando PNG…';
-        btn.title='Espera a que la imagen esté lista';
+        btn.title='Puedes tocar para reintentar si tarda';
       }else if(estado==='error'){
         btn.disabled=false;
         btn.textContent='🔄 Reintentar PNG';
@@ -6661,9 +6672,9 @@ async function compartirImagenComprobante(){
   const cache=aqCachePNGComprobante;
   const blob=cache?.el===el&&cache?.firma===el?.innerHTML?cache.blob:null;
   if(!blob){
-    // En iOS el botón permanece deshabilitado durante la preparación.
-    // Si hubo error, este toque reintenta; no promete compartir en dos clics.
+    // No dejar bloqueado Compartir por un fallo previo: reintentar en el toque.
     aqPrecalentarPNGComprobante(el);
+    showNotif('📷 Preparando imagen. Toca Compartir nuevamente cuando esté lista.','#1565c0');
     return false;
   }
   if(btn){btn.dataset.aqGenerando='1';btn.disabled=true;}

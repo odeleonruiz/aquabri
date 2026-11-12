@@ -10,6 +10,7 @@
 | Anónimo intenta ejecutar venta | BLOQUEADO correctamente |
 | Vendedor intenta abrir caja general | BLOQUEADO correctamente |
 | Vendedor intenta cambiar permisos del personal | BLOQUEADO correctamente |
+| Jefe autoriza permiso de clientes y vendedor captura cliente propio | PASA; permiso y cliente revertidos |
 | Vendedor intenta pagar proveedor | BLOQUEADO correctamente |
 | Venta contado: inventario -1, caja +1 | PASA |
 | Reintento misma venta con mismo nonce | No duplicó venta ni caja |

@@ -16686,15 +16686,22 @@ function modalNuevaLiquidacion(){
 }
 
 async function guardarNuevaLiquidacion(){
-  const empId=parseInt(document.getElementById('liq-emp').value);
+  const empId=Number(document.getElementById('liq-emp').value);
   const horaSal=document.getElementById('liq-hora-sal').value;
   const notas=document.getElementById('liq-notas').value;
-  await sb.from('liquidaciones').insert({empleado_id:empId,fecha:hoy(),hora_salida:horaSal,notas,estado:'abierta'});
-  closeModal('modal-nueva-liq');
-  const{data}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
-  D.liquidaciones=data||[];
-  renderLiquidaciones();
-  showNotif('Salida registrada ✅');
+  const payload={p_empleado:empId,p_hora_salida:horaSal,p_notas:notas};
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_abrir_salida_auth_v1',{
+      ...payload,p_nonce:aqNonceOperacion('salida-nueva',payload)
+    });
+    if(error||!data?.ok)throw error||new Error('Salida no confirmada');
+    aqConfirmarOperacion('salida-nueva');
+    closeModal('modal-nueva-liq');
+    const {data:filas,error:reloadError}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
+    if(!reloadError)D.liquidaciones=filas||[];
+    renderLiquidaciones();
+    showNotif(data.repetida?'Salida ya estaba registrada':'Salida registrada ✅');
+  }catch(e){showNotif('No se registró la salida: '+(e.message||e),'#c62828');}
 }
 
 async function abrirLiquidar(id){
@@ -16719,23 +16726,31 @@ async function abrirLiquidar(id){
 }
 
 async function guardarLiquidacion(){
-  const id=parseInt(document.getElementById('liq-id-cerrar').value);
+  const id=Number(document.getElementById('liq-id-cerrar').value);
   const horaReg=document.getElementById('liq-hora-reg').value;
-  const monto=parseFloat(document.getElementById('liq-monto').value)||0;
+  const monto=Number(document.getElementById('liq-monto').value)||0;
   const notas=document.getElementById('liq-notas-cerrar').value;
-  await sb.from('liquidaciones').update({hora_regreso:horaReg,monto_entregado:monto,estado:'cerrada',notas}).eq('id',id);
-  closeModal('modal-cerrar-liq');
-  const{data}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
-  D.liquidaciones=data||[];
-  renderLiquidaciones();
-  showNotif('Liquidación registrada ✅','#2e7d32');
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_cerrar_salida_auth_v1',{
+      p_liquidacion:id,p_hora_regreso:horaReg,p_monto:monto,p_notas:notas
+    });
+    if(error||!data?.ok)throw error||new Error('Liquidación no confirmada');
+    closeModal('modal-cerrar-liq');
+    const {data:filas}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
+    if(filas)D.liquidaciones=filas;
+    renderLiquidaciones();
+    showNotif(data.repetida?'Salida ya cerrada':'Liquidación registrada ✅','#2e7d32');
+  }catch(e){showNotif('No se cerró la salida: '+(e.message||e),'#c62828');}
 }
-
 async function delLiquidacion(id){
-  if(!confirm('¿Eliminar esta salida?'))return;
-  await sb.from('liquidaciones').delete().eq('id',id);
-  D.liquidaciones=D.liquidaciones.filter(l=>l.id!==id);
-  renderLiquidaciones();
+  if(!confirm('¿Anular la salida sin eliminar su historial? Solo se pueden anular las que siguen abiertas y sin movimientos.'))return;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_anular_salida_auth_v1',{p_liquidacion:Number(id)});
+    if(error||!data?.ok)throw error||new Error('No confirmado');
+    const {data:filas}=await sb.from('liquidaciones').select('*').order('id',{ascending:false});
+    if(filas)D.liquidaciones=filas;
+    renderLiquidaciones();showNotif('Salida anulada; se conserva el historial');
+  }catch(e){showNotif('No se pudo anular: '+(e.message||e),'#c62828');}
 }
 
 async function initCaja(){

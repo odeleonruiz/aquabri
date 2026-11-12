@@ -2165,7 +2165,7 @@ document.addEventListener('DOMContentLoaded',()=>{
         <div id="liq-diferencia" style="text-align:center;font-size:15px;font-weight:800;padding:10px;border-radius:8px;margin-top:8px"></div>
 
         <div class="fe" style="margin-top:12px">
-          <button class="btn bs" onclick="guardarLiquidacion()" style="font-size:15px;padding:14px 28px">✅ Confirmar Liquidación</button>
+          <button class="btn bs" onclick="guardarLiquidacionCarga()" style="font-size:15px;padding:14px 28px">✅ Confirmar Liquidación</button>
         </div>
       </div>
 
@@ -2387,7 +2387,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     </div>
     <div class="fe" style="gap:8px;margin-top:12px">
       <button class="btn" onclick="closeModal('modal-cerrar-liq')">Cancelar</button>
-      <button class="btn bs" onclick="guardarLiquidacion()">✅ Liquidar</button>
+      <button class="btn bs" onclick="guardarLiquidacionPersonal()">✅ Liquidar</button>
     </div>
   </div>
 </div>
@@ -12108,42 +12108,8 @@ function renderCargaItems(){
     `</div>`;
 }
 async function saveCarga(){
-  if(!cargaItems.length){showNotif('Agrega productos','#c62828');return;}
-  showLoad(true);
-  const fecha=document.getElementById('carg-fecha').value;
-  const vehiculoId=parseInt(document.getElementById('carg-veh').value);
-  // Calcular número de carga del día para este vehículo
-  const{data:cargasDia}=await sb.from('cargas').select('id').eq('vehiculo_id',vehiculoId).eq('fecha',fecha);
-  const numDelDia=(cargasDia?.length||0)+1;
-  const{data:carga,error:cargaErr}=await sb.from('cargas').insert({
-    vehiculo_id:vehiculoId,
-    empleado_id:parseInt(document.getElementById('carg-emp').value),
-    fecha,
-    descripcion:document.getElementById('carg-desc').value||('Carga '+numDelDia),
-    estado:'En Ruta'
-  }).select().single();
-  if(cargaErr||!carga){showLoad(false);showNotif('Error al guardar carga: '+(cargaErr?.message||'sin respuesta'),'#c62828');console.error('saveCarga error:',cargaErr);return;}
-  const promesas=[];
-  for(const item of cargaItems){
-    promesas.push(sb.from('carga_items').insert({
-      carga_id:carga.id,producto_id:item.pid,
-      nombre_producto:item.nombre,cantidad:item.cant
-    }));
-    const prod=D.prods.find(p=>p.id===item.pid);
-    if(prod){
-      const ns=Math.max(0,parseInt(prod.stock||0)-item.cant);
-      prod.stock=ns;
-      promesas.push(sb.from('productos').update({stock:ns}).eq('id',item.pid));
-    }
-  }
-  await Promise.all(promesas);
-  cargaItems=[];renderCargaItems();renderCargasProdBtns();
-  document.getElementById('carg-desc').value='';
-  await loadAll();renderCargasTabla();renderCargasLista();renderCargasProdBtns();
-  showLoad(false);
-  showNotif('✅ Carga '+numDelDia+' registrada — stock descontado');
+  showNotif('Crear cargas está bloqueado en pruebas hasta tener registro atómico de carga, inventario y devoluciones. No se guardó nada.','#c62828');
 }
-
 // Recargar: agregar más producto a una carga activa
 let _recargaCargaId=null;
 let _recargaItems=[];
@@ -12197,34 +12163,8 @@ function renderRecargaItems(){
   </div>`).join('');
 }
 async function guardarRecarga(){
-  if(!_recargaItems.length){showNotif('Agrega productos','#c62828');return;}
-  showLoad(true);
-  const promesas=[];
-  for(const item of _recargaItems){
-    // Buscar si ya existe ese producto en la carga para sumar
-    const{data:exist}=await sb.from('carga_items').select('id,cantidad').eq('carga_id',_recargaCargaId).eq('producto_id',item.pid).maybeSingle();
-    if(exist){
-      promesas.push(sb.from('carga_items').update({cantidad:exist.cantidad+item.cant}).eq('id',exist.id));
-    } else {
-      const prod=D.prods.find(p=>p.id===item.pid);
-      promesas.push(sb.from('carga_items').insert({carga_id:_recargaCargaId,producto_id:item.pid,nombre_producto:item.nombre||prod?.nombre,cantidad:item.cant}));
-    }
-    // Descontar del inventario
-    const prod=D.prods.find(p=>p.id===item.pid);
-    if(prod){
-      const ns=Math.max(0,parseInt(prod.stock||0)-item.cant);
-      prod.stock=ns;
-      promesas.push(sb.from('productos').update({stock:ns}).eq('id',item.pid));
-    }
-  }
-  await Promise.all(promesas);
-  document.getElementById('modal-recargar').style.display='none';
-  _recargaCargaId=null;_recargaItems=[];
-  await loadAll();renderCargasLista();
-  showLoad(false);
-  showNotif('✅ Recarga agregada — stock descontado');
+  showNotif('Recargar carga está bloqueado en pruebas hasta validar inventario atómico y devolución de sobrantes. No se guardó nada.','#c62828');
 }
-
 async function renderCargasLista(){
   const{data:cargas}=await sb.from('cargas').select('*,vehiculos(nombre),empleados(nombre),carga_items(nombre_producto,cantidad)').eq('estado','En Ruta').order('id',{ascending:true});
   const el=document.getElementById('cargas-resumen');if(!el)return;
@@ -12258,8 +12198,8 @@ async function renderCargasLista(){
   }).join('');
 }
 function renderCargasTabla(){const el=document.getElementById('carg-tbody');if(!el)return;el.innerHTML=D.cargas.map(c=>`<tr><td>${c.id}</td><td>${c.fecha}</td><td>${c.vehiculos?.nombre||'—'}</td><td>${c.empleados?.nombre||'—'}</td><td>${c.descripcion||'—'}</td><td>${sBadge(c.estado)}</td><td><button class="btn bd bsm" onclick="delCarga(${c.id})">🗑</button></td></tr>`).join('');}
-async function finCarga(id){await sb.from('cargas').update({estado:'Finalizado'}).eq('id',id);await loadAll();renderCargasLista();renderCargasTabla();showNotif('Finalizado ✅');}
-async function delCarga(id){if(!confirm('¿Eliminar?'))return;await sb.from('carga_items').delete().eq('carga_id',id);await sb.from('cargas').delete().eq('id',id);await loadAll();renderCargasLista();renderCargasTabla();}
+async function finCarga(id){showNotif('La carga solo puede finalizarse después de liquidación segura. Ningún registro se modificó.','#c62828');}
+async function delCarga(id){showNotif('No se pueden borrar cargas ni su historial desde QA. Requiere anulación con ajuste verificado de stock.','#c62828');}
 function irALiquidar(cargaId){
   // Ir al tab Liquidación de la página Cargas y abrir esa carga
   const tabLiq=document.querySelector('#page-cargas .tabs .tab:nth-child(2)');
@@ -16719,7 +16659,7 @@ async function abrirLiquidar(id){
   document.getElementById('modal-cerrar-liq').classList.add('open');
 }
 
-async function guardarLiquidacion(){
+async function guardarLiquidacionPersonal(){
   const id=Number(document.getElementById('liq-id-cerrar').value);
   const horaReg=document.getElementById('liq-hora-reg').value;
   const monto=Number(document.getElementById('liq-monto').value)||0;
@@ -17974,92 +17914,9 @@ function calcLiquidacion(){
   }
 }
 
-async function guardarLiquidacion(){
-  if(!_liqCargaActual){showNotif('No hay carga seleccionada','#c62828');return;}
-  if(!aqLiqExclusionOK){showNotif('No se verificaron los incentivos: no se puede guardar una liquidación con posible doble comisión.','#c62828');return;}
-  showLoad(true);
-  let totalVendido=0;
-  const promesas=[];
-  // Calcular totales y devolver sobrantes al inventario
-  _liqItems.forEach(item=>{
-    const bonif=parseInt(item.bonificacion||0);
-    const regresa=parseInt(item.cantidad_regresa||0);
-    // El total de dinero viene de las ventas reales ya registradas
-    totalVendido+=item.ya_vendido_monto||0;
-    // Devolver al inventario: los que regresan físicamente
-    const devolver=regresa;
-    if(devolver>0){
-      const prod=D.prods.find(p=>p.id===item.producto_id);
-      if(prod){
-        const ns=parseInt(prod.stock||0)+devolver;
-        prod.stock=ns;
-        promesas.push(sb.from('productos').update({stock:ns}).eq('id',item.producto_id));
-      }
-    }
-    // Las bonificaciones ya se descontaron del inventario al registrar la carga, no se devuelven
-  });
-  const efectivo=parseFloat(document.getElementById('liq-efectivo').value)||0;
-  const pctComision=parseFloat(_liqCargaActual.empleados?.comision_pct)||0;
-  const comision=Math.round(Math.max(0,totalVendido-aqLiqExclusionMonto)*pctComision/100*100)/100;
-  const diferencia=efectivo-totalVendido;
-  const notas=document.getElementById('liq-notas').value;
-  const empId=_liqCargaActual.empleado_id;
-  // Guardar liquidación
-  const{data:liq}=await sb.from('liquidaciones').insert({
-    carga_id:_liqCargaActual.id,
-    empleado_id:empId,
-    fecha:hoy(),
-    total_vendido:totalVendido,
-    total_esperado:totalVendido,
-    efectivo_entregado:efectivo,
-    diferencia,
-    comision,
-    notas,
-    estado:'Liquidado'
-  }).select().single();
-  // Guardar items liquidación con bonificaciones
-  if(liq){
-    await sb.from('liquidacion_items').insert(_liqItems.map(item=>({
-      liquidacion_id:liq.id,
-      producto_id:item.producto_id,
-      nombre_producto:item.nombre_producto,
-      cantidad_salida:item.cantidad,
-      cantidad_vendida:item.ya_vendido||0,
-      cantidad_devuelta:parseInt(item.cantidad_regresa||0),
-      cantidad_bonificacion:parseInt(item.bonificacion||0),
-      precio_unitario:item.precio_venta||0,
-      subtotal:item.ya_vendido_monto||0
-    })));
-  }
-  // Registrar comisión del empleado
-  if(comision>0&&empId){
-    const mesActual=hoy().substring(0,7);
-    const{data:comExist}=await sb.from('comisiones').select('id,monto').eq('empleado_id',empId).like('periodo','%'+mesActual+'%').single();
-    if(comExist){
-      await sb.from('comisiones').update({monto:parseFloat(comExist.monto||0)+comision}).eq('id',comExist.id);
-    } else {
-      await sb.from('comisiones').insert({empleado_id:empId,monto:comision,periodo:mesActual,notas:'Auto desde liquidación carga #'+_liqCargaActual.id,estado:'Pendiente'});
-    }
-  }
-  // Envases: los que no regresaron quedan como préstamo del empleado
-  const envSalida=parseInt(document.getElementById('liq-env-salida').value)||0;
-  const envRegreso=parseInt(document.getElementById('liq-env-regreso').value)||0;
-  if(envRegreso>0){
-    const nuevaBodega=Math.max(0,D.envBod+envRegreso);
-    await sb.from('envases_bodega').update({cantidad:nuevaBodega}).eq('id',1);
-    D.envBod=nuevaBodega;
-  }
-  // Marcar carga(s) como Finalizado — si es grupo, marcar todas
-  const idsAFinalizar=_liqCargaActual._ids||[_liqCargaActual.id];
-  await sb.from('cargas').update({estado:'Finalizado'}).in('id',idsAFinalizar);
-  await Promise.all(promesas);
-  await loadAll();
-  showLoad(false);
-  cerrarLiqPanel();
-  initLiquidacion();
-  showNotif('✅ Liquidación guardada — comisión Q'+comision.toFixed(2)+' registrada');
+async function guardarLiquidacionCarga(){
+  showNotif('Liquidación de carga en preparación de seguridad. No se guardó nada. Usa AQUABRI oficial para operaciones reales.','#c62828');
 }
-
 function cerrarLiqPanel(){
   document.getElementById('liq-panel').style.display='none';
   _liqCargaActual=null;

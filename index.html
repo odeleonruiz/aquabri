@@ -6463,12 +6463,57 @@ function aqSolicitarDescargaPNG(links){
   // Descarga de mejor esfuerzo. La confirmación del archivo depende del navegador.
   try{links.descargar.click();return true;}catch(e){console.warn('El navegador bloqueó la descarga automática:',e);return false;}
 }
+let aqErrorCompartirPNG='';
 async function aqCompartirPNG(blob,nombre){
-  if(typeof File!=='function'||typeof navigator.share!=='function')return 'sin_soporte';
-  const archivo=new File([blob],nombre,{type:'image/png'});
-  if(typeof navigator.canShare==='function'&&!navigator.canShare({files:[archivo]}))return 'sin_soporte';
-  try{await navigator.share({files:[archivo],title:'Comprobante AQUABRI'});return 'compartido';}
-  catch(e){if(e?.name==='AbortError')return 'cancelado';console.warn('Compartir imagen no disponible:',e);return 'fallo';}
+  aqErrorCompartirPNG='';
+  if(typeof File!=='function'||typeof navigator.share!=='function'){
+    aqErrorCompartirPNG='Este navegador no ofrece Compartir archivos (Web Share API).';
+    return 'sin_soporte';
+  }
+  let archivo;
+  try{archivo=new File([blob],nombre,{type:'image/png'});}
+  catch(e){aqErrorCompartirPNG='No se pudo preparar el archivo PNG: '+(e?.message||e);return 'fallo';}
+  if(typeof navigator.canShare==='function'){
+    try{
+      if(!navigator.canShare({files:[archivo]})){
+        aqErrorCompartirPNG='El iPhone no acepta compartir este PNG desde la aplicación instalada.';
+        return 'sin_soporte';
+      }
+    }catch(e){aqErrorCompartirPNG='Comprobación de compatibilidad: '+(e?.message||e);return 'sin_soporte';}
+  }
+  try{
+    // La invocación sucede sin await previo después del clic del usuario.
+    await navigator.share({files:[archivo],title:'Comprobante AQUABRI'});
+    return 'compartido';
+  }catch(e){
+    if(e?.name==='AbortError')return 'cancelado';
+    aqErrorCompartirPNG=(e?.name||'Error')+': '+(e?.message||'No se abrió el menú nativo');
+    console.warn('Compartir imagen no disponible:',e);
+    return 'fallo';
+  }
+}
+function aqAbrirAlternativaCompartirPNG(blob,nombre,motivo){
+  const links=aqMostrarEnlacesComprobante(blob,nombre);
+  const root=document.getElementById('aq-compartir-alternativa');
+  if(root)root.remove();
+  const capa=document.createElement('div');
+  capa.id='aq-compartir-alternativa';
+  capa.style.cssText='position:fixed;inset:0;z-index:2147483647;background:#172333ee;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;';
+  const panel=document.createElement('div');
+  panel.style.cssText='background:white;color:#182c3b;border-radius:16px;max-width:560px;width:100%;max-height:94dvh;overflow:auto;padding:16px;font:14px system-ui,sans-serif;text-align:center;';
+  const encabezado=document.createElement('h3');encabezado.textContent='Compartir comprobante en iPhone';encabezado.style.margin='4px 0 10px';
+  const aviso=document.createElement('p');aviso.textContent='No se pudo abrir el menú automáticamente: '+(motivo||'el navegador no lo permitió')+'. Mantén pulsada la imagen y selecciona «Compartir» o «Guardar en Fotos».';
+  aviso.style.cssText='line-height:1.5;font-size:13px';
+  const img=document.createElement('img');
+  img.src=links?.url||URL.createObjectURL(blob);img.alt='Comprobante AQUABRI en PNG';
+  img.style.cssText='width:100%;max-height:55dvh;object-fit:contain;background:white;border:1px solid #ddd;user-select:auto;-webkit-user-select:auto;-webkit-touch-callout:default';
+  const opciones=document.createElement('div');opciones.style.cssText='display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:12px';
+  const cerrar=document.createElement('button');cerrar.type='button';cerrar.textContent='Cerrar';cerrar.style.cssText='padding:12px;border:0;border-radius:9px;background:#dde5eb;color:#172333';
+  cerrar.onclick=()=>capa.remove();
+  const abrir=document.createElement('a');abrir.href=img.src;abrir.target='_blank';abrir.rel='noopener';abrir.textContent='Abrir imagen';abrir.style.cssText='padding:12px;border-radius:9px;background:#1565c0;color:white;text-decoration:none';
+  const descargar=document.createElement('a');descargar.href=img.src;descargar.download=nombre;descargar.textContent='Guardar PNG';descargar.style.cssText='padding:12px;border-radius:9px;background:#e8f5e9;color:#176c36;text-decoration:none';
+  opciones.append(abrir,descargar,cerrar);
+  panel.append(encabezado,aviso,img,opciones);capa.append(panel);document.body.append(capa);
 }
 async function descargarTicketPDF(){
   const btn=document.activeElement instanceof HTMLButtonElement?document.activeElement:null;
@@ -6500,13 +6545,11 @@ async function compartirImagenComprobante(){
       if(estado==='compartido'){showNotif('✅ Menú de compartir completado','#2e7d32');return true;}
       if(estado==='cancelado')return false;
       // Navegador sin capacidad para archivos: ofrecer PNG manual, sin afirmar envío.
-      const links=aqMostrarEnlacesComprobante(blob,nombre);
-      showNotif('El navegador no permitió compartir archivos. Descarga la imagen debajo del comprobante.','#e65100');
-      return Boolean(links);
+      aqAbrirAlternativaCompartirPNG(blob,nombre,aqErrorCompartirPNG);
+      return false;
     }catch(e){
       console.error('Compartir comprobante:',e);
-      aqMostrarEnlacesComprobante(blob,nombre);
-      showNotif('No se abrió el menú de compartir. Imagen disponible debajo del comprobante.','#e65100');
+      aqAbrirAlternativaCompartirPNG(blob,nombre,e?.message||'Error inesperado');
       return false;
     }finally{if(btn){btn.disabled=false;delete btn.dataset.aqGenerando;}}
   }
@@ -6516,8 +6559,7 @@ async function compartirImagenComprobante(){
   if(typeof navigator.share!=='function'||typeof File!=='function'){
     try{
       const o=await aqPrepararPNGComprobante(el,nombre);
-      showNotif('Tu navegador no permite compartir PNG desde esta página. Usa Descargar PNG.','#e65100');
-      aqSolicitarDescargaPNG(o.links);
+      aqAbrirAlternativaCompartirPNG(o.blob,nombre,'No existe la función de compartir archivos');
     }catch(e){alert('No se pudo generar el comprobante: '+(e?.message||'Error desconocido'));}
   }else{
     showNotif('Preparando comprobante; toca Compartir cuando el botón se habilite.','#1565c0');

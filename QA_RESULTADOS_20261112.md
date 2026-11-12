@@ -44,3 +44,22 @@
 - No promover ni fusionar a `main` ni aplicar RLS de staging directamente al proyecto oficial hasta cerrar bloqueos.
 
 **Las transacciones de venta/compra/cobro/préstamo de estas pruebas se revirtieron con ROLLBACK, no quedaron registradas permanentemente.**
+
+
+## Ampliación de QA — rutas, visitas, envases y vista aislada
+- En `aquabri-staging` instaladas las migraciones `aq_staging_rutas_visitas_auth_v1`, `aq_staging_rutas_crud_auth_v1` y `aq_staging_envases_auth_eliminacion_y_cierre_legacy`.
+- `rutas` y `ruta_paradas`: lectura RLS del jefe o empleado asignado; los RPC para visitas, paradas, creación atómica de rutas, reordenación, cambios de estado, reutilización y eliminación validan contexto Auth y rol.
+- `aq_eliminar_movimiento_envase_auth_v1`: nuevo envoltorio para el jefe; las funciones heredadas `aq_eliminar_movimiento_envase`, `aq_cancelar_venta_segura` y `aq_registrar_envases_venta` ya no tienen `EXECUTE` directo para `authenticated`.
+- Pruebas transaccionales reversibles: registro de visita como jefe `ok=true`; creación/inicio de ruta como jefe `ok=true`; creación de ruta por vendedor rechazada (`42501`).
+- Al finalizar, `rutas=0`, `ruta_paradas=0`, `visitas=0` en staging, sin registros de las pruebas. Las 75 tablas públicas conservan RLS.
+- Interfaz: las rutas/visitas y eliminación de movimiento de envases usan nuevas RPC; 14 de 14 scripts inline compilan sintácticamente.
+- La copia `/qa-seguridad/` de GitHub Pages usa solo URL/clave publicable de staging; no llama al proyecto oficial ni desregistra service workers; la publicación de GitHub Pages fue exitosa. La raíz `/aquabri/` no fue modificada.
+- Código de la rama sincronizado con los últimos cambios de `main` manteniendo `main` sin el nuevo código del POS.
+- Existe respaldo de código en `backup/antes-sync-main-staging-rutas-20261112` (NO es respaldo de base de datos).
+
+### Pendientes que impiden activar RLS/Auth en producción
+- Adaptar y ensayar las restantes escrituras directas de clientes (incluidas bajas), pedidos programados, RRHH, comisiones antiguas, inventario auxiliar y administración segura de usuarios. No asumir que una respuesta de `update/insert` fallida equivale a operación guardada.
+- El vendedor de pruebas no tiene `empleado_id` vinculado: falta prueba de una ruta realmente asignada a empleado, además de la prueba desde navegador móvil.
+- No se completó auditoría de todas las funciones `SECURITY DEFINER`, aun cuando `anon` no tiene acceso a ellas; evitar conceder permisos sin revisar validaciones internas.
+- **Respaldo integral de datos de producción y ensayo de restauración NO realizados**. Los conectores disponibles no exponen un procedimiento para obtener y verificar la copia física diaria. Confirmarla en Supabase Dashboard > Database > Backups, descargar/exportar copia lógica si corresponde y ensayar en un proyecto aislado antes de cualquier publicación.
+- No se verificó inicio de sesión con las contraseñas reales desde iPhone/Android; no interpretar las pruebas SQL como prueba de navegador.

@@ -2542,7 +2542,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       <div class="fg"><label>Desde</label><input type="date" id="rd" style="width:135px"></div>
       <div class="fg"><label>Hasta</label><input type="date" id="rh" style="width:135px"></div>
       <div class="fg"><label>Vendedor</label>
-        <select id="rep-usuario" style="font-size:12px">
+        <select id="rep-usuario" style="font-size:12px" onchange="aqCambiarEmpleadoCuadre()">
           <option value="">Todos</option>
         </select>
       </div>
@@ -12707,6 +12707,14 @@ window.addEventListener('resize',()=>{
     requestAnimationFrame(aqAjustarMontosReporte);
 },{passive:true});
 
+function aqCambiarEmpleadoCuadre(){
+  if(window._aqRepGenerando){
+    window._aqRepReconsultar=true;
+    return;
+  }
+  generarReporte();
+}
+
 async function generarReporte(){
   // Los vendedores no deben abrir ni generar reportes gerenciales.
   if(CU&&['vendedor','vendedor_editor'].includes(CU.rol)){showNotif('Reportes reservados para personal autorizado','#c62828');return;}
@@ -12943,20 +12951,29 @@ async function generarReporte(){
   const efectivoRendir=Math.round((aperturaEmpleado+dineroEfectivo-gastosEfectivo)*100)/100;
   const faltaClasificarEfectivo=Number(resumenFinanciero.porMedio.sinClasificar.entrada||0)!==0
     ||Number(resumenFinanciero.porMedio.sinClasificar.salida||0)!==0;
-  const tarjetasAperturaEmpleado=usuFiltro?[
-    {id:'fondo_apertura_empleado',ic:'🪙',lbl:'Fondo de apertura del empleado',
-      val:fQ(aperturaEmpleado),importe:aperturaEmpleado,c:'#1976d2',
-      sub:aperturasEmpleado.length
-        ?'Fondo asignado en Caja ('+aperturasEmpleado.length+' apertura(s) del período). No es una venta.'
-        :'No hay fondo de apertura asignado a este usuario en el período.'},
-    ...(esUnSoloDia?[{
+  const nombreEmpleadoApertura=usuFiltro
+    ?String((D.usuarios||[]).find(u=>Number(u.id)===Number(usuFiltro))?.nombre||'empleado')
+    :'';
+  // La tarjeta de fondo siempre aparece arriba, incluso con filtro «Todos».
+  // Sin empleado seleccionado muestra una invitación en vez de un saldo general
+  // que mezclaría fondos de personas distintas.
+  const tarjetasAperturaEmpleado=[
+    {id:'fondo_apertura_empleado',ic:'🪙',
+      lbl:usuFiltro?'Fondo de apertura · '+nombreEmpleadoApertura:'Fondo de apertura del empleado',
+      val:usuFiltro?fQ(aperturaEmpleado):'—',importe:usuFiltro?aperturaEmpleado:0,c:'#1976d2',
+      sub:usuFiltro
+        ?(aperturasEmpleado.length
+          ?'Fondo asignado ('+aperturasEmpleado.length+' apertura(s) en el período). No es ingreso de ventas.'
+          :'No se registró apertura asignada a este empleado durante el período.')
+        :'Selecciona un empleado en «Vendedor» para ver el dinero que recibió al abrir caja.'},
+    ...(usuFiltro&&esUnSoloDia?[{
       id:'efectivo_a_rendir_empleado',ic:'💰',lbl:'Efectivo estimado a entregar',
       val:fQ(efectivoRendir),importe:efectivoRendir,c:'#2e7d32',
       sub:faltaClasificarEfectivo
-        ?'Estimación incompleta: hay entradas o salidas sin medio identificado. Revisa Caja antes del cuadre.'
-        :'Apertura + cobros en efectivo − salidas en efectivo del empleado. Verifica el conteo físico.'
+        ?'Estimación incompleta: revisa movimientos sin medio de pago antes del cuadre.'
+        :'Fondo asignado + cobros en efectivo − salidas en efectivo. Confirmar conteo físico.'
     }]:[])
-  ]:[];
+  ];
   const tarjetasBase=[
     {ic:'🛒',lbl:'Ventas del período',val:fQ(tv),c:'#1565c0',sub:'Todo lo vendido, de contado y a crédito.'},
     {ic:'📝',lbl:'Crédito pendiente',val:fQ(totalCreditoPendiente),c:'#e65100',
@@ -13234,6 +13251,10 @@ async function generarReporte(){
   }finally{
     window._aqRepGenerando=false;
     if(boton){boton.disabled=false;boton.textContent='🔍 Generar';}
+    if(window._aqRepReconsultar){
+      window._aqRepReconsultar=false;
+      setTimeout(()=>generarReporte(),0);
+    }
   }
 }
 

@@ -10,7 +10,7 @@
 <head>
 <base href="/aquabri/">
 <meta name="robots" content="noindex,nofollow">
-<!-- AQUABRI QA: apuntar únicamente a la base de pruebas. -->
+<!-- AQUABRI QA: solamente usa Supabase staging. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -247,7 +247,7 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
 </style>
 </head>
 <body>
-<div id="aq-qa-aviso" role="status" style="position:fixed;top:0;left:0;right:0;z-index:100001;padding:3px 8px;text-align:center;font:700 11px system-ui,sans-serif;background:#fff3cd;color:#663c00;pointer-events:none;box-shadow:0 1px 3px #0003">AQUABRI · PRUEBAS — DATOS AISLADOS DEL SISTEMA OFICIAL</div>
+<div id="aq-qa-aviso" role="status" style="position:fixed;top:0;left:0;right:0;z-index:100001;padding:3px 8px;text-align:center;font:700 11px system-ui,sans-serif;background:#fff3cd;color:#663c00;pointer-events:none;box-shadow:0 1px 3px #0003">AQUABRI · PRUEBAS — NO REGISTRAR VENTAS REALES</div>
 
 <div id="loading-screen">
   <div class="spin"></div>
@@ -3371,13 +3371,13 @@ async function loadAll(){
   const hoyStr=hoy();
   const fecha90=new Date(Date.now()-90*864e5).toISOString().slice(0,10);
   // Cargar todo en paralelo — simple y directo
-  const[r_cfg,r_usr,r_cats,r_prods,r_ins,r_clis,r_ventas,r_creds,r_emps,r_gas,r_veh,r_metas,r_pts,r_ptsp,r_liq,r_rutcli,r_cred2,r_visitas,r_comisiones,r_insumos,r_pagos,r_vales,r_deudasProv,r_facturas,r_actCat,r_actPres,r_actItems,r_aus,r_grupos,r_envases,r_envBod]=await Promise.all([
+  const[r_cfg,r_usr,r_cats,r_prods,r_ins,r_clis,r_ventas,r_creds,r_emps,r_gas,r_veh,r_metas,r_pts,r_ptsp,r_liq,r_rutcli,r_cred2,r_visitas,r_comisiones,r_insumos,r_pagos,r_vales,r_deudasProv,r_facturas,r_actCat,r_actPres,r_actItems,r_aus,r_grupos,r_envases,r_envBod,r_metaEmp]=await Promise.all([
     sb.from('config').select('*').single(),
     sb.from('usuarios').select('id,nombre,usuario,rol,foto,permisos_custom,empleado_id,auth_uid'),
     sb.from('categorias').select('*'),
     sb.from('productos').select('*'),
     sb.from('producto_insumos').select('*'),
-    sb.from('clientes').select('*'),
+    sb.from('clientes').select('*').is('archivado_en',null),
     sb.from('ventas').select('*,clientes(nombre)').gte('fecha',fecha90).order('id',{ascending:false}),
     sb.from('creditos').select('*,clientes(nombre)').order('id',{ascending:false}),
     sb.from('empleados').select('*'),
@@ -3403,6 +3403,7 @@ async function loadAll(){
     sb.from('grupos_ruta').select('*').order('id',{ascending:true}),
     sb.from('envases').select('*,clientes(nombre)').order('id',{ascending:false}).limit(1000),
     sb.from('envases_bodega').select('cantidad').eq('id',1).maybeSingle(),
+    sb.from('metas_empleados').select('*'),
   ]);
   // No permitir iniciar Ventas con información crítica ausente por errores de conexión.
   const fallosCriticos=[
@@ -3417,7 +3418,7 @@ async function loadAll(){
   D.prods=r_prods.data||[];D.clientes=r_clis.data||[];
   D.ventas=r_ventas.data||[];D.creditos=r_creds.data||[];
   D.empleados=r_emps.data||[];D.gastos=r_gas.data||[];D.vehiculos=r_veh.data||[];
-  D.metas=r_metas.data||[];D.metasEmp=[];D.puntosClientes=r_pts.data||[];
+  D.metas=r_metas.data||[];D.metasEmp=r_metaEmp.data||[];D.puntosClientes=r_pts.data||[];
   D.puntosProductos=r_ptsp.data||[];D.liquidaciones=r_liq.data||[];
   D.rutaClientesIds=new Set((r_rutcli.data||[]).map(r=>r.cliente_id));
   D.puntosConfig=r_cred2.data||{porcentaje:5,activo:true,nombre_programa:'Club Aquabri'};
@@ -3455,7 +3456,7 @@ async function loadLight(){
   const[r1,r2,r3,r4,r5,r6]=await Promise.all([
     sb.from('ventas').select('*,clientes(nombre),venta_items(*)').order('id',{ascending:false}).limit(100),
     sb.from('creditos').select('*,clientes(nombre)').order('id',{ascending:false}),
-    sb.from('clientes').select('*'),
+    sb.from('clientes').select('*').is('archivado_en',null),
     sb.from('puntos_clientes').select('*'),
     sb.from('productos').select('id,nombre,precio,costo,stock,minstock,categoria,retornable,oferta_precio,oferta_desc,bonif_desc,bonif_cant,bonif_prod,activo'),
     sb.from('caja').select('*').order('id',{ascending:false}).limit(50),
@@ -4842,7 +4843,7 @@ async function renderClientesEliminados(){
   const el=document.getElementById('ini-eliminados');
   if(!card||!el)return;
   if(!CU||!SOLO_JEFE.includes(CU.rol)){card.style.display='none';return;}
-  const{data:eliminados}=await sb.from('clientes_eliminados').select('*').order('fecha_eliminacion',{ascending:false}).limit(20);
+  const{data:eliminados}=await sb.from('clientes_eliminados').select('*').is('restaurado_en',null).order('fecha_eliminacion',{ascending:false}).limit(20);
   if(!eliminados||!eliminados.length){card.style.display='none';return;}
   card.style.display='';
   el.innerHTML=eliminados.map(c=>{
@@ -4863,45 +4864,22 @@ async function renderClientesEliminados(){
   }).join("");
 }
 async function restaurarCliente(elimId){
-  if(!confirm('¿Restaurar este cliente?'))return;
+  if(!confirm('¿Restaurar este cliente conservando su historial?'))return;
   showLoad(true);
-  const{data:eli}=await sb.from('clientes_eliminados').select('*').eq('id',elimId).single();
-  if(!eli){showLoad(false);showNotif('No se encontró el cliente','#c62828');return;}
-  // Restaurar con datos completos si están disponibles
-  let datosCliente;
-  if(eli.datos_completos){
-    try{
-      const d=typeof eli.datos_completos==='string'?JSON.parse(eli.datos_completos):eli.datos_completos;
-      // Quitar el id para que Supabase asigne uno nuevo
-      const{id:_,created_at:__,...resto}=d;
-      datosCliente=resto;
-    }catch(e){datosCliente=null;}
-  }
-  if(!datosCliente){
-    // Fallback con datos básicos
-    datosCliente={
-      nombre:eli.nombre,ruta:eli.ruta,telefono:eli.telefono,
-      direccion:eli.direccion,lat:eli.lat||null,lng:eli.lng||null,
-      tiene_exhibidor:eli.tiene_exhibidor||false,
-      frecuencia:eli.frecuencia||null,estado:'Activo'
-    };
-  }
-  const{data:nuevo,error}=await sb.from('clientes').insert(datosCliente).select().single();
-  if(error){showLoad(false);showNotif('Error al restaurar: '+error.message,'#c62828');return;}
-  // Eliminar del historial
-  await sb.from('clientes_eliminados').delete().eq('id',elimId);
-  await loadLight();
-  renderClientes();renderClientesEliminados();
-  showLoad(false);
-  showNotif(`✅ Cliente "${eli.nombre}" restaurado con ${eli.lat?'ubicación':'datos básicos'}`,'#2e7d32');
+  try{
+    const {data,error}=await sb.rpc('aq_restaurar_cliente_auth_v1',{p_historial_id:Number(elimId)});
+    if(error||!data?.ok)throw error||new Error('No se confirmó la restauración');
+    await loadLight();
+    await renderClientesEliminados();
+    renderClientes();
+    showNotif('✅ Cliente restaurado sin borrar su historial de auditoría','#2e7d32');
+  }catch(e){showNotif('Error al restaurar: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
+}
+async function limpiarHistorialEliminados(){
+  showNotif('El historial de clientes archivados se conserva por auditoría. No puede eliminarse desde la interfaz.','#e65100');
 }
 
-async function limpiarHistorialEliminados(){
-  if(!confirm('¿Limpiar todo el historial de clientes eliminados?'))return;
-  await sb.from('clientes_eliminados').delete().neq('id',0);
-  renderClientesEliminados();
-  showNotif('Historial limpiado');
-}
 function renderClientesInactivos(){
   const el=document.getElementById('ini-inactivos');if(!el)return;
   const esJefe=CU&&SOLO_JEFE.includes(CU.rol);
@@ -6928,7 +6906,25 @@ function generarMsgWSP(venta,items,total,esCredito){
   return msg;
 }
 
-async function cambioEstado(id,e){await sb.from('ventas').update({estado:e}).eq('id',id);await loadLight();renderHistorial();fillVSelects();showNotif('Estado actualizado');}
+async function cambioEstado(id,e){
+  const v=D.ventas.find(x=>Number(x.id)===Number(id));
+  if(!v)return;
+  if(!String(v.notas||'').startsWith('📦 PEDIDO:')){
+    showNotif('Los estados de ventas confirmadas requieren una operación segura autorizada.','#e65100');
+    renderHistorial();return;
+  }
+  if(e==='Entregado'){abrirEntregarPedido(Number(id));renderHistorial();return;}
+  if(!['Pendiente','Preparando','En Camino'].includes(e)){
+    showNotif('Estado no autorizado desde esta pantalla','#c62828');renderHistorial();return;
+  }
+  try{
+    const {data,error}=await sb.rpc('aq_estado_pedido_auth_v1',{
+      p_venta_id:Number(id),p_estado:e,p_empleado_id:null
+    });
+    if(error||!data?.ok)throw error||new Error('No se confirmó el cambio');
+    await loadLight();renderHistorial();fillVSelects();showNotif('Estado del pedido actualizado');
+  }catch(err){showNotif('Estado no cambiado: '+(err.message||err),'#c62828');renderHistorial();}
+}
 let _evItems=[]; // items actuales en edición
 
 function openEditVenta(id){
@@ -7031,56 +7027,55 @@ function evConfirmarAgregar(){
   evRenderItems();
 }
 async function saveEditVenta(){
-  const id=document.getElementById('ev-id').value;
-  const et=document.getElementById('ev-entrega').value;
-  const entTexto=et==='domicilio'?'A Domicilio':et==='inmediata'?'Entrega Inmediata':'Recolección en tienda';
-  const esJefe=CU&&SOLO_JEFE.includes(CU.rol);
-  let nuevoTotal,nuevoPagado;
-  if(esJefe){
-    nuevoTotal=parseFloat(document.getElementById('ev-total').value)||0;
-    nuevoPagado=parseFloat(document.getElementById('ev-pagado2').value)||0;
-  } else {
-    nuevoTotal=parseFloat(document.getElementById('ev-total-simple').value)||0;
-    nuevoPagado=parseFloat(document.getElementById('ev-pagado2-simple').value)||0;
+  const id=Number(document.getElementById('ev-id').value);
+  const v=D.ventas.find(x=>Number(x.id)===id);
+  if(!v){showNotif('Venta no encontrada','#c62828');return;}
+  // QA/Auth: no permitir cambios que desajusten stock, caja, FIFO o créditos.
+  const jefe=CU&&SOLO_JEFE.includes(CU.rol);
+  const total=Number(document.getElementById(jefe?'ev-total':'ev-total-simple').value)||0;
+  const pagado=Number(document.getElementById(jefe?'ev-pagado2':'ev-pagado2-simple').value)||0;
+  const fecha=document.getElementById('ev-fecha').value;
+  const cliente=document.getElementById('ev-cli').value||null;
+  const estado=document.getElementById('ev-estado').value;
+  const financieroCambiado= Math.round(total*100)!==Math.round(Number(v.total||0)*100)
+    ||Math.round(pagado*100)!==Math.round(Number(v.pagado||0)*100)
+    ||fecha!==v.fecha||String(cliente||'')!==String(v.cliente_id||'')||estado!==v.estado;
+  if(financieroCambiado||String(v.notas||'').startsWith('📦 PEDIDO:')){
+    showNotif('Esta edición afecta ventas, caja o pedidos. Usa los flujos seguros de entrega/cancelación. La edición financiera sigue bloqueada en QA.','#c62828');
+    return;
   }
-  const {data:aqPuedeEditar,error:aqErrorEditar}=await sb.rpc('aq_venta_puede_modificar_auth_v1',{p_venta:Number(id)});
-  if(aqErrorEditar||aqPuedeEditar!==true){showNotif('Esta venta tiene incentivos liquidados o falta instalar el módulo SQL; no puede editarse de forma directa.','#c62828');return;}
-  const estadoNuevo=document.getElementById('ev-estado').value;
-  if(estadoNuevo==='Cancelada'||estadoNuevo==='Anulado'){
-    showNotif('Para cancelar una venta, usa la opción Cancelar del historial, que devuelve el stock.','#e65100');return;
+  if(_evItems?.some(i=>i._nuevo||i._eliminado)){
+    showNotif('No se pueden cambiar artículos sin una operación contable atómica.','#c62828');return;
   }
+  const {data:originales,error:itemsError}=await sb.from('venta_items')
+    .select('id,producto_id,cant,precio,descuento').eq('venta_id',id);
+  if(itemsError){showNotif('No se pudo verificar artículos; no se guardaron cambios','#c62828');return;}
+  if(_evItems?.length&&(
+    _evItems.length!==(originales||[]).length||
+    _evItems.some(item=>{
+      const old=(originales||[]).find(x=>Number(x.id)===Number(item.id));
+      return !old||Number(old.producto_id||0)!==Number(item.producto_id||0)
+       ||Number(old.cant)!==Number(item.cant)
+       ||Math.round(Number(old.precio||0)*100)!==Math.round(Number(item.precio||0)*100)
+       ||Math.round(Number(old.descuento||0)*100)!==Math.round(Number(item.descuento||0)*100);
+    })
+  )){
+    showNotif('Los cambios de cantidades/precios requieren un ajuste atómico de inventario y créditos.','#c62828');
+    return;
+  }
+  const entrega=document.getElementById('ev-entrega').value;
+  const entTexto=entrega==='domicilio'?'A Domicilio':entrega==='inmediata'?'Entrega Inmediata':'Recolección en tienda';
   showLoad(true);
-  await sb.from('ventas').update({
-    fecha:document.getElementById('ev-fecha').value,
-    cliente_id:document.getElementById('ev-cli').value||null,
-    entrega:entTexto,
-    estado:document.getElementById('ev-estado').value,
-    total:nuevoTotal,pagado:nuevoPagado,
-    notas:document.getElementById('ev-notas').value
-  }).eq('id',id);
-  // Si es Jefe, guardar cambios de items
-  if(esJefe&&_evItems.length){
-    const eliminados=_evItems.filter(i=>i._eliminado&&i.id);
-    for(const item of eliminados) await sb.from('venta_items').delete().eq('id',item.id);
-    const modificados=_evItems.filter(i=>!i._eliminado&&!i._nuevo&&i.id);
-    for(const item of modificados) await sb.from('venta_items').update({cant:item.cant,precio:item.precio,descuento:item.descuento||0}).eq('id',item.id);
-    const nuevos=_evItems.filter(i=>!i._eliminado&&i._nuevo);
-    if(nuevos.length) await sb.from('venta_items').insert(nuevos.map(i=>({venta_id:parseInt(id),nombre:i.nombre,cant:i.cant,precio:i.precio,descuento:0,producto_id:i.producto_id||null})));
-  }
-  // Actualizar crédito asociado
-  const credAsoc=D.creditos.find(c=>c.venta_id===parseInt(id)&&c.estado==='Pendiente');
-  if(credAsoc){
-    const nuevoMonto=nuevoTotal-nuevoPagado;
-    const nuevaFechaVenta=document.getElementById('ev-fecha').value;
-    if(nuevoMonto>0) await sb.from('creditos').update({monto:nuevoMonto,fecha:nuevaFechaVenta}).eq('id',credAsoc.id);
-    else await sb.from('creditos').update({fecha:nuevaFechaVenta}).eq('id',credAsoc.id);
-  }
-  showLoad(false);
-  closeModal('modal-edit-venta');
-  await loadLight();
-  Object.keys(_diasCache).forEach(k=>delete _diasCache[k]);
-  renderHistorial();renderCreditos();
-  showNotif('✅ Venta actualizada','#2e7d32');
+  try{
+    const {data,error}=await sb.rpc('aq_editar_venta_datos_auth_v1',{
+      p_venta:id,p_entrega:entTexto,p_notas:document.getElementById('ev-notas').value
+    });
+    if(error)throw error;
+    closeModal('modal-edit-venta');
+    await loadLight();renderHistorial();renderCreditos();
+    showNotif('✅ Entrega y notas actualizadas, sin alterar finanzas','#2e7d32');
+  }catch(e){showNotif('No se modificó la venta: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
 }
 async function delVenta(id){
   const esVendedorRol=['vendedor','vendedor_editor'].includes(CU?.rol);
@@ -7207,7 +7202,7 @@ async function asignarRutasPorCercaniaMasiva(){
   for(const c of sinRuta){
     const cercano=clienteMasCercanoConRuta(c.lat,c.lng,c.id);
     if(cercano){
-      const res=await sb.from('clientes').update({ruta:cercano.ruta}).eq('id',c.id);
+      const res=await sb.rpc('aq_guardar_cliente_auth_v1',{p_cliente_id:Number(c.id),p_cliente:{ruta:cercano.ruta}});
       if(!res.error){c.ruta=cercano.ruta;asignados++;}
     } else {
       sinCercano++;
@@ -7263,29 +7258,20 @@ function editCli(id){const c=D.clientes.find(x=>x.id===id);if(!c)return;document
   if(c.tiene_exhibidor){btnEx.style.background='#00695c';btnEx.innerHTML='✅ EXHIBIDOR ACTIVO — Toca para desactivar';boxEx.style.display='';}
   else{btnEx.style.background='#546e7a';btnEx.innerHTML='🖥 Tiene Exhibidor';boxEx.style.display='none';}
   document.getElementById('cexhib-desc').value=c.descripcion_exhibidor||'';if(document.getElementById('cexhib-cap'))document.getElementById('cexhib-cap').value=c.exhibidor_capacidad||0;if(document.getElementById('cexhib-costo'))document.getElementById('cexhib-costo').value=c.exhibidor_costo||0;document.getElementById('cli-ft').textContent='Editar Cliente';fillRutaDatalist(c.lat,c.lng);}
-async function delCli(id){if(!confirm('¿Eliminar cliente? Se eliminarán también sus registros asociados.'))return;
+async function delCli(id){
+  if(!confirm('¿Archivar cliente? Se conservarán ventas, créditos y demás movimientos. No se puede archivar con pendientes.'))return;
   showLoad(true);
-  const cli=D.clientes.find(c=>c.id===id);
-  if(cli)await sb.from('clientes_eliminados').insert({nombre:cli.nombre||'',ruta:cli.ruta||'',telefono:cli.telefono||'',direccion:cli.direccion||'',lat:cli.lat||null,lng:cli.lng||null,tiene_exhibidor:cli.tiene_exhibidor||false,frecuencia:cli.frecuencia||null,datos_completos:JSON.stringify(cli),fecha_eliminacion:hoy(),eliminado_por:CU?.nombre||'Jefe'});
-  await sb.from('creditos').delete().eq('cliente_id',id);
-  await sb.from('puntos_historial').delete().eq('cliente_id',id);
-  await sb.from('puntos_clientes').delete().eq('cliente_id',id);
-  await sb.from('puntos_canjes_qr').delete().eq('cliente_id',id);
-  await sb.from('visitas').delete().eq('cliente_id',id);
-  await sb.from('envases').delete().eq('cliente_id',id);
-  await sb.from('activos_prestamos').delete().eq('cliente_id',id);
-  await sb.from('ruta_paradas').delete().eq('cliente_id',id);
-  await sb.from('ventas').update({cliente_id:null}).eq('cliente_id',id);
-  await sb.from('clientes').delete().eq('id',id);
-  showLoad(false);
-  await loadLight();renderClientes();renderClientesInactivos();renderClientesEliminados();
-  // Refrescar lista de sugerencias y ruta inteligente
-  renderSugerenciasVisita();
-  if(_rutaInteligente.length>0){
-    _rutaInteligente=_rutaInteligente.filter(r=>r.c.id!==id);
-    mostrarLotePorVisitar(0);
-  }
-  showNotif('Cliente eliminado','#c62828');}
+  try{
+    const {data,error}=await sb.rpc('aq_archivar_cliente_auth_v1',{p_cliente_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('Supabase no confirmó el archivo');
+    await loadLight();renderClientes();renderClientesInactivos();await renderClientesEliminados();
+    renderSugerenciasVisita();
+    if(_rutaInteligente?.length){_rutaInteligente=_rutaInteligente.filter(r=>Number(r.c.id)!==Number(id));mostrarLotePorVisitar(0);}
+    showNotif('Cliente archivado. Su historial y los movimientos se conservan.','#2e7d32');
+  }catch(e){showNotif('No se archivó: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
+}
+
 function fillRutaDatalist(latCliente=null, lngCliente=null){
   // Deduplicar por nombre normalizado — "Manuel de Jesus" y "manuel de jesús" son la misma
   const rutasMap={};
@@ -9046,7 +9032,8 @@ async function ejecutarFusion(){
   // Actualizar en Supabase
   const cliOrigen=D.clientes.filter(c=>c.ruta===origen);
   for(const c of cliOrigen){
-    await sb.from('clientes').update({ruta:destino}).eq('id',c.id);
+    const {error}=await sb.rpc('aq_guardar_cliente_auth_v1',{p_cliente_id:Number(c.id),p_cliente:{ruta:destino}});
+    if(error){showNotif('Error al mover cliente: '+error.message,'#c62828');return;}
     c.ruta=destino;
   }
   closeModal('modal-fusionar');
@@ -9088,7 +9075,8 @@ async function unificarRutasDuplicadas(){
     // Actualizar todos los clientes de ese grupo que tengan versión diferente
     const aActualizar=arr.filter(x=>x.ruta!==nombreOficial);
     for(const c of aActualizar){
-      await sb.from('clientes').update({ruta:nombreOficial}).eq('id',c.id);
+      const {error}=await sb.rpc('aq_guardar_cliente_auth_v1',{p_cliente_id:Number(c.id),p_cliente:{ruta:nombreOficial}});
+      if(error){showLoad(false);showNotif('Error actualizando ruta: '+error.message,'#c62828');return;}
       const local=D.clientes.find(x=>x.id===c.id);
       if(local)local.ruta=nombreOficial;
       total++;
@@ -12723,7 +12711,18 @@ function aplicarSugerenciaAhorro(monto){
 }
 
 function fillMetaEmpSel(){const s=document.getElementById('mee');if(s)s.innerHTML=D.empleados.map(e=>`<option value="${e.id}">${e.nombre}</option>`).join('');}
-async function saveMetaEmp(){const eid=parseInt(document.getElementById('mee').value);const m=parseFloat(document.getElementById('mem').value)||0;if(!m)return;const ex=D.metasEmp.find(x=>x.empleado_id===eid);if(ex)await sb.from('metas_empleados').update({monto:m,periodo:document.getElementById('mep').value}).eq('id',ex.id);else await sb.from('metas_empleados').insert({empleado_id:eid,monto:m,periodo:document.getElementById('mep').value});await loadAll();renderMetasEmp();showNotif('Meta asignada');}
+async function saveMetaEmp(){
+  const eid=parseInt(document.getElementById('mee').value);
+  const monto=Number(document.getElementById('mem').value)||0;
+  const periodo=document.getElementById('mep').value;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_meta_empleado_auth_v1',{
+      p_empleado_id:eid,p_monto:monto,p_periodo:periodo
+    });
+    if(error||!data?.ok)throw error||new Error('Meta no confirmada');
+    await loadAll();renderMetasEmp();showNotif('Meta asignada');
+  }catch(e){showNotif('No se guardó la meta: '+(e.message||e),'#c62828');}
+}
 function renderMetasEmp(){const el=document.getElementById('meta-emp-prog');if(!el)return;const tv=D.ventas.reduce((s,v)=>s+parseFloat(v.total||0),0);el.innerHTML=D.metasEmp.map(m=>{const emp=D.empleados.find(e=>e.id===m.empleado_id);const pct=Math.min(Math.round(tv/m.monto*100),100);return`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px"><b>${emp?.nombre||'—'}</b><span>${pct}%</span></div><div class="pw" style="margin-top:3px"><div class="pb" style="width:${pct}%"></div></div></div>`;}).join('')||'<p class="tmuted">Sin metas</p>';}
 
 // Consulta la lista directamente desde Supabase, sin depender de que loadAll
@@ -13470,27 +13469,24 @@ function pagarComisionRRHH(empId, nombre, monto, mes){
   modal.classList.add('open');
 }
 
-async function confirmarPagoComisionRRHH(empId, nombre, mes){
-  const monto=parseFloat(document.getElementById('pc-monto').value)||0;
+async function confirmarPagoComisionRRHH(empId,nombre,mes){
+  const monto=Number(document.getElementById('pc-monto').value)||0;
   const fecha=document.getElementById('pc-fecha').value||hoy();
   const notas=document.getElementById('pc-notas').value||'';
-  if(!monto){showNotif('Ingresa un monto','#c62828');return;}
+  if(monto<=0){showNotif('Ingresa un monto válido','#c62828');return;}
+  const payload={p_empleado:Number(empId),p_monto:monto,p_fecha:fecha,p_periodo:mes,p_notas:notas};
+  const nonce=aqNonceOperacion('comision-rrhh',payload);
   showLoad(true);
-  // Registrar en pagos_comisiones
-  await sb.from('pagos_comisiones').insert({empleado_id:empId,monto,fecha,periodo:mes,notas,pagado_por:CU?.nombre||'Jefe'});
-  // Registrar en pagos de empleados (aparece en historial de RRHH)
-  await sb.from('pagos').insert({empleado_id:empId,tipo:'Comisión mensual',monto,desc_vales:0,neto:monto,fecha,notas:'Comisión '+mes+(notas?' — '+notas:'')});
-  // Registrar en gastos
-  await sb.from('gastos').insert({fecha,descripcion:'Comisión '+nombre+' — '+mes,monto,notas,usuario_id:CU?.id||null});
-  document.getElementById('modal-pago-comision').classList.remove('open');
-  await loadAll();
-  renderComisionesRRHH();
-  renderHistorialComisionesRRHH();
-  renderPagos();
-  showLoad(false);
-  showNotif('✅ Comisión de '+nombre+' pagada — '+fQ(monto));
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_pagar_comision_auth_v1',{...payload,p_nonce:nonce});
+    if(error||!data?.ok)throw error||new Error('No se confirmó el pago');
+    aqConfirmarOperacion('comision-rrhh');
+    document.getElementById('modal-pago-comision').classList.remove('open');
+    await loadAll();renderComisionesRRHH();renderHistorialComisionesRRHH();renderPagos();
+    showNotif(data.repetida?'Esta comisión ya se registró':'✅ Comisión pagada y registrada sin gasto duplicado: '+fQ(monto));
+  }catch(e){showNotif('No se registró la comisión: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
 }
-
 async function renderHistorialComisionesRRHH(){
   const el=document.getElementById('com-rrhh-historial');if(!el)return;
   let pagos=null;
@@ -13523,41 +13519,59 @@ function fillEmpUsrSel(){
 }
 
 function fillRrhhSels(){const opts=D.empleados.map(e=>`<option value="${e.id}">${e.nombre}</option>`).join('');['pe','ve','au-emp'].forEach(id=>{const s=document.getElementById(id);if(s)s.innerHTML=opts;});}
-async function saveEmp(){const nom=document.getElementById('en').value.trim();if(!nom)return;const usrId=document.getElementById('eusr')?.value;const obj={nombre:nom,puesto:document.getElementById('epu').value,sueldo:parseFloat(document.getElementById('esu').value)||0,frecuencia_pago:document.getElementById('efrec')?.value||'mensual',telefono:document.getElementById('etel').value,fecha_ingreso:document.getElementById('efec').value,fecha_nacimiento:document.getElementById('enac')?.value||null,estado:document.getElementById('eest').value,usuario_id:usrId?parseInt(usrId):null};const id=document.getElementById('eid').value;let res;if(id)res=await sb.from('empleados').update(obj).eq('id',id).select();else res=await sb.from('empleados').insert(obj).select();console.log('Resultado guardar empleado:',res);if(res.error){console.error('Error guardando empleado:',res.error);showNotif('❌ Error al guardar: '+res.error.message,'#c62828');return;}if(!res.data||!res.data.length){showNotif('⚠️ Supabase no devolvió error pero tampoco guardó el registro (revisa RLS)','#c62828');return;}await loadAll();clearEmpForm();renderEmpleados();fillRrhhSels();fillComSel();showNotif('Empleado guardado (ID '+res.data[0].id+')');}
+async function saveEmp(){
+  const nom=document.getElementById('en').value.trim();if(!nom)return;
+  const usrId=document.getElementById('eusr')?.value;
+  const obj={nombre:nom,puesto:document.getElementById('epu').value,
+    sueldo:parseFloat(document.getElementById('esu').value)||0,
+    frecuencia_pago:document.getElementById('efrec')?.value||'mensual',
+    telefono:document.getElementById('etel').value,
+    fecha_ingreso:document.getElementById('efec').value,
+    fecha_nacimiento:document.getElementById('enac')?.value||null,
+    estado:document.getElementById('eest').value,usuario_id:usrId?parseInt(usrId):null};
+  try{
+    const id=parseInt(document.getElementById('eid').value)||null;
+    const {data,error}=await sb.rpc('aq_rrhh_guardar_empleado_auth_v1',{p_empleado:obj,p_empleado_id:id});
+    if(error||!data?.ok)throw error||new Error('Empleado sin confirmar');
+    await loadAll();clearEmpForm();renderEmpleados();fillRrhhSels();fillComSel();
+    showNotif('Empleado guardado (ID '+data.id+')');
+  }catch(e){showNotif('Error al guardar empleado: '+(e.message||e),'#c62828');}
+}
 function renderEmpleados(){document.getElementById('emp-tbody').innerHTML=D.empleados.map(e=>{const usr=D.usuarios.find(u=>u.id===e.usuario_id);const frecLabel={diario:'Diario',semanal:'Semanal',quincenal:'Quincenal',mensual:'Mensual'}[e.frecuencia_pago||'mensual']||'Mensual';return`<tr><td>${e.id}</td><td><b>${e.nombre}</b></td><td>${e.puesto}</td><td>${fQ(e.sueldo)}<br><span style="font-size:9px;color:var(--gris)">${frecLabel}</span></td><td>${sBadge(e.estado)}</td><td style="font-size:11px;color:var(--gris)">${usr?'👤 '+usr.nombre:'<span style="color:#e65100">⚠️ Sin vincular</span>'}</td><td><button class="btn bsm" onclick="editEmp(${e.id})">✏️</button> <button class="btn bd bsm" onclick="delEmp(${e.id})">🗑</button></td></tr>`}).join('');document.getElementById('emp-res').innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="ms"><div class="mv">${D.empleados.filter(e=>e.estado==='Activo').length}</div><div class="ml">Activos</div></div><div class="ms"><div class="mv">${fQ(D.empleados.reduce((s,e)=>s+parseFloat(e.sueldo||0),0))}</div><div class="ml">Nómina total</div></div></div>`;}
 function editEmp(id){const e=D.empleados.find(x=>x.id===id);if(!e)return;fillEmpUsrSel();document.getElementById('eid').value=e.id;document.getElementById('en').value=e.nombre;document.getElementById('epu').value=e.puesto;document.getElementById('esu').value=e.sueldo;if(document.getElementById('efrec'))document.getElementById('efrec').value=e.frecuencia_pago||'mensual';document.getElementById('etel').value=e.telefono||'';document.getElementById('efec').value=e.fecha_ingreso;document.getElementById('eest').value=e.estado;if(e.usuario_id&&document.getElementById('eusr'))document.getElementById('eusr').value=e.usuario_id;document.getElementById('eft').textContent='Editar Empleado';if(document.getElementById('enac'))document.getElementById('enac').value=e.fecha_nacimiento||'';}
-async function delEmp(id){if(!confirm('¿Eliminar empleado?'))return;
-  await sb.from('metas_empleados').delete().eq('empleado_id',id);
-  const tablasHistoricas=['gastos','comisiones','liquidaciones','pagos','pagos_comisiones','vales','ausencias'];
-  for(const t of tablasHistoricas){
-    const r=await sb.from(t).update({empleado_id:null}).eq('empleado_id',id);
-    if(r.error){console.error(`Error desvinculando ${t}:`,r.error);showNotif(`❌ No se pudo desvincular de "${t}": `+r.error.message,'#c62828');return;}
-  }
-  const res=await sb.from('empleados').delete().eq('id',id).select();
-  console.log('Resultado eliminar empleado:',res);
-  if(res.error){console.error('Error eliminando empleado:',res.error);showNotif('❌ Error al eliminar: '+res.error.message,'#c62828');return;}
-  if(!res.data||!res.data.length){showNotif('⚠️ No se pudo eliminar (revisa permisos RLS en Supabase)','#c62828');return;}
-  await loadLight();renderEmpleados();showNotif('Empleado eliminado');
+async function delEmp(id){
+  if(!confirm('¿Desactivar este empleado? Los pagos, vales y comisiones históricos se conservan.'))return;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_desactivar_empleado_auth_v1',{p_empleado_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('No confirmado');
+    await loadLight();await loadAll();renderEmpleados();
+    showNotif('Empleado desactivado. No se borró su historial.','#2e7d32');
+  }catch(e){showNotif('No se pudo desactivar el empleado: '+(e.message||e),'#c62828');}
 }
 function clearEmpForm(){['eid','en','epu','esu','etel'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});if(document.getElementById('efrec'))document.getElementById('efrec').value='mensual';document.getElementById('eft').textContent='Agregar Empleado';}
 async function registrarAusencia(){
   const eid=parseInt(document.getElementById('au-emp').value);
-  const emp=D.empleados.find(e=>e.id===eid);
   const fecha=document.getElementById('au-fecha').value;
-  const nota=document.getElementById('au-nota').value.trim();
-  if(!emp){showNotif('Selecciona un empleado','#c62828');return;}
-  if(!fecha){showNotif('Selecciona la fecha','#c62828');return;}
-  const res=await sb.from('ausencias').insert({empleado_id:eid,fecha,notas:nota,liquidada:false}).select();
-  if(res.error){console.error('Error registrando ausencia:',res.error);showNotif('❌ Error: '+res.error.message,'#c62828');return;}
-  document.getElementById('au-nota').value='';
-  await loadAll();renderAusenciasPendientes();
-  showNotif('✅ Ausencia registrada — se descontará sola en el próximo pago');
+  const notas=document.getElementById('au-nota').value.trim();
+  if(!fecha||!Number.isInteger(eid)){showNotif('Selecciona empleado y fecha','#c62828');return;}
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_registrar_ausencia_auth_v1',{
+      p_empleado_id:eid,p_fecha:fecha,p_notas:notas
+    });
+    if(error||!data?.ok)throw error||new Error('No confirmado');
+    document.getElementById('au-nota').value='';
+    await loadAll();renderAusenciasPendientes();
+    showNotif(data.repetida?'La ausencia ya estaba registrada':'✅ Ausencia registrada');
+  }catch(e){showNotif('Error al registrar ausencia: '+(e.message||e),'#c62828');}
 }
 async function delAusencia(id){
-  if(!confirm('¿Quitar esta ausencia registrada?'))return;
-  const res=await sb.from('ausencias').delete().eq('id',id).select();
-  if(res.error){showNotif('❌ Error: '+res.error.message,'#c62828');return;}
-  await loadAll();renderAusenciasPendientes();showNotif('Ausencia eliminada');
+  if(!confirm('¿Quitar esta ausencia no liquidada?'))return;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_quitar_ausencia_auth_v1',{p_ausencia_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('No confirmado');
+    await loadAll();renderAusenciasPendientes();
+    showNotif('Ausencia retirada');
+  }catch(e){showNotif('No se pudo retirar: '+(e.message||e),'#c62828');}
 }
 function renderAusenciasPendientes(){
   const el=document.getElementById('au-pendientes');
@@ -14023,36 +14037,52 @@ function autoFillPago(){
   </div>`;
   wrap.style.display='';
 }
+// Claves conservadas durante reintentos para impedir dobles pagos tras cortes de red.
+const _aqRpcNoncePendientes=new Map();
+function aqNonceOperacion(clave,datos){
+  const huella=JSON.stringify(datos);
+  const previo=_aqRpcNoncePendientes.get(clave);
+  if(previo&&previo.huella===huella)return previo.nonce;
+  if(!globalThis.crypto?.randomUUID)throw new Error('Se requiere navegador HTTPS para registrar pagos seguros');
+  const nonce=crypto.randomUUID();
+  _aqRpcNoncePendientes.set(clave,{huella,nonce});
+  return nonce;
+}
+function aqConfirmarOperacion(clave){_aqRpcNoncePendientes.delete(clave);}
 async function savePago(){
-  const eid=parseInt(document.getElementById("pe").value);
-  const m=parseFloat(document.getElementById("pm").value)||0;
-  if(!m){showNotif("Ingresa un monto","#c62828");return;}
-  const dv=parseFloat(document.getElementById("pdv").value)||0;
-  const descAus=parseFloat(document.getElementById("p-desc-aus")?.value)||0;
-  const ausText=document.getElementById("p-ausencias")?.value||'';
-  const emp=D.empleados.find(e=>e.id===eid);
-  const tipo=document.getElementById("pt").value;
-  const fecha=document.getElementById("pf").value;
-  const neto=m-dv-descAus;
-  const detalle=(dv>0?"\nDesc. vales: -Q"+dv.toFixed(2):"")+(descAus>0?"\nDesc. ausencias (días "+ausText+"): -Q"+descAus.toFixed(2):"")+"\nNeto a pagar: Q"+neto.toFixed(2);
-  if(!confirm("¿Registrar pago a "+(emp?.nombre||"empleado")+"?\n\nTipo: "+tipo+"\nMonto: Q"+m.toFixed(2)+detalle+"\nFecha: "+fecha))return;
-  await sb.from("vales").update({estado:"Descontado"}).eq("empleado_id",eid).eq("estado","Pendiente");
-  const notasFinal=(document.getElementById("pn2").value+(ausText?'\nAusencias días: '+ausText:'')).trim();
-  await sb.from("pagos").insert({empleado_id:eid,tipo,monto:m,desc_vales:dv+descAus,neto,fecha,notas:notasFinal});
-  if(window._ausenciasAutoIds&&window._ausenciasAutoIds.length){
-    await sb.from('ausencias').update({liquidada:true}).in('id',window._ausenciasAutoIds);
+  const eid=Number(document.getElementById('pe').value);
+  const monto=Number(document.getElementById('pm').value)||0;
+  const vales=Number(document.getElementById('pdv').value)||0;
+  const ausencias=Number(document.getElementById('p-desc-aus')?.value)||0;
+  const dias=document.getElementById('p-ausencias')?.value||'';
+  const emp=D.empleados.find(e=>Number(e.id)===eid);
+  const tipo=document.getElementById('pt').value;
+  const fecha=document.getElementById('pf').value;
+  const neto=monto-vales-ausencias;
+  if(monto<=0||neto<0){showNotif('Monto y descuentos inválidos','#c62828');return;}
+  const detalle=(vales>0? '\nDesc. vales: -Q'+vales.toFixed(2):'')+
+    (ausencias>0?'\nDesc. ausencias: -Q'+ausencias.toFixed(2):'')+
+    '\nNeto a pagar: Q'+neto.toFixed(2);
+  if(!confirm('¿Registrar pago a '+(emp?.nombre||'empleado')+'?\n\n'+tipo+
+    '\nMonto: Q'+monto.toFixed(2)+detalle+'\nFecha: '+fecha))return;
+  const notasFinal=(document.getElementById('pn2').value+(dias?'\nAusencias días: '+dias:'')).trim();
+  const payload={p_empleado:eid,p_tipo:tipo,p_monto:monto,p_fecha:fecha,
+    p_notas:notasFinal,p_desc_vales:vales,p_desc_ausencias:ausencias,
+    p_ausencias:(window._ausenciasAutoIds||[]).map(Number)};
+  try{
+    const nonce=aqNonceOperacion('nomina',payload);
+    const {data,error}=await sb.rpc('aq_rrhh_pagar_auth_v1',{...payload,p_nonce:nonce});
+    if(error||!data?.ok)throw error||new Error('Pago no confirmado');
+    aqConfirmarOperacion('nomina');
     window._ausenciasAutoIds=[];
-  }
-  window._pagarSemanaAnterior=false; // Reset flag después de pagar
-  // Limpiar campos ausencias
-  const ausEl=document.getElementById("p-ausencias");if(ausEl)ausEl.value='';
-  const descAusEl=document.getElementById("p-desc-aus");if(descAusEl)descAusEl.value='0';
-  const infoEl=document.getElementById("p-ausencias-info");if(infoEl)infoEl.textContent='';
-  await loadAll();renderPagos();renderVales();renderCalPagos();renderAusenciasPendientes();
-  renderNominaInicio(); // Actualizar alerta pendiente en Inicio
-  // Recargar tarjeta para mostrar "ya pagado esta semana"
-  autoFillPago();
-  showNotif("✅ Pago registrado a "+(emp?.nombre||""),"#2e7d32");
+    window._pagarSemanaAnterior=false;
+    const ausEl=document.getElementById('p-ausencias');if(ausEl)ausEl.value='';
+    const descAusEl=document.getElementById('p-desc-aus');if(descAusEl)descAusEl.value='0';
+    const infoEl=document.getElementById('p-ausencias-info');if(infoEl)infoEl.textContent='';
+    await loadAll();renderPagos();renderVales();renderCalPagos();renderAusenciasPendientes();
+    renderNominaInicio();autoFillPago();
+    showNotif(data.repetida?'El pago ya estaba registrado':'✅ Pago confirmado para '+(emp?.nombre||''),'#2e7d32');
+  }catch(e){showNotif('No se confirmó el pago: '+(e.message||e),'#c62828');}
 }
 
 // ── CALENDARIO DE PAGOS SEMANALES ────────────────────────────────────────────
@@ -14060,35 +14090,49 @@ let _calPagosMesOffset=0;
 function calPagosMes(delta){_calPagosMesOffset+=delta;renderCalPagos();}
 
 async function registrarPagoRetroactivo(empId,fechaSabado,monto){
-  const emp=D.empleados.find(e=>e.id===empId);
-  if(!emp)return;
-  if(emp.fecha_ingreso&&getSabadoFin(fechaSabado)<emp.fecha_ingreso){showNotif('⚠️ Esa semana es anterior a la fecha de ingreso del empleado','#c62828');return;}
-  if(!confirm(`¿Registrar el pago de ${emp.nombre} de la semana del ${fechaSabado.slice(8)}/${fechaSabado.slice(5,7)} por ${fQ(monto)}?\n\n(Esto solo actualiza el sistema, asumiendo que ya se lo pagaste en efectivo)`))return;
+  const emp=D.empleados.find(e=>e.id===empId);if(!emp)return;
+  if(emp.fecha_ingreso&&getSabadoFin(fechaSabado)<emp.fecha_ingreso){showNotif('Semana anterior al ingreso','#c62828');return;}
+  if(!confirm(`¿Registrar pago histórico de ${emp.nombre} por ${fQ(monto)} para la semana del ${fechaSabado}? Solo si ya se pagó.`))return;
   showLoad(true);
-  const res=await sb.from('pagos').insert({empleado_id:empId,tipo:'Sueldo semanal',monto,desc_vales:0,neto:monto,fecha:fechaSabado,notas:'Pago retroactivo — puesto al día'});
-  showLoad(false);
-  if(res.error){showNotif('❌ Error al registrar: '+res.error.message,'#c62828');return;}
-  await loadAll();renderCalPagos();showNotif('✅ Pago registrado');
+  try{
+    const payload={p_empleado:Number(empId),p_monto:Number(monto),p_fecha:fechaSabado,
+      p_notas:'Pago retroactivo — puesto al día'};
+    const key='retro-'+empId+'-'+fechaSabado;
+    const {data,error}=await sb.rpc('aq_rrhh_pagar_retro_auth_v1',{
+      ...payload,p_nonce:aqNonceOperacion(key,payload)
+    });
+    if(error||!data?.ok)throw error||new Error('Pago histórico no confirmado');
+    aqConfirmarOperacion(key);
+    await loadAll();renderCalPagos();
+    showNotif(data.repetida?'Ese pago ya estaba registrado':'✅ Pago retroactivo registrado');
+  }catch(e){showNotif('No se registró: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
 }
 async function ponerAlDia(empId,montoPago){
-  const emp=D.empleados.find(e=>e.id===empId);
-  if(!emp)return;
-  const anio=(new Date(new Date().getFullYear(),new Date().getMonth()+_calPagosMesOffset,1)).getFullYear();
-  const mes=(new Date(new Date().getFullYear(),new Date().getMonth()+_calPagosMesOffset,1)).getMonth();
+  const emp=D.empleados.find(e=>e.id===empId);if(!emp)return;
+  const fechaMes=new Date(new Date().getFullYear(),new Date().getMonth()+_calPagosMesOffset,1);
+  const anio=fechaMes.getFullYear(),mes=fechaMes.getMonth();
   const sabs=getSabadosMes(anio,mes);
   const mesIni=`${anio}-${String(mes+1).padStart(2,'0')}-01`;
   const mesFin=new Date(anio,mes+1,0).toISOString().slice(0,10);
   const pagosMes=D.pagos.filter(p=>p.empleado_id===empId&&p.tipo==='Sueldo semanal'&&p.fecha>=mesIni&&p.fecha<=mesFin);
   const pendientes=sabs.filter(s=>s<=hoy()&&!(emp.fecha_ingreso&&getSabadoFin(s)<emp.fecha_ingreso)&&!pagosMes.some(p=>p.fecha>=s&&p.fecha<=getSabadoFin(s)));
   if(!pendientes.length)return;
-  if(!confirm(`¿Registrar ${pendientes.length} pago(s) atrasado(s) de ${emp.nombre} por ${fQ(montoPago)} cada uno (total ${fQ(montoPago*pendientes.length)})?\n\n(Esto solo actualiza el sistema, asumiendo que ya se los pagaste en efectivo)`))return;
+  if(!confirm(`¿Registrar ${pendientes.length} pagos atrasados por ${fQ(montoPago)} cada uno? Solo si ya los pagaste.`))return;
   showLoad(true);
-  for(const s of pendientes){
-    const res=await sb.from('pagos').insert({empleado_id:empId,tipo:'Sueldo semanal',monto:montoPago,desc_vales:0,neto:montoPago,fecha:s,notas:'Pago retroactivo — puesto al día'});
-    if(res.error){showLoad(false);showNotif('❌ Error al registrar '+s+': '+res.error.message,'#c62828');return;}
-  }
-  showLoad(false);
-  await loadAll();renderCalPagos();showNotif('✅ '+emp.nombre+' puesto al día');
+  let registrados=0;
+  try{
+    for(const s of pendientes){
+      const payload={p_empleado:Number(empId),p_monto:Number(montoPago),p_fecha:s,p_notas:'Pago retroactivo — puesto al día'};
+      const key='retro-'+empId+'-'+s;
+      const {data,error}=await sb.rpc('aq_rrhh_pagar_retro_auth_v1',{...payload,p_nonce:aqNonceOperacion(key,payload)});
+      if(error||!data?.ok)throw error||new Error('No confirmado: '+s);
+      aqConfirmarOperacion(key);if(!data.repetida)registrados++;
+    }
+    await loadAll();renderCalPagos();
+    showNotif('✅ '+registrados+' pagos históricos registrados');
+  }catch(e){showNotif('Error al actualizar pagos: '+(e.message||e)+'; consulta el historial antes de reintentar','#c62828');}
+  finally{showLoad(false);}
 }
 function renderCalPagos(){
   const tituloEl=document.getElementById('cal-pagos-titulo');
@@ -14217,23 +14261,55 @@ async function renderPagos(mas=false){
 }
 
 async function delPago(id){
-  const p=D.pagos.find(x=>x.id===id)||aqPagosHistFilas.find(x=>x.id===id);
-  const emp=p?.empleados?.nombre||"empleado";
-  const monto=p?"Q"+parseFloat(p.neto||0).toFixed(2):"";
-  if(!confirm("¿Eliminar este pago?\n\n"+emp+" — "+monto+"\nFecha: "+(p?.fecha||"")+"\n\n⚠️ El empleado quedará como no pagado por este período."))return;
-  await sb.from("pagos").delete().eq("id",id);
-  await loadAll();renderPagos();
-  autoFillPago();
-  showNotif("Pago eliminado — "+emp+" queda sin pago registrado","#e65100");
+  showNotif('Para proteger el historial, la eliminación directa de pagos está deshabilitada en pruebas. Requiere anulación auditada.','#e65100');
 }
-async function saveVale(){const eid=parseInt(document.getElementById('ve').value);const m=parseFloat(document.getElementById('vam').value)||0;if(!m)return;await sb.from('vales').insert({empleado_id:eid,tipo:document.getElementById('vt').value,monto:m,fecha:document.getElementById('vaf').value,descripcion:document.getElementById('vad').value,autorizado_por:CU?.nombre||'Jefe',estado:'Pendiente'});await loadAll();renderVales();showNotif('Vale emitido');}
+async function saveVale(){
+  const eid=Number(document.getElementById('ve').value);
+  const monto=Number(document.getElementById('vam').value)||0;
+  const payload={p_empleado:eid,p_monto:monto,p_tipo:document.getElementById('vt').value,
+    p_fecha:document.getElementById('vaf').value,
+    p_descripcion:document.getElementById('vad').value};
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_emitir_vale_auth_v1',{...payload,p_nonce:aqNonceOperacion('vale',payload)});
+    if(error||!data?.ok)throw error||new Error('Vale no confirmado');
+    aqConfirmarOperacion('vale');
+    await loadAll();renderVales();showNotif(data.repetida?'Vale ya registrado':'✅ Vale emitido');
+  }catch(e){showNotif('No se guardó el vale: '+(e.message||e),'#c62828');}
+}
 function renderVales(){document.getElementById('vales-tbody').innerHTML=D.vales.map(v=>`<tr><td>${v.fecha}</td><td>${v.empleados?.nombre||'—'}</td><td>${v.tipo}</td><td><b>${fQ(v.monto)}</b></td><td>${sBadge(v.estado)}</td><td><button class="btn bd bsm" onclick="delVale(${v.id})">🗑</button></td></tr>`).join('');const pend=D.vales.filter(v=>v.estado==='Pendiente');document.getElementById('vales-pend').innerHTML=pend.map(v=>`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee;font-size:11px"><span><b>${v.empleados?.nombre||'—'}</b> — ${v.tipo}</span><span>${fQ(v.monto)}</span></div>`).join('')||'<p class="tmuted">Sin pendientes ✅</p>';}
-async function delVale(id){if(!confirm('¿Eliminar?'))return;await sb.from('vales').delete().eq('id',id);await loadAll();renderVales();}
+async function delVale(id){
+  if(!confirm('¿Anular el vale? Se conservará en el historial.'))return;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_anular_vale_auth_v1',{p_vale_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('No confirmado');
+    await loadAll();renderVales();showNotif('Vale anulado; historial conservado');
+  }catch(e){showNotif('No se pudo anular: '+(e.message||e),'#c62828');}
+}
 
 function fillComSel(){const opts=D.empleados.map(e=>`<option value="${e.id}">${e.nombre}</option>`).join('');const s=document.getElementById('come');if(s)s.innerHTML=opts;const s2=document.getElementById('com-compartir');if(s2)s2.innerHTML='<option value="">— Ninguno —</option>'+opts;}
-async function saveComision(){const eid=parseInt(document.getElementById('come').value);const pct=parseFloat(document.getElementById('comp').value)||0;const tipo=document.getElementById('com-tipo')?.value||'general';const compartirRaw=document.getElementById('com-compartir')?.value;const compartirId=compartirRaw?parseInt(compartirRaw):null;const ex=D.comisiones.find(c=>c.empleado_id===eid&&c.activo);const obj={porcentaje:pct,tipo_comision:tipo,compartir_empleado_id:compartirId};let res;if(ex)res=await sb.from('comisiones').update(obj).eq('id',ex.id);else res=await sb.from('comisiones').insert({empleado_id:eid,...obj,activo:true});if(res.error){console.error('Error guardando comisión:',res.error);showNotif('❌ Error: '+res.error.message,'#c62828');return;}await loadAll();renderComisiones();showNotif('Comisión guardada');}
+async function saveComision(){
+  const eid=parseInt(document.getElementById('come').value);
+  const pct=Number(document.getElementById('comp').value)||0;
+  const tipo=document.getElementById('com-tipo')?.value||'general';
+  const compartirRaw=document.getElementById('com-compartir')?.value;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_configurar_comision_auth_v1',{
+      p_empleado_id:eid,p_porcentaje:pct,p_tipo:tipo,
+      p_compartir_empleado_id:compartirRaw?Number(compartirRaw):null
+    });
+    if(error||!data?.ok)throw error||new Error('Comisión no confirmada');
+    await loadAll();renderComisiones();showNotif('Configuración de comisión guardada');
+  }catch(e){showNotif('Error guardando comisión: '+(e.message||e),'#c62828');}
+}
 function renderComisiones(){const el=document.getElementById('com-lista');if(!el)return;el.innerHTML=D.comisiones.filter(c=>c.activo).map(c=>{const compartido=c.compartir_empleado_id?D.empleados.find(e=>e.id===c.compartir_empleado_id):null;return`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div><b>${c.empleados?.nombre||'—'}</b><br><span style="font-size:10px;color:var(--gris)">${c.tipo_comision==='clientes'?'👤 Solo clientes asignados':'🌐 General'}</span>${compartido?`<br><span style="font-size:10px;color:#1565c0">➕ También cuenta lo de ${compartido.nombre}</span>`:''}</div><span><span class="badge bv">${c.porcentaje}%</span> <button class="btn bd bsm" style="margin-left:5px" onclick="delCom(${c.id})">🗑</button></span></div>`;}).join('')||'<p class="tmuted">Sin comisiones</p>';}
-async function delCom(id){await sb.from('comisiones').delete().eq('id',id);await loadAll();renderComisiones();}
+async function delCom(id){
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_desactivar_comision_auth_v1',{p_comision_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('Operación no confirmada');
+    await loadAll();renderComisiones();
+    showNotif('Comisión desactivada; historial conservado');
+  }catch(e){showNotif('No se desactivó la comisión: '+(e.message||e),'#c62828');}
+}
 async function calcComisiones(){
   const desde=document.getElementById('cod').value||'';
   const hasta=document.getElementById('coh').value||'';
@@ -14490,10 +14566,10 @@ async function asignarPedido(ventaId, clienteId){
   openModal('modal-asignar');
 }
 async function confirmarAsignacion(ventaId,empleadoId,empleadoNombre){
-  await sb.from('ventas').update({
-    estado:'Preparando',
-    notas:'Asignado a: '+empleadoNombre
-  }).eq('id',ventaId);
+  const {data,error}=await sb.rpc('aq_estado_pedido_auth_v1',{
+    p_venta_id:Number(ventaId),p_estado:'Preparando',p_empleado_id:Number(empleadoId)
+  });
+  if(error||!data?.ok)throw error||new Error('No se pudo asignar el pedido');
   // Notificar al empleado asignado
   if(empleadoId){
     const emp=D.empleados.find(e=>e.id===empleadoId);
@@ -15889,7 +15965,7 @@ init();
 </script>
 
 <script>
-// Entorno QA: JAMÁS desregistrar service workers del sistema oficial.
+// QA nunca desregistra service workers del sistema oficial.
 // Precargar Supabase en segundo plano
 window.addEventListener('load',()=>{
   if(window.requestIdleCallback){
@@ -17265,43 +17341,40 @@ async function guardarNuevoPedido(){
   const fecha=document.getElementById('np-fecha').value||hoy();
   const notas=document.getElementById('np-notas').value;
   aqActualizarPermisosDescuento();
-  const descg=aqEsJefePrecio()?(parseFloat(document.getElementById('np-descg')?.value)||0):0;
+  const descg=aqEsJefePrecio()?(Number(document.getElementById('np-descg')?.value)||0):0;
   if(!npItems.length){showNotif('Agrega al menos un producto','#c62828');return;}
-  const subtotal=npItems.reduce((s,i)=>s+i.precio*i.cant,0);
-  const total=Math.max(0,subtotal-descg);
   const bonifs=npItems.filter(i=>i.bonifCant>0).map(i=>i.bonifNombre||'Bonif').join('; ');
-  // Insertar venta pendiente
-  const{data:venta}=await sb.from('ventas').insert({
-    fecha,cliente_id:cid?parseInt(cid):null,
-    total,pagado:0,entrega:'A Domicilio',
-    notas:'📦 PEDIDO: '+notas,
-    estado:'Pendiente',
-    desc_gral:descg,
-    usuario_id:CU?.id||null,
-    bonificaciones:bonifs||null
-  }).select().single();
-  if(!venta){showNotif('Error al registrar pedido','#c62828');return;}
-  // Insertar items con bonificación
-  await sb.from('venta_items').insert(npItems.map(i=>({
-    venta_id:venta.id,producto_id:i.pid,
-    nombre:i.nombre,cant:i.cant,precio:i.tieneOferta?i.precioOriginal:i.precio,
+  const pedido={fecha,cliente_id:cid?Number(cid):null,notas,desc_gral:descg,bonificaciones:bonifs};
+  const items=npItems.map(i=>({
+    producto_id:Number(i.pid),nombre:i.nombre,cant:Number(i.cant),
+    precio:i.tieneOferta?Number(i.precioOriginal):Number(i.precio),
     descuento:i.tieneOferta?Math.max(0,Math.round((i.precioOriginal-i.precio)*100)/100):0,
-    bonif_nombre:i.bonifNombre||null,
-    bonif_cant:i.bonifCant||0
-  })));
-  closeModal('modal-nuevo-pedido');
-  const{data:rv}=await sb.from('ventas').select('*,clientes(nombre)').order('id',{ascending:false}).limit(100);
-  if(rv)D.ventas=rv;
-  renderInicio();renderHistorial();
-  showNotif('📦 Pedido registrado para '+fecha+(bonifs?' · con bonificaciones':''));
-  // Notificar al jefe si quien registra es vendedor
-  if(CU&&!SOLO_JEFE.includes(CU.rol)){
-    const jefe=D.usuarios.find(u=>u.rol==='jefe');
-    if(jefe){
-      const cliNom=document.getElementById('np-cli-input')?.value||'Cliente';
-      await enviarNotificacion(jefe.id,'📦 Nuevo pedido',''+CU.nombre+' registró un pedido de '+cliNom+' para '+fecha,'pedido');
+    bonif_nombre:i.bonifNombre||null,bonif_cant:Number(i.bonifCant)||0,
+    bonif_prod_id:null
+  }));
+  const payload={pedido,items};
+  try{
+    const nonce=aqNonceOperacion('crear-pedido',payload);
+    const {data,error}=await sb.rpc('aq_crear_pedido_auth_v1',{
+      p_nonce:nonce,p_pedido:pedido,p_items:items
+    });
+    if(error||!data?.ok)throw error||new Error('No se confirmó el pedido');
+    aqConfirmarOperacion('crear-pedido');
+    closeModal('modal-nuevo-pedido');
+    const {data:ventas,error:reloadError}=await sb.from('ventas').select('*,clientes(nombre)').order('id',{ascending:false}).limit(100);
+    if(ventas)D.ventas=ventas;
+    renderInicio();renderHistorial();renderPedidosPendientesVentas();
+    if(reloadError)showNotif('Pedido guardado; actualiza el historial para verlo','#e65100');
+    else showNotif(data.repetida?'Pedido ya registrado':'📦 Pedido programado #'+data.id+' guardado sin descontar existencias');
+    if(CU&&!SOLO_JEFE.includes(CU.rol)){
+      const jefe=D.usuarios.find(u=>u.rol==='jefe');
+      if(jefe){
+        const nombre=document.getElementById('np-cli-input')?.value||'Cliente';
+        try{await enviarNotificacion(jefe.id,'📦 Nuevo pedido',CU.nombre+' registró un pedido de '+nombre+' para '+fecha,'pedido');}
+        catch(error){console.warn('Pedido guardado; no se pudo notificar:',error);}
+      }
     }
-  }
+  }catch(e){showNotif('No se creó el pedido: '+(e.message||e),'#c62828');}
 }
 
 async function abrirEntregarPedido(ventaId){
@@ -17325,76 +17398,36 @@ async function abrirEntregarPedido(ventaId){
 }
 
 async function confirmarEntregaPedido(){
-  const vid=parseInt(document.getElementById('ep-venta-id').value);
-  const pagado=parseFloat(document.getElementById('ep-pagado').value)||0;
+  const vid=Number(document.getElementById('ep-venta-id').value);
+  const pagado=Number(document.getElementById('ep-pagado').value)||0;
   const esCredito=document.getElementById('ep-credito').value==='1';
   const medioPago=aqCajaMetodoSeleccionado('ep-medio-pago');
-  const v=D.ventas.find(x=>x.id===vid);
-  if(!v)return;
+  const v=D.ventas.find(x=>Number(x.id)===vid);
+  if(!v){showNotif('Pedido no encontrado','#c62828');return;}
+  const payload={p_venta_id:vid,p_pagado:esCredito?0:pagado,
+    p_medio:medioPago,p_es_credito:esCredito};
   showLoad(true);
-  // Descontar stock ahora que se entrega
-  const{data:items}=await sb.from('venta_items').select('*').eq('venta_id',vid);
-  const promesas=[];
-  for(const item of(items||[])){
-    const prod=D.prods.find(p=>p.id===item.producto_id);
-    if(prod){
-      const ns=Math.max(0,parseInt(prod.stock||0)-parseInt(item.cant));
-      prod.stock=ns;
-      promesas.push(sb.from('productos').update({stock:ns}).eq('id',prod.id));
-    }
-  }
-  // Actualizar venta a Entregado
-  promesas.push(sb.from('ventas').update({
-    estado:'Entregado',
-    pagado:esCredito?0:pagado,
-    fecha:hoy(),
-    usuario_id:CU?.id||null
-  }).eq('id',vid));
-  // Registrar en caja HASTA AHORA que de verdad se entrega y se cobra (no cuando se programó el pedido)
-  if(!esCredito&&pagado>0){
-    promesas.push(sb.from('caja').insert({
-      fecha:hoy(),
-      tipo:'venta',
-      monto:pagado,
-      notas:aqCajaAnotarMedio('Venta #'+vid+' (pedido entregado) — '+(v.clientes?.nombre||v.nombre_mostrador||'Mostrador'),medioPago),
-      usuario_id:CU?.id||null,
-      venta_id:vid
-    }));
-    // Si ya existía una deuda de cuando se tomó el pedido y ahora sí pagó, saldarla (evita que quede pendiente por error)
-    const credExistente=D.creditos.find(c=>c.concepto==='Venta #'+vid&&(parseFloat(c.monto||0)-parseFloat(c.pagado||0))>0);
-    if(credExistente){
-      promesas.push(sb.from('creditos').update({pagado:credExistente.monto,estado:'Pagado'}).eq('id',credExistente.id));
-    }
-  }
-  // Si es crédito, crear registro — solo si no se creó ya uno al momento de tomar el pedido (evita duplicar la deuda)
-  if(esCredito&&v.cliente_id){
-    const yaExiste=D.creditos.some(c=>c.concepto==='Venta #'+vid);
-    if(!yaExiste){
-      promesas.push(sb.from('creditos').insert({
-        cliente_id:v.cliente_id,concepto:'Venta #'+vid,
-        monto:v.total,pagado:0,fecha:hoy(),estado:'Pendiente',
-        notas:'Desde pedido programado'
-      }));
-    }
-  }
-  await Promise.all(promesas);
-  // Recargar datos
-  const[rv,rp,rc]=await Promise.all([
-    sb.from('ventas').select('*,clientes(nombre)').order('id',{ascending:false}).limit(100),
-    sb.from('productos').select('id,nombre,precio,costo,stock,minstock,categoria,retornable,oferta_precio,oferta_desc,bonif_desc,bonif_cant,bonif_prod,activo'),
-    sb.from('creditos').select('*,clientes(nombre)').order('id',{ascending:false}),
-  ]);
-  if(rv.data)D.ventas=rv.data;
-  if(rp.data)D.prods=rp.data;
-  if(rc.data)D.creditos=rc.data;
-  closeModal('modal-entregar-pedido');
-  showLoad(false);
-  renderInicio();
-  renderHistorial();
-  renderPedidosPendientesVentas();
-  showNotif('✅ Pedido entregado y cobrado');
+  try{
+    const nonce=aqNonceOperacion('entregar-pedido-'+vid,payload);
+    const {data,error}=await sb.rpc('aq_entregar_pedido_auth_v1',{...payload,p_nonce:nonce});
+    if(error||!data?.ok)throw error||new Error('No se confirmó la entrega');
+    aqConfirmarOperacion('entregar-pedido-'+vid);
+    const[rv,rp,rc]=await Promise.all([
+      sb.from('ventas').select('*,clientes(nombre)').order('id',{ascending:false}).limit(100),
+      sb.from('productos').select('id,nombre,precio,costo,stock,minstock,categoria,retornable,oferta_precio,oferta_desc,bonif_desc,bonif_cant,bonif_prod,activo'),
+      sb.from('creditos').select('*,clientes(nombre)').order('id',{ascending:false})
+    ]);
+    if(rv.data)D.ventas=rv.data;if(rp.data)D.prods=rp.data;if(rc.data)D.creditos=rc.data;
+    closeModal('modal-entregar-pedido');
+    renderInicio();renderHistorial();renderPedidosPendientesVentas();
+    showNotif(data.repetida?'Pedido ya entregado; no se volvió a cobrar':
+      '✅ Pedido entregado — '+(esCredito?'crédito registrado':'caja registrada'),'#2e7d32');
+  }catch(e){
+    showNotif('No se confirmó la entrega: '+(e.message||e)+'. Revisa historial antes de reintentar.','#c62828');
+  }finally{showLoad(false);}
 }
 
+// ══════════════════════════════════════════
 // ══════════════════════════════════════════
 //  ENVASES AUTOMÁTICOS EN VENTA
 // ══════════════════════════════════════════

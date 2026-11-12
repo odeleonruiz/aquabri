@@ -37,3 +37,12 @@ Estos conteos son una instantánea: pueden aumentar con el uso del sistema. Ning
 
 ## Regla permanente
 **Nunca utilizar el comando de migración para reemplazar una tabla principal con datos de pruebas. No ejecutar DROP, TRUNCATE, DELETE ni restauraciones de datos sobre producción en un corte incremental.** Las migraciones deben ser de esquema y permisos, revisadas y probadas por etapas.
+
+## Verificación adicional de login legacy en pruebas
+- Se confirmó estáticamente que `index.staging.auth.html` llama a Supabase Auth / `aq-auth-usuario-v2` y **no llama** a `aq_login_usuario_seguro_v1` ni a `aq_vender_sesion_segura_v1`.
+- Se ejecutó **únicamente en staging** el `REVOKE EXECUTE` de la función `public.aq_login_usuario_seguro_v1(text,text)` para `anon`, `authenticated` y `PUBLIC`. Así no puede seguir generando sesiones heredadas desde el API con credenciales antiguas.
+- Comprobación SQL posterior: **anon_login_legacy=false, auth_login_legacy=false**; se conservan las **6 ventas y los 2 usuarios de prueba**, RLS 83/83. El sistema principal **no recibió este REVOKE**: permanecen 5,239 ventas, 6,431 detalles de venta, 4,871 movimientos de caja, 760 créditos, 2 usuarios y 3 empleados.
+- Los demás RPC que utilizan sesiones antiguas **aún requieren evaluación individual**; no se declara la migración segura ni finalizada.
+- Archivos: `sql/aq_staging_bloquear_login_legacy_20261112.sql` y `sql/rollback/aq_staging_bloquear_login_legacy_rollback.sql`.
+
+> La prueba de roles mediante SQL y el estado desplegado del Edge Function no sustituyen un inicio de sesión real desde el navegador o iPhone. La rama PR #24 sigue sin fusionar.

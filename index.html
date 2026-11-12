@@ -6476,7 +6476,7 @@ async function compartirImagenComprobante(){
     }
     showNotif('📷 Preparando imagen del comprobante…','#1565c0');
     const o=await aqPrepararPNGComprobante(el,nombre);
-    if(typeof navigator.share==='function'&&typeof File==='function'&&aqUltimoEstadoCompartirPNG!=='sin_soporte'){
+    if(typeof navigator.share==='function'&&typeof File==='function'&&!['sin_soporte','fallo'].includes(aqUltimoEstadoCompartirPNG)){
       // La primera pulsación puede utilizarse para terminar la captura.
       // Solicitar una segunda pulsación conserva el gesto necesario en Safari/iPhone.
       showNotif('✅ Imagen lista. Toca «Compartir imagen» otra vez para elegir WhatsApp.','#2e7d32');

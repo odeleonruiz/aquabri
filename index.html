@@ -3404,7 +3404,8 @@ async function loadAll(){
   // No permitir iniciar Ventas con información crítica ausente por errores de conexión.
   const fallosCriticos=[
     ['configuración',r_cfg],['usuarios',r_usr],['productos',r_prods],
-    ['clientes',r_clis],['ventas',r_ventas],['créditos',r_creds]
+    ['clientes',r_clis],['ventas',r_ventas],['créditos',r_creds],
+    ['gastos',r_gas]
   ].filter(([,r])=>r?.error);
   if(fallosCriticos.length){
     console.error('AQUABRI: consultas esenciales fallidas:',fallosCriticos);

@@ -6317,31 +6317,88 @@ function aqDocumentoVisible(){
   }
   return document.querySelector('#modal-ticket #ticket-contenido')||document.getElementById('ticket-contenido');
 }
-async function aqCapturarComprobanteEnCanvas(el){
-  if(!el)throw new Error('No hay un comprobante abierto para generar.');
-  // Cargar imágenes/librería antes de comenzar la exportación: se utiliza el mismo
-  // mecanismo para ventas, abonos, saldo pendiente, puntos y recibos de planilla.
-  const convertir=await cargarHtml2Canvas();
-  if(document.fonts?.ready){try{await document.fonts.ready;}catch(_){}}
-  const imgs=Array.from(el.querySelectorAll('img'));
-  await Promise.all(imgs.map(img=>img.complete?Promise.resolve():new Promise(resolve=>{
-    const fin=()=>resolve();img.addEventListener('load',fin,{once:true});
-    img.addEventListener('error',fin,{once:true});setTimeout(fin,4000);
-  })));
-  const ancho=Math.max(el.scrollWidth,el.offsetWidth,300);
-  const alto=Math.max(el.scrollHeight,el.offsetHeight,150);
-  const escala=Math.min(2,Math.max(1,2400/ancho));
-  const canvas=await convertir(el,{
-    backgroundColor:'#fff',scale:escala,useCORS:true,allowTaint:false,
-    scrollX:0,scrollY:0,width:ancho,height:alto,logging:false,
-    onclone:(doc)=>{
-      doc.documentElement.setAttribute('data-aq-theme','light');
-      const copia=doc.querySelector('#ticket-contenido');
-      if(copia){copia.style.setProperty('background','#fff','important');copia.style.setProperty('color-scheme','light','important');copia.style.setProperty('box-shadow','none','important');}
+// Generador local de respaldo: no depende de CDN, conexión ni html2canvas.
+function aqCanvasLocalComprobante(el){
+  if(!el)throw new Error('No hay un comprobante abierto');
+  const texto=String(el.innerText||el.textContent||'').replace(/\\u00a0/g,' ').trim();
+  if(!texto)throw new Error('El comprobante no tiene contenido');
+  const ancho=760,pad=42;
+  const canvas=document.createElement('canvas');
+  const ctx=canvas.getContext('2d');
+  if(!ctx)throw new Error('El navegador no permite crear imágenes');
+  const tam=20,alturaLinea=30,limite=ancho-pad*2;
+  ctx.font=tam+'px Arial,sans-serif';
+  const renglones=[];
+  texto.split(/\\r?\\n/).forEach(linea=>{
+    let limpia=linea.replace(/\\s+/g,' ').trim();
+    if(!limpia){renglones.push('');return;}
+    let actual='';
+    for(const palabra of limpia.split(' ')){
+      const candidata=actual?actual+' '+palabra:palabra;
+      if(ctx.measureText(candidata).width>limite&&actual){renglones.push(actual);actual=palabra;}
+      else actual=candidata;
+      // Cortar tokens excesivamente largos sin perder contenido.
+      while(ctx.measureText(actual).width>limite&&actual.length>1){
+        let n=1;while(n<actual.length&&ctx.measureText(actual.slice(0,n+1)).width<=limite)n++;
+        renglones.push(actual.slice(0,n));actual=actual.slice(n);
+      }
     }
+    if(actual)renglones.push(actual);
   });
-  if(!canvas||canvas.width<10||canvas.height<10)throw new Error('No se pudo convertir el comprobante a PNG.');
+  const maxLineas=300;
+  if(renglones.length>maxLineas)throw new Error('Comprobante demasiado largo para PNG; utiliza Imprimir');
+  canvas.width=ancho;
+  canvas.height=Math.max(240,140+renglones.length*alturaLinea);
+  ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#1565c0';ctx.fillRect(0,0,canvas.width,12);
+  ctx.fillStyle='#17365b';ctx.font='bold 24px Arial,sans-serif';
+  ctx.fillText('AQUABRI · COMPROBANTE',pad,57);
+  ctx.strokeStyle='#d4dfe8';ctx.beginPath();ctx.moveTo(pad,76);ctx.lineTo(ancho-pad,76);ctx.stroke();
+  ctx.fillStyle='#203448';ctx.font=tam+'px Arial,sans-serif';
+  renglones.forEach((linea,i)=>ctx.fillText(linea,pad,113+i*alturaLinea));
   return canvas;
+}
+async function aqCapturarComprobanteEnCanvas(el){
+  if(!el)throw new Error('No hay un comprobante abierto para generar');
+  // Usa el renderizador fiel si ya está disponible. No realizar descargas
+  // ni bloquear el botón por librerías externas que pueden quedarse colgadas.
+  if(typeof window.html2canvas!=='function')return aqCanvasLocalComprobante(el);
+  try{
+    const ancho=Math.max(el.scrollWidth,el.offsetWidth,300);
+    const alto=Math.max(el.scrollHeight,el.offsetHeight,150);
+    const captura=window.html2canvas(el,{
+      backgroundColor:'#fff',scale:Math.min(2,Math.max(1,1800/ancho)),
+      useCORS:true,allowTaint:false,logging:false,
+      width:ancho,height:alto,
+      onclone:doc=>doc.documentElement.setAttribute('data-aq-theme','light')
+    });
+    const limite=new Promise((_,reject)=>setTimeout(()=>reject(new Error('Captura lenta')),2500));
+    const canvas=await Promise.race([captura,limite]);
+    if(canvas?.width>10&&canvas?.height>10)return canvas;
+  }catch(error){console.warn('Usando PNG local de respaldo:',error);}
+  return aqCanvasLocalComprobante(el);
+}
+function aqCanvasBlobSeguro(canvas){
+  return new Promise((resolve,reject)=>{
+    try{
+      // Safari puede no llamar a toBlob cuando hay presión de memoria.
+      let terminado=false;
+      const tiempo=setTimeout(()=>{
+        if(terminado)return;terminado=true;
+        try{
+          const data=canvas.toDataURL('image/png').split(',')[1];
+          const bin=atob(data),bytes=new Uint8Array(bin.length);
+          for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+          resolve(new Blob([bytes],{type:'image/png'}));
+        }catch(e){reject(e);}
+      },1800);
+      canvas.toBlob(blob=>{
+        if(terminado)return;terminado=true;clearTimeout(tiempo);
+        if(blob)resolve(blob);
+        else reject(new Error('Safari no pudo convertir el PNG'));
+      },'image/png');
+    }catch(e){reject(e);}
+  });
 }
 let aqCachePNGComprobante=null;
 function aqEstadoBotonesCompartir(estado){
@@ -6352,7 +6409,8 @@ function aqEstadoBotonesCompartir(estado){
     root.querySelectorAll('button[onclick*="compartirImagenComprobante"]').forEach(btn=>{
       if(!btn.dataset.aqEtiquetaCompartir)btn.dataset.aqEtiquetaCompartir=btn.innerHTML;
       if(estado==='preparando'){
-        btn.disabled=true;btn.textContent='⏳ Preparando imagen…';
+        // Jamás bloquear permanentemente el botón: puede usarse un PNG local.
+        btn.disabled=false;btn.textContent='📤 Compartir imagen';
       }else{
         btn.disabled=false;
         btn.innerHTML=btn.dataset.aqEtiquetaCompartir;
@@ -6373,7 +6431,7 @@ function aqPrecalentarPNGComprobante(el){
   aqEstadoBotonesCompartir('preparando');
   cache.promesa=(async()=>{
     const canvas=await aqCapturarComprobanteEnCanvas(el);
-    const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('No se pudo crear PNG')),'image/png'));
+    const blob=await aqCanvasBlobSeguro(canvas);
     if(aqCachePNGComprobante===cache && el.innerHTML===firma){
       cache.blob=blob;
       aqEstadoBotonesCompartir('lista');
@@ -6452,7 +6510,7 @@ async function aqPrepararPNGComprobante(el,nombre,contenedor){
   }
   if(!blob){
     const canvas=await aqCapturarComprobanteEnCanvas(el);
-    blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('No se pudo generar PNG')),'image/png'));
+    blob=await aqCanvasBlobSeguro(canvas);
     aqCachePNGComprobante={el,firma:el.innerHTML,blob,promesa:Promise.resolve(blob)};
   }
   const links=aqMostrarEnlacesComprobante(blob,nombre,contenedor);
@@ -6553,8 +6611,8 @@ async function compartirImagenComprobante(){
       return false;
     }finally{if(btn){btn.disabled=false;delete btn.dataset.aqGenerando;}}
   }
-  // Cuando el PNG aún no existe, se prepara sin consumir el permiso de
-  // compartir. El botón permanecerá desactivado hasta que el archivo esté listo.
+  // Si todavía no hay imagen, generarla sin bloquear el botón. La segunda
+  // pulsación abrirá el menú nativo; la descarga siempre queda disponible.
   aqPrecalentarPNGComprobante(el);
   if(typeof navigator.share!=='function'||typeof File!=='function'){
     try{

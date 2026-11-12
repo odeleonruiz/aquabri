@@ -6318,6 +6318,15 @@ function aqDocumentoVisible(){
   }
   return document.querySelector('#modal-ticket #ticket-contenido')||document.getElementById('ticket-contenido');
 }
+// AQUABRI: preparar el capturador local cuando la página ya cargó,
+// antes de que el usuario abra el recibo en iPhone. Evita la espera de red
+// después de pulsar Compartir; no toca ventas ni datos almacenados.
+window.addEventListener('load',()=>{
+  const preparar=()=>{ cargarHtml2Canvas().catch(err=>console.warn('Precarga PNG:',err)); };
+  if(typeof window.requestIdleCallback==='function')
+    window.requestIdleCallback(preparar,{timeout:1800});
+  else setTimeout(preparar,650);
+},{once:true});
 // El PNG compartido debe ser una captura FIEL del mismo comprobante visible.
 // No reconstruirlo desde innerText: eso pierde logo, tabla, columnas y descuentos.
 async function aqCapturarComprobanteEnCanvas(el){

@@ -12774,6 +12774,15 @@ async function generarReporte(){
   const resumenFinanciero=aqResumenFinanciero(ventasNormales,creditosReporte,movimientosCaja);
   const tv=resumenFinanciero.facturado;
 
+  // Apertura asignada al usuario: NO es una venta ni ingreso del día.
+  // Se muestra solo en el cuadre individual y se obtiene de Caja
+  // usando el mismo filtro de fecha y usuario que el resto del reporte.
+  const aperturasEmpleado=usuFiltro?(movimientosCaja||[]).filter(m=>m.tipo==='apertura'&&Number(m.usuario_id)===Number(usuFiltro)):[];
+  const aperturaEmpleadoCent=aperturasEmpleado.reduce((acc,m)=>acc+aqMontoCentes(m.monto),0);
+  const aperturaEmpleado=aperturaEmpleadoCent/100;
+  // El cuadre diario se presenta solo para una fecha específica.
+  // Nunca sumar aperturas a «Efectivo recibido» ni a la facturación.
+  const esUnSoloDia=Boolean(desde&&hasta&&desde===hasta);
   // Contabilidad de entradas de Caja, sin confundir facturación con dinero recibido.
   const tiposEntrada=new Set(['venta','cobro_credito','ingreso','entrada']);
   const cobrosCredFiltrados=movimientosCaja.filter(c=>c.tipo==='cobro_credito');
@@ -12928,6 +12937,26 @@ async function generarReporte(){
     '<div class="aq-cred-titulo">📝 Crédito pendiente por vendedor</div>'+
     '<div class="aq-cred-sub">Únicamente de ventas del período seleccionado y que aún están sin pagar. Si se cobraron completos, no aparecen aquí. Los créditos que se pagaron siguen en “Ver más detalles” como crédito originalmente generado.</div>'+
     (filasPendientes||'<div class="aq-cred-fila">✅ No quedan créditos pendientes de las ventas seleccionadas.</div>');
+  // Fondo entregado y efectivo a rendir: individual, separado del cierre general.
+  const dineroEfectivo=importeMedio('efectivo');
+  const gastosEfectivo=Number(resumenFinanciero.porMedio.efectivo.salida)||0;
+  const efectivoRendir=Math.round((aperturaEmpleado+dineroEfectivo-gastosEfectivo)*100)/100;
+  const faltaClasificarEfectivo=Number(resumenFinanciero.porMedio.sinClasificar.entrada||0)!==0
+    ||Number(resumenFinanciero.porMedio.sinClasificar.salida||0)!==0;
+  const tarjetasAperturaEmpleado=usuFiltro?[
+    {id:'fondo_apertura_empleado',ic:'🪙',lbl:'Fondo de apertura del empleado',
+      val:fQ(aperturaEmpleado),importe:aperturaEmpleado,c:'#1976d2',
+      sub:aperturasEmpleado.length
+        ?'Fondo asignado en Caja ('+aperturasEmpleado.length+' apertura(s) del período). No es una venta.'
+        :'No hay fondo de apertura asignado a este usuario en el período.'},
+    ...(esUnSoloDia?[{
+      id:'efectivo_a_rendir_empleado',ic:'💰',lbl:'Efectivo estimado a entregar',
+      val:fQ(efectivoRendir),importe:efectivoRendir,c:'#2e7d32',
+      sub:faltaClasificarEfectivo
+        ?'Estimación incompleta: hay entradas o salidas sin medio identificado. Revisa Caja antes del cuadre.'
+        :'Apertura + cobros en efectivo − salidas en efectivo del empleado. Verifica el conteo físico.'
+    }]:[])
+  ]:[];
   const tarjetasBase=[
     {ic:'🛒',lbl:'Ventas del período',val:fQ(tv),c:'#1565c0',sub:'Todo lo vendido, de contado y a crédito.'},
     {ic:'📝',lbl:'Crédito pendiente',val:fQ(totalCreditoPendiente),c:'#e65100',
@@ -12981,6 +13010,7 @@ async function generarReporte(){
   ];
   const tieneImporte=card=>Math.abs(Number(card.importe||0))>=0.005;
   const tarjetasPrincipales=[
+    ...tarjetasAperturaEmpleado,
     ...tarjetasPrincipalesBase.filter((card,i)=>i===0||tieneImporte(card)),
     ...extrasCuadre.filter(tieneImporte)
   ];
@@ -13029,13 +13059,20 @@ async function generarReporte(){
   const avisoGastos=Math.abs(gastosRegistrados-resumenFinanciero.salidasCaja)>0.009
     ?'<div class="aq-nota-clara">⚠️ Gastos anotados '+fQ(gastosRegistrados)+' y salidas registradas en Caja '+fQ(resumenFinanciero.salidasCaja)+
       ' no son lo mismo. Los gastos por categoría ya están incluidos en el total de Gastos: no los descuentes nuevamente. Revisa cuáles se pagaron realmente en efectivo antes de cerrar.</div>':'';
+  const aclaracionFondo=usuFiltro
+    ?'<div class="aq-nota-clara">🪙 Fondo de apertura del empleado: <b>'+fQ(aperturaEmpleado)+
+      '</b>. Se muestra separado de los cobros; no debe sumarse otra vez a «Efectivo recibido». '+
+      (esUnSoloDia?'Efectivo estimado a entregar: <b>'+fQ(efectivoRendir)+'</b>. ':'')+
+      (faltaClasificarEfectivo?'⚠️ Hay movimientos sin medio de pago identificado: este estimado no es un cierre definitivo. ':'')+
+      'El cierre final de Caja sigue siendo general.</div>'
+    :'';
   document.getElementById('rep-resumen-simple').innerHTML=
     '<div class="aq-cuenta-clara">💰 Dinero recibido: '+fQ(resumenFinanciero.ventasCobradas)+' por ventas + '+
       fQ(tvCobrosCred)+' por abonos + '+fQ(resumenFinanciero.otrosIngresos)+' otros = <strong>'+fQ(totalEntradasCaja)+'</strong>.</div>'+
     '<div>Medios de pago: efectivo '+fQ(entradasEfectivo)+' · banco/tarjeta '+fQ(bancoYTarjeta)+
       (mediosIncompletos?' · sin identificar '+fQ(mediosIncompletos):'')+'.</div>'+
     '<div class="aq-nota-clara">💵 Efectivo registrado después de salidas en efectivo: <b>'+fQ(entradasEfectivo-salidasEfectivo)+
-      '</b>. No incluye el fondo inicial; confirma el dinero físico en Caja.</div>'+avisoGastos;
+      '</b>. No incluye el fondo inicial; confirma el dinero físico en Caja.</div>'+aclaracionFondo+avisoGastos;
   const detallesContainer=document.getElementById('rep-detalles-financieros');
   const detalleAbierto=detallesContainer.querySelector('details')?.open===true;
   // El detalle es un desplegable de TARJETAS, sin repetir las seis principales.

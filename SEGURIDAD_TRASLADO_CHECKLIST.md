@@ -45,3 +45,16 @@
 - [ ] Pruebas end-to-end con usuarios reales en móviles y sesión revocada.
 - [ ] Verificar backup completo de producción y restaurarlo en entorno aislado.
 - [ ] Ventana de cambio, reversión verificada y promoción autorizada: **pendiente**.
+
+
+## Protección de historial comprobada
+- [x] Cortar línea base en producción: 5,236 ventas y 6,428 artículos vinculados (huellas de IDs).
+- [x] Ejecutar verificador solo lectura y comprobar que cuatro huellas originales siguen coincidiendo.
+- [x] Instalar y probar en staging los bloqueos contra DELETE de `ventas` y `venta_items`.
+- [x] Convertir a RPC atómicas las operaciones de envases, membresía, canje QR y salidas.
+- [x] Separar funciones duplicadas de liquidaciones; bloquear flujos de carga inseguros con error explícito.
+- [ ] Verificar backups del proyecto oficial en Supabase y **restaurar a un proyecto independiente**.
+- [ ] Adaptar toda la operativa de cargas y liquidación de inventario antes de usar QA como reemplazo del oficial.
+- [ ] Auditar exhaustivamente y probar permisos de todas las RPC privilegiadas.
+- [ ] Probar 2 móviles, revocación de sesiones y flujos completos de caja.
+- [ ] Solo entonces preparar ventana de promoción sin pérdida de historial.

@@ -3373,7 +3373,7 @@ async function loadAll(){
     sb.from('categorias').select('*'),
     sb.from('productos').select('*'),
     sb.from('producto_insumos').select('*'),
-    sb.from('clientes').select('*'),
+    sb.from('clientes').select('*').is('archivado_en',null),
     sb.from('ventas').select('*,clientes(nombre)').gte('fecha',fecha90).order('id',{ascending:false}),
     sb.from('creditos').select('*,clientes(nombre)').order('id',{ascending:false}),
     sb.from('empleados').select('*'),
@@ -3451,7 +3451,7 @@ async function loadLight(){
   const[r1,r2,r3,r4,r5,r6]=await Promise.all([
     sb.from('ventas').select('*,clientes(nombre),venta_items(*)').order('id',{ascending:false}).limit(100),
     sb.from('creditos').select('*,clientes(nombre)').order('id',{ascending:false}),
-    sb.from('clientes').select('*'),
+    sb.from('clientes').select('*').is('archivado_en',null),
     sb.from('puntos_clientes').select('*'),
     sb.from('productos').select('id,nombre,precio,costo,stock,minstock,categoria,retornable,oferta_precio,oferta_desc,bonif_desc,bonif_cant,bonif_prod,activo'),
     sb.from('caja').select('*').order('id',{ascending:false}).limit(50),
@@ -4838,7 +4838,7 @@ async function renderClientesEliminados(){
   const el=document.getElementById('ini-eliminados');
   if(!card||!el)return;
   if(!CU||!SOLO_JEFE.includes(CU.rol)){card.style.display='none';return;}
-  const{data:eliminados}=await sb.from('clientes_eliminados').select('*').order('fecha_eliminacion',{ascending:false}).limit(20);
+  const{data:eliminados}=await sb.from('clientes_eliminados').select('*').is('restaurado_en',null).order('fecha_eliminacion',{ascending:false}).limit(20);
   if(!eliminados||!eliminados.length){card.style.display='none';return;}
   card.style.display='';
   el.innerHTML=eliminados.map(c=>{
@@ -4859,45 +4859,22 @@ async function renderClientesEliminados(){
   }).join("");
 }
 async function restaurarCliente(elimId){
-  if(!confirm('¿Restaurar este cliente?'))return;
+  if(!confirm('¿Restaurar este cliente conservando su historial?'))return;
   showLoad(true);
-  const{data:eli}=await sb.from('clientes_eliminados').select('*').eq('id',elimId).single();
-  if(!eli){showLoad(false);showNotif('No se encontró el cliente','#c62828');return;}
-  // Restaurar con datos completos si están disponibles
-  let datosCliente;
-  if(eli.datos_completos){
-    try{
-      const d=typeof eli.datos_completos==='string'?JSON.parse(eli.datos_completos):eli.datos_completos;
-      // Quitar el id para que Supabase asigne uno nuevo
-      const{id:_,created_at:__,...resto}=d;
-      datosCliente=resto;
-    }catch(e){datosCliente=null;}
-  }
-  if(!datosCliente){
-    // Fallback con datos básicos
-    datosCliente={
-      nombre:eli.nombre,ruta:eli.ruta,telefono:eli.telefono,
-      direccion:eli.direccion,lat:eli.lat||null,lng:eli.lng||null,
-      tiene_exhibidor:eli.tiene_exhibidor||false,
-      frecuencia:eli.frecuencia||null,estado:'Activo'
-    };
-  }
-  const{data:nuevo,error}=await sb.from('clientes').insert(datosCliente).select().single();
-  if(error){showLoad(false);showNotif('Error al restaurar: '+error.message,'#c62828');return;}
-  // Eliminar del historial
-  await sb.from('clientes_eliminados').delete().eq('id',elimId);
-  await loadLight();
-  renderClientes();renderClientesEliminados();
-  showLoad(false);
-  showNotif(`✅ Cliente "${eli.nombre}" restaurado con ${eli.lat?'ubicación':'datos básicos'}`,'#2e7d32');
+  try{
+    const {data,error}=await sb.rpc('aq_restaurar_cliente_auth_v1',{p_historial_id:Number(elimId)});
+    if(error||!data?.ok)throw error||new Error('No se confirmó la restauración');
+    await loadLight();
+    await renderClientesEliminados();
+    renderClientes();
+    showNotif('✅ Cliente restaurado sin borrar su historial de auditoría','#2e7d32');
+  }catch(e){showNotif('Error al restaurar: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
+}
+async function limpiarHistorialEliminados(){
+  showNotif('El historial de clientes archivados se conserva por auditoría. No puede eliminarse desde la interfaz.','#e65100');
 }
 
-async function limpiarHistorialEliminados(){
-  if(!confirm('¿Limpiar todo el historial de clientes eliminados?'))return;
-  await sb.from('clientes_eliminados').delete().neq('id',0);
-  renderClientesEliminados();
-  showNotif('Historial limpiado');
-}
 function renderClientesInactivos(){
   const el=document.getElementById('ini-inactivos');if(!el)return;
   const esJefe=CU&&SOLO_JEFE.includes(CU.rol);
@@ -7203,7 +7180,7 @@ async function asignarRutasPorCercaniaMasiva(){
   for(const c of sinRuta){
     const cercano=clienteMasCercanoConRuta(c.lat,c.lng,c.id);
     if(cercano){
-      const res=await sb.from('clientes').update({ruta:cercano.ruta}).eq('id',c.id);
+      const res=await sb.rpc('aq_guardar_cliente_auth_v1',{p_cliente_id:Number(c.id),p_cliente:{ruta:cercano.ruta}});
       if(!res.error){c.ruta=cercano.ruta;asignados++;}
     } else {
       sinCercano++;
@@ -7259,29 +7236,20 @@ function editCli(id){const c=D.clientes.find(x=>x.id===id);if(!c)return;document
   if(c.tiene_exhibidor){btnEx.style.background='#00695c';btnEx.innerHTML='✅ EXHIBIDOR ACTIVO — Toca para desactivar';boxEx.style.display='';}
   else{btnEx.style.background='#546e7a';btnEx.innerHTML='🖥 Tiene Exhibidor';boxEx.style.display='none';}
   document.getElementById('cexhib-desc').value=c.descripcion_exhibidor||'';if(document.getElementById('cexhib-cap'))document.getElementById('cexhib-cap').value=c.exhibidor_capacidad||0;if(document.getElementById('cexhib-costo'))document.getElementById('cexhib-costo').value=c.exhibidor_costo||0;document.getElementById('cli-ft').textContent='Editar Cliente';fillRutaDatalist(c.lat,c.lng);}
-async function delCli(id){if(!confirm('¿Eliminar cliente? Se eliminarán también sus registros asociados.'))return;
+async function delCli(id){
+  if(!confirm('¿Archivar cliente? Se conservarán ventas, créditos y demás movimientos. No se puede archivar con pendientes.'))return;
   showLoad(true);
-  const cli=D.clientes.find(c=>c.id===id);
-  if(cli)await sb.from('clientes_eliminados').insert({nombre:cli.nombre||'',ruta:cli.ruta||'',telefono:cli.telefono||'',direccion:cli.direccion||'',lat:cli.lat||null,lng:cli.lng||null,tiene_exhibidor:cli.tiene_exhibidor||false,frecuencia:cli.frecuencia||null,datos_completos:JSON.stringify(cli),fecha_eliminacion:hoy(),eliminado_por:CU?.nombre||'Jefe'});
-  await sb.from('creditos').delete().eq('cliente_id',id);
-  await sb.from('puntos_historial').delete().eq('cliente_id',id);
-  await sb.from('puntos_clientes').delete().eq('cliente_id',id);
-  await sb.from('puntos_canjes_qr').delete().eq('cliente_id',id);
-  await sb.from('visitas').delete().eq('cliente_id',id);
-  await sb.from('envases').delete().eq('cliente_id',id);
-  await sb.from('activos_prestamos').delete().eq('cliente_id',id);
-  await sb.from('ruta_paradas').delete().eq('cliente_id',id);
-  await sb.from('ventas').update({cliente_id:null}).eq('cliente_id',id);
-  await sb.from('clientes').delete().eq('id',id);
-  showLoad(false);
-  await loadLight();renderClientes();renderClientesInactivos();renderClientesEliminados();
-  // Refrescar lista de sugerencias y ruta inteligente
-  renderSugerenciasVisita();
-  if(_rutaInteligente.length>0){
-    _rutaInteligente=_rutaInteligente.filter(r=>r.c.id!==id);
-    mostrarLotePorVisitar(0);
-  }
-  showNotif('Cliente eliminado','#c62828');}
+  try{
+    const {data,error}=await sb.rpc('aq_archivar_cliente_auth_v1',{p_cliente_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('Supabase no confirmó el archivo');
+    await loadLight();renderClientes();renderClientesInactivos();await renderClientesEliminados();
+    renderSugerenciasVisita();
+    if(_rutaInteligente?.length){_rutaInteligente=_rutaInteligente.filter(r=>Number(r.c.id)!==Number(id));mostrarLotePorVisitar(0);}
+    showNotif('Cliente archivado. Su historial y los movimientos se conservan.','#2e7d32');
+  }catch(e){showNotif('No se archivó: '+(e.message||e),'#c62828');}
+  finally{showLoad(false);}
+}
+
 function fillRutaDatalist(latCliente=null, lngCliente=null){
   // Deduplicar por nombre normalizado — "Manuel de Jesus" y "manuel de jesús" son la misma
   const rutasMap={};
@@ -9042,7 +9010,8 @@ async function ejecutarFusion(){
   // Actualizar en Supabase
   const cliOrigen=D.clientes.filter(c=>c.ruta===origen);
   for(const c of cliOrigen){
-    await sb.from('clientes').update({ruta:destino}).eq('id',c.id);
+    const {error}=await sb.rpc('aq_guardar_cliente_auth_v1',{p_cliente_id:Number(c.id),p_cliente:{ruta:destino}});
+    if(error){showNotif('Error al mover cliente: '+error.message,'#c62828');return;}
     c.ruta=destino;
   }
   closeModal('modal-fusionar');
@@ -9084,7 +9053,8 @@ async function unificarRutasDuplicadas(){
     // Actualizar todos los clientes de ese grupo que tengan versión diferente
     const aActualizar=arr.filter(x=>x.ruta!==nombreOficial);
     for(const c of aActualizar){
-      await sb.from('clientes').update({ruta:nombreOficial}).eq('id',c.id);
+      const {error}=await sb.rpc('aq_guardar_cliente_auth_v1',{p_cliente_id:Number(c.id),p_cliente:{ruta:nombreOficial}});
+      if(error){showLoad(false);showNotif('Error actualizando ruta: '+error.message,'#c62828');return;}
       const local=D.clientes.find(x=>x.id===c.id);
       if(local)local.ruta=nombreOficial;
       total++;

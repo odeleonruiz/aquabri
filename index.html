@@ -6331,6 +6331,38 @@ window.addEventListener('load',()=>{
     window.requestIdleCallback(preparar,{timeout:1800});
   else setTimeout(preparar,650);
 },{once:true});
+// Respaldo local para Safari: dibuja el contenido REAL del documento sin depender
+// de html2canvas. Sólo se utiliza cuando falla la captura visual.
+function aqCanvasRespaldoComprobante(el){
+  if(!el)throw new Error('No hay comprobante');
+  const texto=String(el.innerText||el.textContent||'').trim();
+  if(!texto)throw new Error('Comprobante vacío');
+  const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+  if(!ctx)throw new Error('Canvas no disponible');
+  const W=760,p=44,max=W-p*2;
+  ctx.font='20px Arial';
+  const lines=[];
+  for(const raw of texto.split(/\r?\n/)){
+    const line=raw.replace(/\s+/g,' ').trim();
+    if(!line){if(lines.length&&lines[lines.length-1]!=='')lines.push('');continue;}
+    let current='';
+    for(const word of line.split(' ')){
+      const candidate=current?current+' '+word:word;
+      if(ctx.measureText(candidate).width>max&&current){lines.push(current);current=word;}
+      else current=candidate;
+    }
+    if(current)lines.push(current);
+  }
+  if(lines.length>280)throw new Error('Documento demasiado largo');
+  canvas.width=W;canvas.height=Math.max(300,175+lines.length*30);
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#315fb8';ctx.fillRect(0,0,W,10);
+  ctx.fillStyle='#183153';ctx.font='bold 27px Arial';ctx.fillText('AQUABRI · COMPROBANTE',p,61);
+  ctx.fillStyle='#315fb8';ctx.fillRect(p,82,W-p*2,3);
+  ctx.fillStyle='#223548';ctx.font='20px Arial';
+  lines.forEach((line,i)=>ctx.fillText(line,p,126+i*30));
+  return canvas;
+}
 // El PNG compartido debe ser una captura FIEL del mismo comprobante visible.
 // No reconstruirlo desde innerText: eso pierde logo, tabla, columnas y descuentos.
 async function aqCapturarComprobanteEnCanvas(el){
@@ -6342,7 +6374,7 @@ async function aqCapturarComprobanteEnCanvas(el){
     convertir=await cargarHtml2Canvas();
   }catch(error){
     console.error('No se pudo preparar el capturador visual:',error);
-    throw new Error('No se pudo cargar el generador fiel del comprobante. Verifica internet y reintenta; no se enviará una imagen con otro diseño.');
+    return aqCanvasRespaldoComprobante(el);
   }
   // Dar oportunidad al logotipo y a las fuentes de aparecer antes de capturar.
   const doc=el.ownerDocument||document;
@@ -6397,8 +6429,8 @@ async function aqCapturarComprobanteEnCanvas(el){
     if(canvas?.width>10&&canvas?.height>10)return canvas;
     throw new Error('La imagen capturada está vacía');
   }catch(error){
-    console.error('No se pudo capturar el diseño del comprobante:',error);
-    throw new Error('No se pudo copiar fielmente el comprobante mostrado. Reintenta compartir; no se generó una versión diferente. '+(error?.message||''));
+    console.warn('Captura visual no disponible; generando PNG local de respaldo:',error);
+    return aqCanvasRespaldoComprobante(el);
   }finally{
     if(temporizador!==null)clearTimeout(temporizador);
   }
@@ -6673,8 +6705,15 @@ async function compartirImagenComprobante(){
   const blob=cache?.el===el&&cache?.firma===el?.innerHTML?cache.blob:null;
   if(!blob){
     // No dejar bloqueado Compartir por un fallo previo: reintentar en el toque.
-    aqPrecalentarPNGComprobante(el);
-    showNotif('📷 Preparando imagen. Toca Compartir nuevamente cuando esté lista.','#1565c0');
+    // El usuario puede compartir el PNG de respaldo inmediatamente si la captura
+    // visual aún no terminó. No esperar a una promesa larga de Safari.
+    try{
+      const canvas=aqCanvasRespaldoComprobante(el);
+      const imagen=await aqCanvasBlobSeguro(canvas);
+      aqCachePNGComprobante={el,firma:el.innerHTML,blob:imagen,promesa:Promise.resolve(imagen)};
+      aqEstadoBotonesCompartir('lista');
+      aqAbrirAlternativaCompartirPNG(imagen,nombre,'La imagen ya está preparada. Mantén pulsada para compartirla por WhatsApp.');
+    }catch(e){console.error('Respaldo PNG:',e);aqPrecalentarPNGComprobante(el);}
     return false;
   }
   if(btn){btn.dataset.aqGenerando='1';btn.disabled=true;}

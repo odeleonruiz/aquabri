@@ -18966,30 +18966,70 @@ function selAllPerms(uid,todo){
   renderPermisosEditor();
 }
 
+async function aqListarPermisosServidor(){
+  const {data,error}=await sb.rpc('aq_permisos_administrar_listar_v1');
+  if(error)throw error;
+  if(!data||!Array.isArray(data.usuarios)||!Array.isArray(data.catalogo))
+    throw new Error('Supabase no devolvió el catálogo de permisos');
+  return data;
+}
 async function guardarPermisos(){
   if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el Jefe puede guardar permisos','#c62828');return;}
   showLoad(true);
-  const promesas=Object.entries(_permisosCustom).map(([uid,perms])=>
-    sb.from('usuarios').update({permisos_custom:JSON.stringify(perms)}).eq('id',parseInt(uid))
-  );
-  await Promise.all(promesas);
-  showLoad(false);
-  showNotif('✅ Permisos guardados');
-  // Reaplicar si es el usuario actual
-  const permsActual=_permisosCustom[CU?.id];
-  if(permsActual){
-    document.querySelectorAll('.sb-btn[data-page]').forEach(b=>{
-      b.style.display=(permsActual.includes(b.dataset.page)||(CU?.rol==='jefe'&&b.dataset.page==='clientes-empleado'))?'':'none';
-    });
-  }
+  let aplicados=0;
+  try{
+    const info=await aqListarPermisosServidor();
+    // Los cambios en las pantallas se traducen a permisos de servidor auditados.
+    // Nunca actualizar directamente la tabla usuarios.permisos_custom.
+    const roles=new Set((info.roles||[]).filter(r=>r.permitido).map(r=>r.rol+'|'+r.codigo));
+    const actuales=new Map((info.excepciones||[]).map(x=>[x.usuario_id+'|'+x.codigo,x.permitido]));
+    const permitidos=info.catalogo.filter(c=>c.grupo==='modulo'&&c.delegable);
+    const empleados=new Map(info.usuarios.map(x=>[String(x.id),x]));
+    for(const [uid,perms] of Object.entries(_permisosCustom)){
+      const emp=empleados.get(String(uid));
+      if(!emp)throw new Error('El empleado #'+uid+' no es elegible para cambiar permisos');
+      if(!Array.isArray(perms))throw new Error('Permisos inválidos para '+emp.nombre);
+      for(const c of permitidos){
+        const deseado=perms.includes(c.codigo);
+        const heredado=roles.has(emp.rol+'|'+c.codigo);
+        const override=deseado===heredado?null:deseado;
+        const clave=emp.id+'|'+c.codigo;
+        const previo=actuales.has(clave)?actuales.get(clave):null;
+        if(previo===override)continue;
+        const {error}=await sb.rpc('aq_asignar_permiso_auth_v1',{
+          p_usuario_id:Number(emp.id),p_codigo:c.codigo,p_permitido:override,
+          p_motivo:'Permisos configurados por el jefe desde AQUABRI'
+        });
+        if(error)throw error;
+        aplicados++;
+      }
+    }
+    await cargarPermisosCustom();
+    showNotif('✅ Permisos actualizados en Supabase · '+aplicados+' cambio(s)','#2e7d32');
+  }catch(e){
+    console.error('No se guardaron todos los permisos:',e);
+    showNotif('No se completó la actualización ('+aplicados+' cambios aplicados). '+(e.message||e),'#c62828');
+  }finally{showLoad(false);}
 }
-
 async function cargarPermisosCustom(){
-  // Cargar permisos_custom de todos los usuarios
-  const{data}=await sb.from('usuarios').select('id,permisos_custom').not('permisos_custom','is',null);
-  (data||[]).forEach(u=>{
-    if(u.permisos_custom)try{_permisosCustom[u.id]=JSON.parse(u.permisos_custom);}catch(e){}
-  });
+  if(!CU||!SOLO_JEFE.includes(CU.rol))return;
+  const data=await aqListarPermisosServidor();
+  const roles=new Set((data.roles||[]).filter(r=>r.permitido).map(x=>x.rol+'|'+x.codigo));
+  const override=new Map((data.excepciones||[]).map(x=>[x.usuario_id+'|'+x.codigo,Boolean(x.permitido)]));
+  _permisosCustom={};
+  for(const usuario of data.usuarios){
+    const efectivos=new Set((data.catalogo||[])
+      .filter(c=>c.grupo==='modulo'&&roles.has(usuario.rol+'|'+c.codigo))
+      .map(c=>c.codigo));
+    for(const c of data.catalogo||[]){
+      if(c.grupo!=='modulo')continue;
+      const key=usuario.id+'|'+c.codigo;
+      if(!override.has(key))continue;
+      if(override.get(key))efectivos.add(c.codigo);
+      else efectivos.delete(c.codigo);
+    }
+    _permisosCustom[usuario.id]=[...efectivos];
+  }
 }
 
 function mostrarTodosRuta(){

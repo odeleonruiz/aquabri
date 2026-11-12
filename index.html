@@ -3367,7 +3367,7 @@ async function loadAll(){
   const hoyStr=hoy();
   const fecha90=new Date(Date.now()-90*864e5).toISOString().slice(0,10);
   // Cargar todo en paralelo — simple y directo
-  const[r_cfg,r_usr,r_cats,r_prods,r_ins,r_clis,r_ventas,r_creds,r_emps,r_gas,r_veh,r_metas,r_pts,r_ptsp,r_liq,r_rutcli,r_cred2,r_visitas,r_comisiones,r_insumos,r_pagos,r_vales,r_deudasProv,r_facturas,r_actCat,r_actPres,r_actItems,r_aus,r_grupos,r_envases,r_envBod]=await Promise.all([
+  const[r_cfg,r_usr,r_cats,r_prods,r_ins,r_clis,r_ventas,r_creds,r_emps,r_gas,r_veh,r_metas,r_pts,r_ptsp,r_liq,r_rutcli,r_cred2,r_visitas,r_comisiones,r_insumos,r_pagos,r_vales,r_deudasProv,r_facturas,r_actCat,r_actPres,r_actItems,r_aus,r_grupos,r_envases,r_envBod,r_metaEmp]=await Promise.all([
     sb.from('config').select('*').single(),
     sb.from('usuarios').select('id,nombre,usuario,rol,foto,permisos_custom,empleado_id,auth_uid'),
     sb.from('categorias').select('*'),
@@ -3399,6 +3399,7 @@ async function loadAll(){
     sb.from('grupos_ruta').select('*').order('id',{ascending:true}),
     sb.from('envases').select('*,clientes(nombre)').order('id',{ascending:false}).limit(1000),
     sb.from('envases_bodega').select('cantidad').eq('id',1).maybeSingle(),
+    sb.from('metas_empleados').select('*'),
   ]);
   // No permitir iniciar Ventas con información crítica ausente por errores de conexión.
   const fallosCriticos=[
@@ -3413,7 +3414,7 @@ async function loadAll(){
   D.prods=r_prods.data||[];D.clientes=r_clis.data||[];
   D.ventas=r_ventas.data||[];D.creditos=r_creds.data||[];
   D.empleados=r_emps.data||[];D.gastos=r_gas.data||[];D.vehiculos=r_veh.data||[];
-  D.metas=r_metas.data||[];D.metasEmp=[];D.puntosClientes=r_pts.data||[];
+  D.metas=r_metas.data||[];D.metasEmp=r_metaEmp.data||[];D.puntosClientes=r_pts.data||[];
   D.puntosProductos=r_ptsp.data||[];D.liquidaciones=r_liq.data||[];
   D.rutaClientesIds=new Set((r_rutcli.data||[]).map(r=>r.cliente_id));
   D.puntosConfig=r_cred2.data||{porcentaje:5,activo:true,nombre_programa:'Club Aquabri'};
@@ -12689,7 +12690,18 @@ function aplicarSugerenciaAhorro(monto){
 }
 
 function fillMetaEmpSel(){const s=document.getElementById('mee');if(s)s.innerHTML=D.empleados.map(e=>`<option value="${e.id}">${e.nombre}</option>`).join('');}
-async function saveMetaEmp(){const eid=parseInt(document.getElementById('mee').value);const m=parseFloat(document.getElementById('mem').value)||0;if(!m)return;const ex=D.metasEmp.find(x=>x.empleado_id===eid);if(ex)await sb.from('metas_empleados').update({monto:m,periodo:document.getElementById('mep').value}).eq('id',ex.id);else await sb.from('metas_empleados').insert({empleado_id:eid,monto:m,periodo:document.getElementById('mep').value});await loadAll();renderMetasEmp();showNotif('Meta asignada');}
+async function saveMetaEmp(){
+  const eid=parseInt(document.getElementById('mee').value);
+  const monto=Number(document.getElementById('mem').value)||0;
+  const periodo=document.getElementById('mep').value;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_meta_empleado_auth_v1',{
+      p_empleado_id:eid,p_monto:monto,p_periodo:periodo
+    });
+    if(error||!data?.ok)throw error||new Error('Meta no confirmada');
+    await loadAll();renderMetasEmp();showNotif('Meta asignada');
+  }catch(e){showNotif('No se guardó la meta: '+(e.message||e),'#c62828');}
+}
 function renderMetasEmp(){const el=document.getElementById('meta-emp-prog');if(!el)return;const tv=D.ventas.reduce((s,v)=>s+parseFloat(v.total||0),0);el.innerHTML=D.metasEmp.map(m=>{const emp=D.empleados.find(e=>e.id===m.empleado_id);const pct=Math.min(Math.round(tv/m.monto*100),100);return`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px"><b>${emp?.nombre||'—'}</b><span>${pct}%</span></div><div class="pw" style="margin-top:3px"><div class="pb" style="width:${pct}%"></div></div></div>`;}).join('')||'<p class="tmuted">Sin metas</p>';}
 
 // Consulta la lista directamente desde Supabase, sin depender de que loadAll
@@ -13489,41 +13501,59 @@ function fillEmpUsrSel(){
 }
 
 function fillRrhhSels(){const opts=D.empleados.map(e=>`<option value="${e.id}">${e.nombre}</option>`).join('');['pe','ve','au-emp'].forEach(id=>{const s=document.getElementById(id);if(s)s.innerHTML=opts;});}
-async function saveEmp(){const nom=document.getElementById('en').value.trim();if(!nom)return;const usrId=document.getElementById('eusr')?.value;const obj={nombre:nom,puesto:document.getElementById('epu').value,sueldo:parseFloat(document.getElementById('esu').value)||0,frecuencia_pago:document.getElementById('efrec')?.value||'mensual',telefono:document.getElementById('etel').value,fecha_ingreso:document.getElementById('efec').value,fecha_nacimiento:document.getElementById('enac')?.value||null,estado:document.getElementById('eest').value,usuario_id:usrId?parseInt(usrId):null};const id=document.getElementById('eid').value;let res;if(id)res=await sb.from('empleados').update(obj).eq('id',id).select();else res=await sb.from('empleados').insert(obj).select();console.log('Resultado guardar empleado:',res);if(res.error){console.error('Error guardando empleado:',res.error);showNotif('❌ Error al guardar: '+res.error.message,'#c62828');return;}if(!res.data||!res.data.length){showNotif('⚠️ Supabase no devolvió error pero tampoco guardó el registro (revisa RLS)','#c62828');return;}await loadAll();clearEmpForm();renderEmpleados();fillRrhhSels();fillComSel();showNotif('Empleado guardado (ID '+res.data[0].id+')');}
+async function saveEmp(){
+  const nom=document.getElementById('en').value.trim();if(!nom)return;
+  const usrId=document.getElementById('eusr')?.value;
+  const obj={nombre:nom,puesto:document.getElementById('epu').value,
+    sueldo:parseFloat(document.getElementById('esu').value)||0,
+    frecuencia_pago:document.getElementById('efrec')?.value||'mensual',
+    telefono:document.getElementById('etel').value,
+    fecha_ingreso:document.getElementById('efec').value,
+    fecha_nacimiento:document.getElementById('enac')?.value||null,
+    estado:document.getElementById('eest').value,usuario_id:usrId?parseInt(usrId):null};
+  try{
+    const id=parseInt(document.getElementById('eid').value)||null;
+    const {data,error}=await sb.rpc('aq_rrhh_guardar_empleado_auth_v1',{p_empleado:obj,p_empleado_id:id});
+    if(error||!data?.ok)throw error||new Error('Empleado sin confirmar');
+    await loadAll();clearEmpForm();renderEmpleados();fillRrhhSels();fillComSel();
+    showNotif('Empleado guardado (ID '+data.id+')');
+  }catch(e){showNotif('Error al guardar empleado: '+(e.message||e),'#c62828');}
+}
 function renderEmpleados(){document.getElementById('emp-tbody').innerHTML=D.empleados.map(e=>{const usr=D.usuarios.find(u=>u.id===e.usuario_id);const frecLabel={diario:'Diario',semanal:'Semanal',quincenal:'Quincenal',mensual:'Mensual'}[e.frecuencia_pago||'mensual']||'Mensual';return`<tr><td>${e.id}</td><td><b>${e.nombre}</b></td><td>${e.puesto}</td><td>${fQ(e.sueldo)}<br><span style="font-size:9px;color:var(--gris)">${frecLabel}</span></td><td>${sBadge(e.estado)}</td><td style="font-size:11px;color:var(--gris)">${usr?'👤 '+usr.nombre:'<span style="color:#e65100">⚠️ Sin vincular</span>'}</td><td><button class="btn bsm" onclick="editEmp(${e.id})">✏️</button> <button class="btn bd bsm" onclick="delEmp(${e.id})">🗑</button></td></tr>`}).join('');document.getElementById('emp-res').innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="ms"><div class="mv">${D.empleados.filter(e=>e.estado==='Activo').length}</div><div class="ml">Activos</div></div><div class="ms"><div class="mv">${fQ(D.empleados.reduce((s,e)=>s+parseFloat(e.sueldo||0),0))}</div><div class="ml">Nómina total</div></div></div>`;}
 function editEmp(id){const e=D.empleados.find(x=>x.id===id);if(!e)return;fillEmpUsrSel();document.getElementById('eid').value=e.id;document.getElementById('en').value=e.nombre;document.getElementById('epu').value=e.puesto;document.getElementById('esu').value=e.sueldo;if(document.getElementById('efrec'))document.getElementById('efrec').value=e.frecuencia_pago||'mensual';document.getElementById('etel').value=e.telefono||'';document.getElementById('efec').value=e.fecha_ingreso;document.getElementById('eest').value=e.estado;if(e.usuario_id&&document.getElementById('eusr'))document.getElementById('eusr').value=e.usuario_id;document.getElementById('eft').textContent='Editar Empleado';if(document.getElementById('enac'))document.getElementById('enac').value=e.fecha_nacimiento||'';}
-async function delEmp(id){if(!confirm('¿Eliminar empleado?'))return;
-  await sb.from('metas_empleados').delete().eq('empleado_id',id);
-  const tablasHistoricas=['gastos','comisiones','liquidaciones','pagos','pagos_comisiones','vales','ausencias'];
-  for(const t of tablasHistoricas){
-    const r=await sb.from(t).update({empleado_id:null}).eq('empleado_id',id);
-    if(r.error){console.error(`Error desvinculando ${t}:`,r.error);showNotif(`❌ No se pudo desvincular de "${t}": `+r.error.message,'#c62828');return;}
-  }
-  const res=await sb.from('empleados').delete().eq('id',id).select();
-  console.log('Resultado eliminar empleado:',res);
-  if(res.error){console.error('Error eliminando empleado:',res.error);showNotif('❌ Error al eliminar: '+res.error.message,'#c62828');return;}
-  if(!res.data||!res.data.length){showNotif('⚠️ No se pudo eliminar (revisa permisos RLS en Supabase)','#c62828');return;}
-  await loadLight();renderEmpleados();showNotif('Empleado eliminado');
+async function delEmp(id){
+  if(!confirm('¿Desactivar este empleado? Los pagos, vales y comisiones históricos se conservan.'))return;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_desactivar_empleado_auth_v1',{p_empleado_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('No confirmado');
+    await loadLight();await loadAll();renderEmpleados();
+    showNotif('Empleado desactivado. No se borró su historial.','#2e7d32');
+  }catch(e){showNotif('No se pudo desactivar el empleado: '+(e.message||e),'#c62828');}
 }
 function clearEmpForm(){['eid','en','epu','esu','etel'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});if(document.getElementById('efrec'))document.getElementById('efrec').value='mensual';document.getElementById('eft').textContent='Agregar Empleado';}
 async function registrarAusencia(){
   const eid=parseInt(document.getElementById('au-emp').value);
-  const emp=D.empleados.find(e=>e.id===eid);
   const fecha=document.getElementById('au-fecha').value;
-  const nota=document.getElementById('au-nota').value.trim();
-  if(!emp){showNotif('Selecciona un empleado','#c62828');return;}
-  if(!fecha){showNotif('Selecciona la fecha','#c62828');return;}
-  const res=await sb.from('ausencias').insert({empleado_id:eid,fecha,notas:nota,liquidada:false}).select();
-  if(res.error){console.error('Error registrando ausencia:',res.error);showNotif('❌ Error: '+res.error.message,'#c62828');return;}
-  document.getElementById('au-nota').value='';
-  await loadAll();renderAusenciasPendientes();
-  showNotif('✅ Ausencia registrada — se descontará sola en el próximo pago');
+  const notas=document.getElementById('au-nota').value.trim();
+  if(!fecha||!Number.isInteger(eid)){showNotif('Selecciona empleado y fecha','#c62828');return;}
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_registrar_ausencia_auth_v1',{
+      p_empleado_id:eid,p_fecha:fecha,p_notas:notas
+    });
+    if(error||!data?.ok)throw error||new Error('No confirmado');
+    document.getElementById('au-nota').value='';
+    await loadAll();renderAusenciasPendientes();
+    showNotif(data.repetida?'La ausencia ya estaba registrada':'✅ Ausencia registrada');
+  }catch(e){showNotif('Error al registrar ausencia: '+(e.message||e),'#c62828');}
 }
 async function delAusencia(id){
-  if(!confirm('¿Quitar esta ausencia registrada?'))return;
-  const res=await sb.from('ausencias').delete().eq('id',id).select();
-  if(res.error){showNotif('❌ Error: '+res.error.message,'#c62828');return;}
-  await loadAll();renderAusenciasPendientes();showNotif('Ausencia eliminada');
+  if(!confirm('¿Quitar esta ausencia no liquidada?'))return;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_quitar_ausencia_auth_v1',{p_ausencia_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('No confirmado');
+    await loadAll();renderAusenciasPendientes();
+    showNotif('Ausencia retirada');
+  }catch(e){showNotif('No se pudo retirar: '+(e.message||e),'#c62828');}
 }
 function renderAusenciasPendientes(){
   const el=document.getElementById('au-pendientes');
@@ -14197,9 +14227,29 @@ function renderVales(){document.getElementById('vales-tbody').innerHTML=D.vales.
 async function delVale(id){if(!confirm('¿Eliminar?'))return;await sb.from('vales').delete().eq('id',id);await loadAll();renderVales();}
 
 function fillComSel(){const opts=D.empleados.map(e=>`<option value="${e.id}">${e.nombre}</option>`).join('');const s=document.getElementById('come');if(s)s.innerHTML=opts;const s2=document.getElementById('com-compartir');if(s2)s2.innerHTML='<option value="">— Ninguno —</option>'+opts;}
-async function saveComision(){const eid=parseInt(document.getElementById('come').value);const pct=parseFloat(document.getElementById('comp').value)||0;const tipo=document.getElementById('com-tipo')?.value||'general';const compartirRaw=document.getElementById('com-compartir')?.value;const compartirId=compartirRaw?parseInt(compartirRaw):null;const ex=D.comisiones.find(c=>c.empleado_id===eid&&c.activo);const obj={porcentaje:pct,tipo_comision:tipo,compartir_empleado_id:compartirId};let res;if(ex)res=await sb.from('comisiones').update(obj).eq('id',ex.id);else res=await sb.from('comisiones').insert({empleado_id:eid,...obj,activo:true});if(res.error){console.error('Error guardando comisión:',res.error);showNotif('❌ Error: '+res.error.message,'#c62828');return;}await loadAll();renderComisiones();showNotif('Comisión guardada');}
+async function saveComision(){
+  const eid=parseInt(document.getElementById('come').value);
+  const pct=Number(document.getElementById('comp').value)||0;
+  const tipo=document.getElementById('com-tipo')?.value||'general';
+  const compartirRaw=document.getElementById('com-compartir')?.value;
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_configurar_comision_auth_v1',{
+      p_empleado_id:eid,p_porcentaje:pct,p_tipo:tipo,
+      p_compartir_empleado_id:compartirRaw?Number(compartirRaw):null
+    });
+    if(error||!data?.ok)throw error||new Error('Comisión no confirmada');
+    await loadAll();renderComisiones();showNotif('Configuración de comisión guardada');
+  }catch(e){showNotif('Error guardando comisión: '+(e.message||e),'#c62828');}
+}
 function renderComisiones(){const el=document.getElementById('com-lista');if(!el)return;el.innerHTML=D.comisiones.filter(c=>c.activo).map(c=>{const compartido=c.compartir_empleado_id?D.empleados.find(e=>e.id===c.compartir_empleado_id):null;return`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div><b>${c.empleados?.nombre||'—'}</b><br><span style="font-size:10px;color:var(--gris)">${c.tipo_comision==='clientes'?'👤 Solo clientes asignados':'🌐 General'}</span>${compartido?`<br><span style="font-size:10px;color:#1565c0">➕ También cuenta lo de ${compartido.nombre}</span>`:''}</div><span><span class="badge bv">${c.porcentaje}%</span> <button class="btn bd bsm" style="margin-left:5px" onclick="delCom(${c.id})">🗑</button></span></div>`;}).join('')||'<p class="tmuted">Sin comisiones</p>';}
-async function delCom(id){await sb.from('comisiones').delete().eq('id',id);await loadAll();renderComisiones();}
+async function delCom(id){
+  try{
+    const {data,error}=await sb.rpc('aq_rrhh_desactivar_comision_auth_v1',{p_comision_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('Operación no confirmada');
+    await loadAll();renderComisiones();
+    showNotif('Comisión desactivada; historial conservado');
+  }catch(e){showNotif('No se desactivó la comisión: '+(e.message||e),'#c62828');}
+}
 async function calcComisiones(){
   const desde=document.getElementById('cod').value||'';
   const hasta=document.getElementById('coh').value||'';

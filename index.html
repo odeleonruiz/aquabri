@@ -5625,17 +5625,9 @@ async function cobrar(enviarWsp=false){
   mostrarTicket(venta,cart,dg,total,pagado,cid,entTexto,esCredito,bonifs);
   
   if(enviarWsp){
-    const tel=document.getElementById('v-wsp-tel').value.trim();
-    const telFinal=tel||(cli?.telefono||'');
-    if(telFinal){
-      setTimeout(async()=>{
-        const descargado=await descargarTicketPDF();
-        const msg=generarMsgWSP(venta,cart,total,esCredito);
-        const msgFinal=msg+(descargado?'\n\n_Adjunta el archivo PNG descargado._':'\n\n_Descarga el comprobante desde AQUABRI para adjuntarlo._');
-        showNotif(descargado?'📱 Adjunta la imagen en WhatsApp':'📷 Descarga el comprobante desde la ventana');
-        window.open(`https://wa.me/${formatTel(telFinal)}?text=${encodeURIComponent(msgFinal)}`,'_blank');
-      },600);
-    }else showNotif('Agrega el teléfono para enviar por WhatsApp','#e65100');
+    // wa.me sólo comparte texto, NO permite adjuntar el PNG del comprobante.
+    // Mantener abierto el ticket real y su botón de compartir nativo en iPhone.
+    showNotif('📤 Comprobante preparado: toca Compartir imagen y elige WhatsApp.','#1565c0');
   }
   clearCart();
   // Forzar limpieza visual del carrito
@@ -6953,23 +6945,13 @@ async function abrirComprobanteVenta(vid, enviarWsp=false){
   if(tabComp2)tabComp2.style.display='';
   if(tabSaldo2)tabSaldo2.style.display='';
   renderComprobante(venta,items,dg,total,pagado,cid,venta.entrega||'',esCredito,venta.bonificaciones||'');
+  openModal('modal-ticket');
   if(enviarWsp){
     if(!items.length&&total>0){
-      openModal('modal-ticket');
-      alert('No se puede enviar un comprobante sin productos. Revisa la venta #'+vid+' antes de enviarlo.');
+      alert('No se puede compartir un comprobante sin productos. Revisa la venta #'+vid+' antes de enviarlo.');
       return;
     }
-    openModal('modal-ticket');
-    setTimeout(async()=>{
-      await descargarTicketPDF();
-      const tel=venta.clientes?.telefono||prompt('Teléfono del cliente (ej: 50212345678):');
-      if(tel){
-        const msg=generarMsgWSP(venta,items,total,esCredito);
-        window.open(`https://wa.me/${formatTel(tel)}?text=${encodeURIComponent(msg)}`,'_blank');
-      }
-    },500);
-  }else{
-    openModal('modal-ticket');
+    showNotif('📤 Toca Compartir imagen y selecciona WhatsApp para enviar el comprobante completo.','#1565c0');
   }
 }
 
@@ -14650,12 +14632,9 @@ async function compartirDocWSP(){
   }else{
     
     if(d.venta){
-      await compartirImagenComprobante();
-      // Una URL wa.me no puede adjuntar archivos automáticamente. En móviles
-      // compatibles, el usuario puede elegir WhatsApp desde Compartir.
-      if(aqUltimoEstadoCompartirPNG==='compartido'||aqUltimoEstadoCompartirPNG==='cancelado')return;
-      const msg=generarMsgWSP(d.venta,d.items,d.total,d.esCredito)+'\n\n_Adjunta la imagen PNG de AQUABRI._';
-      window.open(`https://wa.me/${formatTel(tel)}?text=${encodeURIComponent(msg)}`,'_blank');
+      // No abrir un mensaje de texto distinto del comprobante visual.
+      // Compartir únicamente el PNG del documento abierto.
+      return await compartirImagenComprobante();
     }
   }
 }

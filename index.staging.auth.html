@@ -4755,16 +4755,6 @@ html[data-aq-theme="dark"] #page-reportes #rep-calidad-detalle{background:#48381
   #modal-ticket #ticket-contenido thead th{background:#183153!important;color:#fff!important;}
 }
 </style>
-
-<script id="aq-banner-solo-qa">
-document.addEventListener('DOMContentLoaded',function(){
-  const a=document.createElement('div');
-  a.textContent='⚠ AQUABRI DE PRUEBAS — SIN VENTAS OFICIALES';
-  a.setAttribute('aria-label','Entorno de pruebas no productivo');
-  a.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483000;text-align:center;background:#b45309;color:white;font:700 12px system-ui;padding:6px;pointer-events:none';
-  document.body.appendChild(a);
-});
-</script>
 </body></html>`);
   win.document.close();
 }
@@ -21700,6 +21690,15 @@ async function aqAuditarCajaFase2(){
 }
 document.addEventListener('DOMContentLoaded',()=>{
   const fecha=document.getElementById('aq-f2-fecha');if(fecha&&!fecha.value)fecha.value=hoy();
+});
+</script>
+
+<script id="aq-banner-solo-qa">
+document.addEventListener('DOMContentLoaded',function(){
+ const a=document.createElement('div');a.textContent='⚠ AQUABRI DE PRUEBAS — SIN VENTAS OFICIALES';
+ a.setAttribute('aria-label','Entorno de pruebas no productivo');
+ a.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483000;text-align:center;background:#b45309;color:white;font:700 12px system-ui;padding:6px;pointer-events:none';
+ document.body.appendChild(a);
 });
 </script>
 </body>

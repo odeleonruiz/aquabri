@@ -3345,7 +3345,16 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 const SURL='https://odwccqqvxpsggggehjtt.supabase.co';
 const SKEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kd2NjcXF2eHBzZ2dnZ2VoanR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1ODQxNTgsImV4cCI6MjA5MDE2MDE1OH0.4RulBc7xRiqfy5mAK9yxpj49fr7OloTp0-wZ9pZ0LJA';
-const sb=supabase.createClient(SURL,SKEY);
+// AQUABRI: el identificador de sesión es emitido y verificado por el servidor.
+// Jamás incluir contraseñas o claves service_role en este navegador.
+async function aqFetchConSesion(input, init={}){
+  const cabeceras=new Headers(init.headers||{});
+  const token=localStorage.getItem('aqb_token');
+  const destino=typeof input==='string'?input:input?.url||'';
+  if(token && destino.includes('/rest/v1/'))cabeceras.set('x-aquabri-session',token);
+  return fetch(input,{...init,headers:cabeceras});
+}
+const sb=supabase.createClient(SURL,SKEY,{global:{fetch:aqFetchConSesion}});
 
 let D={cfg:{},usuarios:[],clientes:[],cats:[],prods:[],insumos:[],ventas:[],envases:[],envBod:0,actCat:[],actPres:[],actItems:[],gastos:[],metas:[],metasEmp:[],empleados:[],pagos:[],vales:[],creditos:[],deudasProv:[],facturas:[],comisiones:[],vehiculos:[],cargas:[]};
 let CU=null,cart=[],prodLigados=[],factItems=[],cargaItems=[],rutaParadasIds=[];
@@ -3362,27 +3371,25 @@ function genToken(){
   crypto.getRandomValues(bytes);
   return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
 }
-async function saveSession(uid){
-  const token=genToken();
-  const exp=new Date(Date.now()+30*24*60*60*1000).toISOString();
-  const {error}=await sb.from('sesiones').insert({usuario_id:uid,token,expira_en:exp});
-  if(error)throw error;
-  localStorage.setItem('aqb_token',token);
-  localStorage.setItem('aqb_uid',String(uid));
-}
 async function checkSession(){
   const token=localStorage.getItem('aqb_token');
-  const uid=localStorage.getItem('aqb_uid');
-  if(!token||!uid)return false;
-  // Correr ambas queries en paralelo
-  const[{data:sesion},{data:user}]=await Promise.all([
-    sb.from('sesiones').select('*').eq('token',token).eq('usuario_id',uid).gt('expira_en',new Date().toISOString()).single(),
-    sb.from('usuarios').select('*').eq('id',uid).single(),
-  ]);
-  if(!sesion||!user)return false;
-  CU=user;return true;
+  if(!token)return false;
+  const {data,error}=await sb.rpc('aq_sesion_perfil_seguro_v1');
+  if(error||!data?.id){
+    localStorage.removeItem('aqb_token');
+    localStorage.removeItem('aqb_uid');
+    return false;
+  }
+  CU=data;
+  localStorage.setItem('aqb_uid',String(CU.id));
+  return true;
 }
-async function clearSession(){const token=localStorage.getItem('aqb_token');if(token)await sb.from('sesiones').delete().eq('token',token);localStorage.removeItem('aqb_token');localStorage.removeItem('aqb_uid');}
+async function clearSession(){
+  try{await sb.rpc('aq_cerrar_sesion_segura_v1');}
+  catch(e){console.warn('No se pudo cerrar sesión remota',e);}
+  localStorage.removeItem('aqb_token');
+  localStorage.removeItem('aqb_uid');
+}
 
 async function loadAll(){
   const hoyStr=hoy();
@@ -3390,7 +3397,7 @@ async function loadAll(){
   // Cargar todo en paralelo — simple y directo
   const[r_cfg,r_usr,r_cats,r_prods,r_ins,r_clis,r_ventas,r_creds,r_emps,r_gas,r_veh,r_metas,r_pts,r_ptsp,r_liq,r_rutcli,r_cred2,r_visitas,r_comisiones,r_insumos,r_pagos,r_vales,r_deudasProv,r_facturas,r_actCat,r_actPres,r_actItems,r_aus,r_grupos,r_envases,r_envBod]=await Promise.all([
     sb.from('config').select('*').single(),
-    sb.from('usuarios').select('*'),
+    sb.rpc('aq_usuarios_listar_seguro_v1'),
     sb.from('categorias').select('*'),
     sb.from('productos').select('*'),
     sb.from('producto_insumos').select('*'),
@@ -3522,14 +3529,6 @@ async function init(){
       if(mensaje)mensaje.textContent='Conectando con Supabase… La respuesta está tardando más de lo normal.';
       showNotif('⚠️ Supabase tarda en responder. No se registrará ninguna venta durante la carga.','#e65100');
     },12000);
-    await Promise.race([
-      loadAll(),
-      new Promise((_,reject)=>{
-        fechaLimite=setTimeout(()=>reject(new Error('Tiempo de espera agotado al cargar información')),35000);
-      })
-    ]);
-    clearTimeout(fechaLimite);
-    applyConfig();
     const autorizado=await Promise.race([
       checkSession(),
       new Promise((_,reject)=>{
@@ -3537,6 +3536,16 @@ async function init(){
       })
     ]);
     clearTimeout(fechaLimite);
+    if(autorizado){
+      await Promise.race([
+        loadAll(),
+        new Promise((_,reject)=>{
+          fechaLimite=setTimeout(()=>reject(new Error('Tiempo de espera agotado al cargar información')),35000);
+        })
+      ]);
+      clearTimeout(fechaLimite);
+      applyConfig();
+    }
     document.getElementById('loading-screen').style.display='none';
     _aqInicioFinalizado=true;
     if(autorizado)startApp();
@@ -3552,19 +3561,29 @@ async function init(){
 async function doLogin(){
   const u=document.getElementById('lu').value.trim();
   const p=document.getElementById('lp').value;
-  const found=D.usuarios.find(x=>x.usuario===u&&x.pass===p);
-  if(!found){document.getElementById('lerr').textContent='Usuario o contraseña incorrectos';return;}
+  const errorEl=document.getElementById('lerr');
+  if(!u||!p){errorEl.textContent='Ingresa usuario y contraseña';return;}
+  errorEl.textContent='';
   try{
-    await saveSession(found.id);
-    CU=found;
+    const {data,error}=await sb.rpc('aq_login_usuario_seguro_v1',{p_usuario:u,p_password:p});
+    if(error||!data?.ok||!data?.token){
+      errorEl.textContent=data?.error||'No fue posible verificar el inicio de sesión';
+      return;
+    }
+    localStorage.setItem('aqb_token',data.token);
+    localStorage.setItem('aqb_uid',String(data.usuario.id));
+    CU=data.usuario;
     document.getElementById('lp').value='';
+    await loadAll();
+    applyConfig();
     document.getElementById('login-screen').classList.remove('show');
     startApp();
   }catch(e){
-    console.error('Error creando sesión:',e);
-    document.getElementById('lerr').textContent='No se pudo iniciar sesión. Revisa la conexión e intenta de nuevo.';
+    console.error('Inicio de sesión protegido:',e);
+    errorEl.textContent='No se pudo iniciar sesión. Revisa la conexión e intenta de nuevo.';
   }
 }
+
 document.getElementById('lp').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 async function doLogout(){await clearSession();CU=null;document.getElementById('app').classList.remove('show');document.getElementById('login-screen').classList.add('show');document.getElementById('lu').value='';document.getElementById('lp').value='';document.getElementById('lerr').textContent='';}
 
@@ -4814,7 +4833,7 @@ async function renderClientesEliminados(){
   const el=document.getElementById('ini-eliminados');
   if(!card||!el)return;
   if(!CU||!SOLO_JEFE.includes(CU.rol)){card.style.display='none';return;}
-  const{data:eliminados}=await sb.from('clientes_eliminados').select('*').order('fecha_eliminacion',{ascending:false}).limit(20);
+  const{data:eliminados}=await sb.from('clientes_eliminados').select('*').is('restaurado_en',null).order('fecha_eliminacion',{ascending:false}).limit(20);
   if(!eliminados||!eliminados.length){card.style.display='none';return;}
   card.style.display='';
   el.innerHTML=eliminados.map(c=>{
@@ -4835,44 +4854,19 @@ async function renderClientesEliminados(){
   }).join("");
 }
 async function restaurarCliente(elimId){
-  if(!confirm('¿Restaurar este cliente?'))return;
+  if(!CU||CU.rol!=='jefe'){showNotif('Solo el jefe puede restaurar clientes','#c62828');return;}
+  if(!confirm('¿Restaurar este cliente sin cambiar su ID ni sus ventas?'))return;
   showLoad(true);
-  const{data:eli}=await sb.from('clientes_eliminados').select('*').eq('id',elimId).single();
-  if(!eli){showLoad(false);showNotif('No se encontró el cliente','#c62828');return;}
-  // Restaurar con datos completos si están disponibles
-  let datosCliente;
-  if(eli.datos_completos){
-    try{
-      const d=typeof eli.datos_completos==='string'?JSON.parse(eli.datos_completos):eli.datos_completos;
-      // Quitar el id para que Supabase asigne uno nuevo
-      const{id:_,created_at:__,...resto}=d;
-      datosCliente=resto;
-    }catch(e){datosCliente=null;}
-  }
-  if(!datosCliente){
-    // Fallback con datos básicos
-    datosCliente={
-      nombre:eli.nombre,ruta:eli.ruta,telefono:eli.telefono,
-      direccion:eli.direccion,lat:eli.lat||null,lng:eli.lng||null,
-      tiene_exhibidor:eli.tiene_exhibidor||false,
-      frecuencia:eli.frecuencia||null,estado:'Activo'
-    };
-  }
-  const{data:nuevo,error}=await sb.from('clientes').insert(datosCliente).select().single();
-  if(error){showLoad(false);showNotif('Error al restaurar: '+error.message,'#c62828');return;}
-  // Eliminar del historial
-  await sb.from('clientes_eliminados').delete().eq('id',elimId);
-  await loadLight();
-  renderClientes();renderClientesEliminados();
-  showLoad(false);
-  showNotif(`✅ Cliente "${eli.nombre}" restaurado con ${eli.lat?'ubicación':'datos básicos'}`,'#2e7d32');
+  try{
+    const {data,error}=await sb.rpc('aq_restaurar_cliente_sesion_v1',{p_historial_id:Number(elimId)});
+    if(error||!data?.ok)throw error||new Error('Restauración no confirmada');
+    await loadLight();renderClientes();renderClientesEliminados();
+    showNotif('✅ Cliente restaurado con el mismo ID; historial conservado','#2e7d32');
+  }catch(e){console.error(e);showNotif('No se pudo restaurar: '+(e.message||''),'#c62828');}
+  finally{showLoad(false);}
 }
-
 async function limpiarHistorialEliminados(){
-  if(!confirm('¿Limpiar todo el historial de clientes eliminados?'))return;
-  await sb.from('clientes_eliminados').delete().neq('id',0);
-  renderClientesEliminados();
-  showNotif('Historial limpiado');
+  showNotif('El historial de clientes archivados se conserva por seguridad contable. No se eliminará.','#e65100');
 }
 function renderClientesInactivos(){
   const el=document.getElementById('ini-inactivos');if(!el)return;
@@ -5450,7 +5444,7 @@ async function cobrar(enviarWsp=false){
     return false;
   }
   const datosVenta={fecha:fechaVenta,cliente_id:cid?parseInt(cid):null,
-    desc_gral:aqCentavos(dg)/100,total,pagado:esCredito?0:pagado,
+    desc_gral:aqCentavos(dg)/100,total,pagado:(esCredito||estado==='Pendiente')?0:pagado,
     entrega:entTexto,notas:notasVenta,estado,
     bonificaciones:bonifs||null,usuario_id:CU?.id||null,
     nombre_mostrador:nombreLibre||null,
@@ -5461,11 +5455,12 @@ async function cobrar(enviarWsp=false){
   }
   let resultado=null,ventaError=null;
   try{
-    const respuesta=await sb.rpc('aq_registrar_venta_con_envases',{
-      p_token:localStorage.getItem('aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
+    const respuesta=await sb.rpc('aq_vender_sesion_segura_v1',{
       p_nonce:window._aqCobroNonce,
-      p_venta:datosVenta,
+      p_venta:{...datosVenta,
+        aq_medio_pago:medioPago,
+        aq_credito:esCredito,
+        aq_fecha_vencimiento:document.getElementById('v-cred-fecha')?.value||null},
       p_items:detalleVenta
     });
     resultado=respuesta.data;ventaError=respuesta.error;
@@ -5477,7 +5472,7 @@ async function cobrar(enviarWsp=false){
     document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
     const codigo=ventaError?.code?' · '+ventaError.code:'';
     const msg=ventaError?.message||'Supabase no confirmó la operación.';
-    const faltaFuncion=ventaError?.code==='PGRST202'||/aq_registrar_venta_con_envases|schema cache|function.*not found/i.test(msg);
+    const faltaFuncion=ventaError?.code==='PGRST202'||/aq_vender_sesion_segura_v1|schema cache|function.*not found/i.test(msg);
     alert(faltaFuncion
       ?'⚠️ Falta actualizar la función de venta y envases en Supabase. NO se registró esta venta. El carrito sigue intacto.'
       :'❌ No se confirmó la venta. '+msg+codigo+'\nEl carrito sigue disponible. Si hubo un error de conexión, revisa el Historial antes de reintentar para evitar duplicados.');
@@ -5496,6 +5491,8 @@ async function cobrar(enviarWsp=false){
 
   // El detalle ya fue confirmado; a partir de aquí registrar movimientos accesorios.
   const promesas=[];
+  if(!resultado.integral){
+
 
   // 2. Actualizar stock de cada producto
   for(const item of cart){
@@ -5544,6 +5541,7 @@ async function cobrar(enviarWsp=false){
     }));
   }
 
+  }
   // Movimientos complementarios: una venta confirmada no debe esconder
   // fallos de inventario/caja/crédito, pues requieren conciliación.
   let erroresMovimientos=[];
@@ -5566,9 +5564,9 @@ async function cobrar(enviarWsp=false){
   if(rp.data)D.prods=rp.data;
   if(rc.data)D.creditos=rc.data;
   // ── SISTEMA DE PUNTOS v2 — simple y directo ──
-  let _ptosGanadosTicket=0;
-  let _saldoNuevoTicket=null;
-  if(cid&&!esCredito){
+  let _ptosGanadosTicket=Number(resultado.puntos_ganados||0);
+  let _saldoNuevoTicket=resultado.saldo_puntos??null;
+  if(cid&&!esCredito&&!resultado.integral){
     try{
       // 1. Verificar que el programa esté activo
       const activo=D.puntosConfig?.activo;
@@ -5622,7 +5620,7 @@ async function cobrar(enviarWsp=false){
     }catch(e){console.error('Error puntos:',e);}
   }
   if(docActual){docActual._ptosGanados=_ptosGanadosTicket;docActual._saldoNuevo=_saldoNuevoTicket;}
-  mostrarTicket(venta,cart,dg,total,pagado,cid,entTexto,esCredito,bonifs);
+  mostrarTicket(venta,cart,dg,total,Number(venta.pagado??pagado),cid,entTexto,esCredito,bonifs);
   
   if(enviarWsp){
     const tel=document.getElementById('v-wsp-tel').value.trim();
@@ -6887,7 +6885,7 @@ async function agregarPuntoMapa(clienteId){
   navigator.geolocation.getCurrentPosition(async pos=>{
     const lat=pos.coords.latitude;
     const lng=pos.coords.longitude;
-    await sb.from('clientes').update({lat,lng}).eq('id',clienteId);
+    await sb.rpc('aq_guardar_cliente_sesion_v1',{p_cliente:{lat,lng},p_cliente_id:Number(clienteId)});
     const c=D.clientes.find(c=>c.id===clienteId);
     if(c){c.lat=lat;c.lng=lng;}
     renderHistorial();
@@ -7279,7 +7277,7 @@ async function asignarRutasPorCercaniaMasiva(){
   for(const c of sinRuta){
     const cercano=clienteMasCercanoConRuta(c.lat,c.lng,c.id);
     if(cercano){
-      const res=await sb.from('clientes').update({ruta:cercano.ruta}).eq('id',c.id);
+      const res=await sb.rpc('aq_guardar_cliente_sesion_v1',{p_cliente:{ruta:cercano.ruta},p_cliente_id:Number(c.id)});
       if(!res.error){c.ruta=cercano.ruta;asignados++;}
     } else {
       sinCercano++;
@@ -7308,8 +7306,8 @@ async function saveCli(){
   const obj={nombre:nom,telefono:document.getElementById('ct').value,direccion:document.getElementById('cd').value,ruta:rutaFinal,lat:latVal,lng:lngVal,tiene_exhibidor:document.getElementById('cexhib').value==='1',descripcion_exhibidor:document.getElementById('cexhib-desc').value,exhibidor_capacidad:parseInt(document.getElementById('cexhib-cap')?.value)||0,exhibidor_costo:parseFloat(document.getElementById('cexhib-costo')?.value)||0,fecha_nacimiento:nacRaw||null,vendedor_id:vendRaw};
   const id=document.getElementById('cid').value;
   if(id){
-    const {error}=await sb.from('clientes').update(obj).eq('id',id);
-    if(error){showNotif('Error al guardar cliente: '+error.message,'#c62828');return;}
+    const {data,error}=await sb.rpc('aq_guardar_cliente_sesion_v1',{p_cliente:obj,p_cliente_id:Number(id)});
+    if(error||!data?.ok){showNotif('Error al guardar cliente: '+(error?.message||'Sin confirmación'),'#c62828');return;}
   } else {
     try{const r=await aqCrearClienteConCaptacion(obj);if(r.mensaje)showNotif(r.mensaje,'#e65100');}
     catch(e){showNotif('Error al registrar cliente: '+(e.message||e),'#c62828');return;}
@@ -7335,29 +7333,23 @@ function editCli(id){const c=D.clientes.find(x=>x.id===id);if(!c)return;document
   if(c.tiene_exhibidor){btnEx.style.background='#00695c';btnEx.innerHTML='✅ EXHIBIDOR ACTIVO — Toca para desactivar';boxEx.style.display='';}
   else{btnEx.style.background='#546e7a';btnEx.innerHTML='🖥 Tiene Exhibidor';boxEx.style.display='none';}
   document.getElementById('cexhib-desc').value=c.descripcion_exhibidor||'';if(document.getElementById('cexhib-cap'))document.getElementById('cexhib-cap').value=c.exhibidor_capacidad||0;if(document.getElementById('cexhib-costo'))document.getElementById('cexhib-costo').value=c.exhibidor_costo||0;document.getElementById('cli-ft').textContent='Editar Cliente';fillRutaDatalist(c.lat,c.lng);}
-async function delCli(id){if(!confirm('¿Eliminar cliente? Se eliminarán también sus registros asociados.'))return;
+async function delCli(id){
+  if(!CU||CU.rol!=='jefe'){showNotif('Solo el jefe puede archivar clientes','#c62828');return;}
+  if(!confirm('¿Archivar este cliente SIN borrar créditos, ventas ni movimientos?'))return;
   showLoad(true);
-  const cli=D.clientes.find(c=>c.id===id);
-  if(cli)await sb.from('clientes_eliminados').insert({nombre:cli.nombre||'',ruta:cli.ruta||'',telefono:cli.telefono||'',direccion:cli.direccion||'',lat:cli.lat||null,lng:cli.lng||null,tiene_exhibidor:cli.tiene_exhibidor||false,frecuencia:cli.frecuencia||null,datos_completos:JSON.stringify(cli),fecha_eliminacion:hoy(),eliminado_por:CU?.nombre||'Jefe'});
-  await sb.from('creditos').delete().eq('cliente_id',id);
-  await sb.from('puntos_historial').delete().eq('cliente_id',id);
-  await sb.from('puntos_clientes').delete().eq('cliente_id',id);
-  await sb.from('puntos_canjes_qr').delete().eq('cliente_id',id);
-  await sb.from('visitas').delete().eq('cliente_id',id);
-  await sb.from('envases').delete().eq('cliente_id',id);
-  await sb.from('activos_prestamos').delete().eq('cliente_id',id);
-  await sb.from('ruta_paradas').delete().eq('cliente_id',id);
-  await sb.from('ventas').update({cliente_id:null}).eq('cliente_id',id);
-  await sb.from('clientes').delete().eq('id',id);
-  showLoad(false);
-  await loadLight();renderClientes();renderClientesInactivos();renderClientesEliminados();
-  // Refrescar lista de sugerencias y ruta inteligente
-  renderSugerenciasVisita();
-  if(_rutaInteligente.length>0){
-    _rutaInteligente=_rutaInteligente.filter(r=>r.c.id!==id);
-    mostrarLotePorVisitar(0);
-  }
-  showNotif('Cliente eliminado','#c62828');}
+  try{
+    const {data,error}=await sb.rpc('aq_archivar_cliente_sesion_v1',{p_cliente_id:Number(id)});
+    if(error||!data?.ok)throw error||new Error('Archivado no confirmado');
+    await loadLight();renderClientes();renderClientesInactivos();renderClientesEliminados();
+    renderSugerenciasVisita();
+    if(_rutaInteligente.length>0){
+      _rutaInteligente=_rutaInteligente.filter(r=>r.c.id!==id);
+      mostrarLotePorVisitar(0);
+    }
+    showNotif('✅ Cliente archivado. Sus ventas, créditos y movimientos se conservaron.','#2e7d32');
+  }catch(e){console.error(e);showNotif('No se archivó: '+(e?.message||'Revisa créditos o envases pendientes'),'#c62828');}
+  finally{showLoad(false);}
+}
 function fillRutaDatalist(latCliente=null, lngCliente=null){
   // Deduplicar por nombre normalizado — "Manuel de Jesus" y "manuel de jesús" son la misma
   const rutasMap={};
@@ -7440,7 +7432,7 @@ function initMapa(){
           const cid=gmEditandoUbicacion;
           const lat=e.latLng.lat().toFixed(6);
           const lng=e.latLng.lng().toFixed(6);
-          await sb.from('clientes').update({lat:parseFloat(lat),lng:parseFloat(lng)}).eq('id',cid);
+          await sb.rpc('aq_guardar_cliente_sesion_v1',{p_cliente:{lat:parseFloat(lat),lng:parseFloat(lng)},p_cliente_id:Number(cid)});
           const cliUpd=D.clientes.find(c=>c.id===cid);
           if(cliUpd){cliUpd.lat=parseFloat(lat);cliUpd.lng=parseFloat(lng);addGmMarker(cliUpd);}
           actualizarContadorSinUbic();
@@ -7891,7 +7883,7 @@ async function guardarRutaDesdeIW(cid){
       .find(r=>normalizarRuta(r)===normalizarRuta(nuevaRuta));
     if(rutaExistente)nuevaRuta=rutaExistente; // usar la versión ya existente
   }
-  await sb.from('clientes').update({ruta:nuevaRuta||null}).eq('id',cid);
+  await sb.rpc('aq_guardar_cliente_sesion_v1',{p_cliente:{ruta:nuevaRuta||null},p_cliente_id:Number(cid)});
   c.ruta=nuevaRuta||null;
   if(gmMarkers[cid]?._iw)gmMarkers[cid]._iw.close();
   addGmMarker(c);
@@ -8034,7 +8026,7 @@ async function guardarNuevoCliMapa(){
 
 async function guardarPosCliente(){
   const cid=parseInt(document.getElementById('mk-cli').value);if(!cid)return;
-  await sb.from('clientes').update({lat:parseFloat(mkLat),lng:parseFloat(mkLng)}).eq('id',cid);
+  await sb.rpc('aq_guardar_cliente_sesion_v1',{p_cliente:{lat:parseFloat(mkLat),lng:parseFloat(mkLng)},p_cliente_id:Number(cid)});
   closeModal('modal-marcar-cli');cancelarModoMarcar();
   await loadAll();const c=D.clientes.find(x=>x.id===cid);
   if(c&&gmMap)addGmMarker(c);showNotif('✅ Posición guardada');
@@ -9086,7 +9078,7 @@ async function ejecutarFusion(){
   // Actualizar en Supabase
   const cliOrigen=D.clientes.filter(c=>c.ruta===origen);
   for(const c of cliOrigen){
-    await sb.from('clientes').update({ruta:destino}).eq('id',c.id);
+    await sb.rpc('aq_guardar_cliente_sesion_v1',{p_cliente:{ruta:destino},p_cliente_id:Number(c.id)});
     c.ruta=destino;
   }
   closeModal('modal-fusionar');
@@ -9128,7 +9120,7 @@ async function unificarRutasDuplicadas(){
     // Actualizar todos los clientes de ese grupo que tengan versión diferente
     const aActualizar=arr.filter(x=>x.ruta!==nombreOficial);
     for(const c of aActualizar){
-      await sb.from('clientes').update({ruta:nombreOficial}).eq('id',c.id);
+      await sb.rpc('aq_guardar_cliente_sesion_v1',{p_cliente:{ruta:nombreOficial},p_cliente_id:Number(c.id)});
       const local=D.clientes.find(x=>x.id===c.id);
       if(local)local.ruta=nombreOficial;
       total++;
@@ -10945,8 +10937,7 @@ async function aqCobroClienteSeguro({clienteId,monto,medio,notas='',creditoId=nu
   aqCobroCreditoGuardando=true;showLoad(true);
   let data=null,err=null;
   try{
-    const r=await sb.rpc('aq_cobrar_credito_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,
+    const r=await sb.rpc('aq_cobrar_credito_sesion_segura_v1',{
       p_nonce:previo.nonce,p_cliente_id:cid,p_monto:payload.monto,
       p_medio:medio,p_notas:payload.notas,p_credito_id:crid
     });data=r.data;err=r.error;
@@ -11387,33 +11378,64 @@ function actualizarEntradaPreview(){
   if(despues)despues.textContent=D.envBod+cant;
 }
 
+
+// Control transaccional: todos los movimientos de envases y su reversión contable
+// deben pasar por el servidor. La clave de operación persiste en fallos de red.
+const AQ_ENVASE_OPERACION_PENDIENTE='aqb_envase_pendiente_v1';
+let _aqEnvaseGuardando=false;
+async function aqEnvMovimientoSeguro({tipo,cantidad,clienteId=null,fecha=null,notas='',precio=0,medio='efectivo'}){
+  if(_aqEnvaseGuardando){showNotif('Ya se está registrando un movimiento de envases','#c62828');return null;}
+  const params={p_tipo:tipo,p_cantidad:Number(cantidad),p_cliente_id:clienteId==null?null:Number(clienteId),
+    p_fecha:fecha||hoy(),p_notas:String(notas||'').trim(),
+    p_precio_unitario:Number(precio||0),p_medio_pago:medio||'efectivo'};
+  if(!Number.isSafeInteger(params.p_cantidad)||params.p_cantidad<1||params.p_cantidad>10000)
+  {showNotif('Cantidad inválida','#c62828');return null;}
+  const firma=JSON.stringify(params);
+  let pending=null;
+  try{pending=JSON.parse(localStorage.getItem(AQ_ENVASE_OPERACION_PENDIENTE)||'null');}
+  catch(_){pending=null;}
+  if(pending && pending.firma!==firma){
+    if(!confirm('Existe un movimiento anterior cuyo resultado puede no haberse confirmado.\n'
+      +'Revisa primero el historial y bodega antes de iniciar otro movimiento.\n'
+      +'¿Confirmas que verificaste y deseas iniciar una operación diferente?'))return null;
+    localStorage.removeItem(AQ_ENVASE_OPERACION_PENDIENTE);
+    pending=null;
+  }
+  if(!pending){
+    if(!globalThis.crypto?.randomUUID){showNotif('Usa una conexión HTTPS para registrar envases','#c62828');return null;}
+    pending={firma,nonce:crypto.randomUUID(),fecha:new Date().toISOString()};
+    localStorage.setItem(AQ_ENVASE_OPERACION_PENDIENTE,JSON.stringify(pending));
+  }
+  _aqEnvaseGuardando=true;
+  try{
+    const {data,error}=await sb.rpc('aq_registrar_movimiento_envase_sesion_v1',{...params,p_nonce:pending.nonce});
+    if(error||!data?.ok)throw error||new Error('El servidor no confirmó el movimiento');
+    localStorage.removeItem(AQ_ENVASE_OPERACION_PENDIENTE);
+    return data;
+  }catch(error){
+    console.error('AQUABRI movimiento de envases:',error);
+    showNotif('No se confirmó el movimiento. Revisa historial antes de reintentar. '+(error?.message||''),'#c62828');
+    return null;
+  }finally{_aqEnvaseGuardando=false;}
+}
+
 async function ingresarEnvases(){
   const cant=Number(document.getElementById('ent-cant').value);
-  if(!Number.isSafeInteger(cant)||cant<=0){showNotif('Ingresa una cantidad entera válida','#c62828');return;}
-  const motivo=document.getElementById('ent-motivo').value;
-  const notas=document.getElementById('ent-notas').value;
+  const motivo=document.getElementById('ent-motivo')?.value||'Compra';
+  const notas=document.getElementById('ent-notas')?.value||'';
   const boton=document.querySelector('button[onclick="ingresarEnvases()"]');
+  if(!Number.isSafeInteger(cant)||cant<=0){showNotif('Cantidad de entrada inválida','#c62828');return;}
   if(boton?.disabled)return;
   if(boton)boton.disabled=true;
   try{
-    const {data:actual,error:lecturaError}=await sb.from('envases_bodega').select('cantidad').eq('id',1).maybeSingle();
-    if(lecturaError)throw lecturaError;
-    if(!actual)throw new Error('No existe el registro de bodega (id 1). Debe configurarse en Supabase antes de registrar entradas.');
-    const nuevaCant=Number(actual.cantidad||0)+cant;
-    const {data:guardado,error:actualizarError}=await sb.from('envases_bodega').update({cantidad:nuevaCant}).eq('id',1).select('cantidad').maybeSingle();
-    if(actualizarError)throw actualizarError;
-    if(!guardado)throw new Error('Supabase no confirmó la actualización de bodega. Revisa los permisos de la tabla.');
-    const {error:histError}=await sb.from('envases').insert({fecha:hoy(),cliente_id:null,cant,tipo:'Entrada',notas:motivo+(notas?' — '+notas:''),precio:0});
-    if(histError){
-      await loadAll();updateEnvStats();renderEnvases();
-      throw new Error('La bodega se actualizó, pero falló el historial. NO repitas la entrada; revisa el movimiento: '+histError.message);
-    }
+    const data=await aqEnvMovimientoSeguro({tipo:'Entrada',cantidad:cant,notas:motivo+(notas?' — '+notas:'')});
+    if(!data)return;
     await loadAll();updateEnvStats();renderEnvases();
     document.getElementById('ent-cant').value=1;
     document.getElementById('ent-notas').value='';
     actualizarEntradaPreview();
-    showNotif('✅ '+cant+' envases ingresados a bodega. Total: '+D.envBod);
-  }catch(error){console.error('Error entrada envases:',error);showNotif('Error: '+(error.message||'No se pudo registrar'),'#c62828');}
+    showNotif(data.repetida?'✅ Entrada ya registrada; no se duplicó':'✅ Entrada registrada. Bodega: '+data.bodega_final,'#2e7d32');
+  }catch(e){console.error(e);showNotif('No se pudo actualizar la vista','#c62828');}
   finally{if(boton)boton.disabled=false;}
 }
 
@@ -11422,70 +11444,54 @@ async function prestarEnv(){
   const cant=Number(document.getElementById('ev-cant')?.value);
   const fecha=document.getElementById('envp-fecha')?.value;
   const cli=D.clientes.find(c=>c.id===cid);
-  if(!cli){showNotif('Selecciona un cliente de la lista','#c62828');return;}
-  if(!Number.isSafeInteger(cant)||cant<=0){showNotif('Ingresa una cantidad entera mayor que cero','#c62828');return;}
-  if(!fecha){showNotif('Selecciona la fecha del préstamo','#c62828');return;}
-  if(cant>D.envBod){showNotif('No hay suficientes envases en bodega','#c62828');return;}
+  if(!cli){showNotif('Selecciona un cliente','#c62828');return;}
+  if(!fecha||!Number.isSafeInteger(cant)||cant<=0){showNotif('Fecha o cantidad inválida','#c62828');return;}
   const boton=document.querySelector('#env-tab-prestamo button[onclick="prestarEnv()"]');
   if(boton?.disabled)return;
   if(boton)boton.disabled=true;
   try{
-    const {data:cliActual,error:readErr}=await sb.from('clientes').select('envases').eq('id',cid).maybeSingle();
-    if(readErr||!cliActual)throw readErr||new Error('No se pudo leer el cliente');
-    const {data:clienteGuardado,error:e1}=await sb.from('clientes').update({envases:Number(cliActual.envases||0)+cant}).eq('id',cid).select('id').maybeSingle();
-    if(e1||!clienteGuardado)throw e1||new Error('No se pudo actualizar el saldo del cliente');
-    const {data:bodegaGuardada,error:e2}=await sb.from('envases_bodega').update({cantidad:D.envBod-cant}).eq('id',1).select('cantidad').maybeSingle();
-    if(e2||!bodegaGuardada)throw e2||new Error('No se pudo actualizar bodega; revisa el saldo del cliente antes de repetir');
-    const {error:e3}=await sb.from('envases').insert({fecha,cliente_id:cid,cant,tipo:'Préstamo',notas:document.getElementById('envp-notas').value,precio:0});
-    if(e3)throw e3;
-    // No dejar seleccionado al cliente anterior después de guardar.
+    const data=await aqEnvMovimientoSeguro({tipo:'Préstamo',cantidad:cant,clienteId:cid,fecha,notas:document.getElementById('envp-notas')?.value||''});
+    if(!data)return;
     const buscador=document.getElementById('envp-buscar');
-    const selector=document.getElementById('envp-cli');
     if(buscador)buscador.value='';
-    if(selector)selector.value='';
     await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();
-    if(selector)selector.value='';
+    const selector=document.getElementById('envp-cli');if(selector)selector.value='';
     document.getElementById('ev-cant').value='1';
     document.getElementById('envp-notas').value='';
     document.getElementById('envp-fecha').value=hoy();
-    showNotif('✅ Préstamo registrado');
-  }catch(error){
-    console.error('Error registrando préstamo de envases:',error);
-    showNotif('No se completó el préstamo: '+(error.message||'revisa conexión y permisos'),'#c62828');
-    // Las operaciones anteriores pueden haber quedado guardadas: revisar datos antes de reintentar.
-    try{await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();}catch(e){console.error(e);}
-  }finally{if(boton)boton.disabled=false;}
+    showNotif(data.repetida?'✅ Préstamo ya registrado; no se duplicó':'✅ Préstamo registrado','#2e7d32');
+  }catch(e){console.error(e);showNotif('Error al actualizar el préstamo','#c62828');}
+  finally{if(boton)boton.disabled=false;}
 }
 
 async function devolverEnv(){
-  const cid=parseInt(document.getElementById('dev-cli').value);
-  const cant=parseInt(document.getElementById('dev-cant').value)||1;
-  const cli=D.clientes.find(c=>c.id===cid);
-  if(!cli||(cli.envases||0)<cant){showNotif(`El cliente solo tiene ${cli?.envases||0} envases prestados`,'#c62828');return;}
-  await sb.from('clientes').update({envases:cli.envases-cant}).eq('id',cid);
-  await sb.from('envases_bodega').update({cantidad:D.envBod+cant}).eq('id',1);
-  await sb.from('envases').insert({fecha:hoy(),cliente_id:cid,cant,tipo:'Devolución',notas:document.getElementById('dev-notas')?.value||'',precio:0});
+  const cid=Number(document.getElementById('dev-cli')?.value);
+  const cant=Number(document.getElementById('dev-cant')?.value);
+  if(!Number.isSafeInteger(cid)||cid<=0||!Number.isSafeInteger(cant)||cant<=0)
+  {showNotif('Cliente o cantidad inválidos','#c62828');return;}
+  const data=await aqEnvMovimientoSeguro({tipo:'Devolución',cantidad:cant,clienteId:cid,notas:document.getElementById('dev-notas')?.value||''});
+  if(!data)return;
   await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();
   document.getElementById('dev-info').textContent='';
-  showNotif('✅ Devolución registrada — envase vuelve a bodega');
+  showNotif(data.repetida?'✅ Devolución ya registrada':'✅ Devolución registrada, saldo actualizado','#2e7d32');
 }
 
 async function venderEnvase(){
-  const cant=parseInt(document.getElementById('venv-cant').value)||1;
-  const precio=parseFloat(document.getElementById('venv-precio').value)||0;
-  if(cant>D.envBod){showNotif('No hay suficientes envases en bodega','#c62828');return;}
-  if(!precio){showNotif('Ingresa el precio de venta','#c62828');return;}
-  const cid=document.getElementById('venv-cli').value;
-  const total=cant*precio;
-  
-  await sb.from('envases_bodega').update({cantidad:D.envBod-cant}).eq('id',1);
-  
-  await sb.from('envases').insert({fecha:document.getElementById('venv-fecha').value,cliente_id:cid?parseInt(cid):null,cant,tipo:'Venta',notas:document.getElementById('venv-notas').value||'',precio:total});
-  
-  await sb.from('ventas').insert({fecha:document.getElementById('venv-fecha').value,cliente_id:cid?parseInt(cid):null,total,pagado:total,entrega:'Entrega Inmediata',notas:'Venta de envase vacío ×'+cant,estado:'Entregado',bonificaciones:''});
+  const cant=Number(document.getElementById('venv-cant')?.value);
+  const precio=Number(document.getElementById('venv-precio')?.value);
+  const cidRaw=document.getElementById('venv-cli')?.value;
+  const fecha=document.getElementById('venv-fecha')?.value||hoy();
+  if(!Number.isSafeInteger(cant)||cant<=0||!Number.isFinite(precio)||precio<=0)
+  {showNotif('Cantidad o precio de venta inválidos','#c62828');return;}
+  const data=await aqEnvMovimientoSeguro({tipo:'Venta',cantidad:cant,clienteId:cidRaw?Number(cidRaw):null,
+    fecha,precio,notas:document.getElementById('venv-notas')?.value||''});
+  if(!data)return;
   await loadAll();updateEnvStats();renderEnvases();fillEnvSelects();
-  document.getElementById('venv-cant').value=1;document.getElementById('venv-precio').value=0;document.getElementById('venv-notas').value='';document.getElementById('venv-total').textContent='';
-  showNotif(`✅ Venta de ${cant} envase(s) por ${fQ(total)}`);
+  document.getElementById('venv-cant').value=1;
+  document.getElementById('venv-precio').value=0;
+  document.getElementById('venv-notas').value='';
+  document.getElementById('venv-total').textContent='';
+  showNotif(data.repetida?'✅ Venta ya registrada, no duplicada':'✅ Venta confirmada en facturas, caja y bodega','#2e7d32');
 }
 
 function renderEnvPrestados(){
@@ -11546,18 +11552,14 @@ function cambiarCantDev(cid,delta,maximo){
 }
 
 async function confirmarDevRapido(cid,maximo){
-  const cantEl=document.getElementById('cant-dev-'+cid);
-  const cant=parseInt(cantEl?.textContent)||1;
-  if(cant<=0||cant>maximo){showNotif('Cantidad inválida','#c62828');return;}
-  const cli=D.clientes.find(c=>c.id===cid);
-  if(!cli)return;
-  showLoad(true);
-  await sb.from('clientes').update({envases:cli.envases-cant}).eq('id',cid);
-  await sb.from('envases_bodega').update({cantidad:D.envBod+cant}).eq('id',1);
-  await sb.from('envases').insert({fecha:hoy(),cliente_id:cid,cant,tipo:'Devolución',notas:'Devolución',precio:0});
+  const cant=Number(document.getElementById('cant-dev-'+cid)?.textContent||0);
+  if(!Number.isSafeInteger(cant)||cant<=0||cant>maximo){
+    showNotif('Cantidad inválida','#c62828');return;
+  }
+  const data=await aqEnvMovimientoSeguro({tipo:'Devolución',cantidad:cant,clienteId:cid,notas:'Devolución'});
+  if(!data)return;
   await loadAll();updateEnvStats();renderEnvPrestados();fillEnvSelects();
-  showLoad(false);
-  showNotif('✅ '+cant+' envase(s) devuelto(s)');
+  showNotif(data.repetida?'✅ Devolución ya registrada':'✅ '+cant+' envase(s) devuelto(s)','#2e7d32');
 }
 
 async function devRapido(cid,maximo){
@@ -11593,15 +11595,15 @@ async function delEnvase(id){
   if(!CU||!SOLO_JEFE.includes(CU.rol))return;
   const e=(D.envases||[]).find(x=>Number(x.id)===Number(id));
   if(e?.venta_id){showNotif('Este préstamo pertenece a la factura #'+e.venta_id+'. Cancela la factura desde Historial.','#c62828');return;}
-  if(!confirm('¿Eliminar este movimiento? Se revertirá también su efecto en el saldo del cliente y la bodega.'))return;
+  if(!confirm('¿Anular este movimiento conservando su historial y revirtiendo el saldo del cliente y la bodega?'))return;
   try{
-    const {data,error}=await sb.rpc('aq_eliminar_movimiento_envase',{
-      p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU.id)||0,p_movimiento_id:Number(id)
+    const {data,error}=await sb.rpc('aq_anular_movimiento_envase_sesion_v1',{
+      p_movimiento_id:Number(id)
     });
     if(error)throw error;
     if(!data?.ok)throw new Error('Supabase no confirmó la eliminación');
     await loadAll();updateEnvStats();renderEnvases();renderEnvPrestados();
-    showNotif('✅ Movimiento eliminado; préstamo y bodega corregidos','#2e7d32');
+    showNotif('✅ Movimiento anulado; saldo del cliente y bodega corregidos, historial conservado','#2e7d32');
   }catch(err){
     console.error('AQUABRI: error eliminando movimiento de envases',err);
     showNotif('No se eliminó el movimiento: '+(err.message||'verifica el saldo del cliente'),'#c62828');
@@ -12467,9 +12469,7 @@ async function saveGasto(){
   const btn=el('g-guardar');if(btn){btn.disabled=true;btn.textContent='⏳ Guardando…';}
   let confirmado=null;
   try{
-    const resp=await sb.rpc('aq_registrar_gasto_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
+    const resp=await sb.rpc('aq_registrar_gasto_sesion_v1',{
       p_nonce:window._aqGastoPendiente.nonce,
       p_gasto:datos
     });
@@ -12558,11 +12558,7 @@ function syncFiltroGastos(val,tipo){
 async function delGasto(id){
   if(!confirm('¿Eliminar este gasto? Si tiene una salida de Caja vinculada y todavía no se cerró, se eliminarán ambos registros juntos.'))return;
   try{
-    const resp=await sb.rpc('aq_eliminar_gasto_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
-      p_gasto_id:Number(id)
-    });
+    const resp=await sb.rpc('aq_eliminar_gasto_sesion_v1',{p_gasto_id:Number(id)});
     if(resp.error)throw resp.error;
     if(!resp.data?.eliminado)throw new Error('Supabase no confirmó la eliminación.');
     await aqRecargarGastos();
@@ -12777,7 +12773,7 @@ async function aqCargarVendedoresReportes(){
   let usuarios=usuariosPrevios;
   let huboError=false;
   try{
-    const {data,error}=await sb.from('usuarios').select('id,nombre,usuario,rol,estado').order('nombre',{ascending:true});
+    const {data,error}=await sb.rpc('aq_usuarios_listar_seguro_v1');
     if(error)throw error;
     if(Array.isArray(data)){
       usuarios=data;
@@ -14452,29 +14448,23 @@ async function confirmarPagoComision(empId, nombre, periodo){
 
 function handleFotoUpload(input){const file=input.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{userFotoBase64=e.target.result;document.getElementById('u-foto-prev').src=e.target.result;document.getElementById('u-foto-prev').style.display='';document.getElementById('u-foto-fb').style.display='none';};r.readAsDataURL(file);}
 async function saveUser(){
+  if(!CU||CU.rol!=='jefe'){showNotif('Solo el jefe puede administrar usuarios','#c62828');return;}
   const nom=document.getElementById('unom').value.trim();
   const usr=document.getElementById('uusr').value.trim();
   const pass=document.getElementById('upass').value;
+  const id=Number(document.getElementById('uid').value)||null;
+  const rol=document.getElementById('urol').value;
   if(!nom||!usr){showNotif('Nombre y usuario requeridos','#c62828');return;}
-  const id=document.getElementById('uid').value;
-  if(id){
-    // Editar — NO permitir cambiar nombre
-    const uExist=D.usuarios.find(x=>x.id===parseInt(id));
-    const obj={rol:document.getElementById('urol').value,foto:userFotoBase64||''};
-    const esJefeSave=CU&&SOLO_JEFE.includes(CU.rol);
-    if(esJefeSave){
-      obj.nombre=nom;
-      obj.usuario=usr;
-    }
-    if(pass)obj.pass=pass;
-    // Ignorar cambio de nombre silenciosamente
-    await sb.from('usuarios').update(obj).eq('id',id);
-  } else {
-    if(!pass){showNotif('Contraseña requerida','#c62828');return;}
-    await sb.from('usuarios').insert({nombre:nom,usuario:usr,pass,rol:document.getElementById('urol').value,foto:userFotoBase64||''});
-  }
-  await loadAll();clearUserForm();renderUsers();cargarPermisosCustom().then(renderPermisosEditor);showNotif('✅ Usuario guardado','#2e7d32');
+  try{
+    const {data,error}=await sb.rpc('aq_guardar_usuario_seguro_v1',{
+      p_id:id,p_nombre:nom,p_usuario:usr,p_password:pass,p_rol:rol,p_foto:userFotoBase64||''
+    });
+    if(error||!data?.id)throw error||new Error('No se pudo guardar el usuario');
+    await loadAll();clearUserForm();renderUsers();cargarPermisosCustom().then(renderPermisosEditor);
+    showNotif('✅ Usuario guardado','#2e7d32');
+  }catch(error){console.error(error);showNotif('No se pudo guardar el usuario','#c62828');}
 }
+
 function renderUsers(){document.getElementById('usr-tbody').innerHTML=D.usuarios.map(u=>`<tr><td>${u.id}</td><td>${u.foto?`<img src="${u.foto}" style="width:30px;height:30px;border-radius:50%;object-fit:cover">`:'<span style="font-size:20px">👤</span>'}</td><td><b>${u.nombre}</b></td><td><code>${u.usuario}</code></td><td><span class="badge ${u.rol==='jefe'?'baz':'bgr'}">${u.rol}</span></td><td>${u.id===1?'<span class="tmuted" style="font-size:10px">Protegido</span>':`<button class="btn bsm" onclick="editUser(${u.id})">✏️</button> <button class="btn bd bsm" onclick="delUser(${u.id})">🗑</button>`}</td></tr>`).join('');}
 function editUser(id){
   const u=D.usuarios.find(x=>x.id===id);if(!u)return;
@@ -14498,7 +14488,13 @@ function editUser(id){
   if(u.foto){document.getElementById('u-foto-prev').src=u.foto;document.getElementById('u-foto-prev').style.display='';document.getElementById('u-foto-fb').style.display='none';}
   document.getElementById('uft').textContent='Editar Usuario — '+u.nombre;
 }
-async function delUser(id){if(id===1){showNotif('No puedes eliminar al Jefe','#c62828');return;}if(!confirm('¿Eliminar usuario?'))return;const emp=D.empleados.find(e=>e.usuario_id===id);await sb.from('usuarios').delete().eq('id',id);await loadLight();renderUsers();showNotif('Usuario eliminado');}
+async function delUser(id){
+  if(CU?.rol!=='jefe'||id===CU.id){showNotif('No puedes desactivar al Jefe','#c62828');return;}
+  if(!confirm('¿Desactivar este usuario sin borrar su historial?'))return;
+  const {data,error}=await sb.rpc('aq_desactivar_usuario_seguro_v1',{p_id:id});
+  if(error||!data){showNotif('No se pudo desactivar el usuario','#c62828');return;}
+  await loadAll();renderUsers();showNotif('Usuario desactivado; historial conservado','#2e7d32');
+}
 function clearUserForm(){
   const nomInp=document.getElementById('unom');
   if(nomInp){nomInp.disabled=false;nomInp.style.background='';nomInp.style.color='';nomInp.title='';}
@@ -15928,7 +15924,7 @@ function usarUbicacionEnEdicion(){
     const lng=pos.coords.longitude.toFixed(6);
     const c=D.clientes.find(x=>x.id===gmEditandoUbicacion);
     if(confirm('¿Usar tu ubicación actual para '+( c?.nombre||'este cliente')+'?\nLat: '+lat+'\nLng: '+lng)){
-      sb.from('clientes').update({lat:parseFloat(lat),lng:parseFloat(lng)}).eq('id',gmEditandoUbicacion).then(async()=>{
+      sb.rpc('aq_guardar_cliente_sesion_v1',{p_cliente:{lat:parseFloat(lat),lng:parseFloat(lng)},p_cliente_id:Number(gmEditandoUbicacion)}).then(async()=>{
         await loadLight();
         D.clientes.filter(c=>c.lat&&c.lng).forEach(c=>addGmMarker(c));
         showNotif('✅ Ubicación actualizada','#2e7d32');
@@ -16903,6 +16899,28 @@ function modalAbrirCaja(){
   openModal('modal-abrir-caja');
 }
 
+
+// Los reintentos de apertura/cierre de Caja usan el mismo nonce de servidor.
+// Nunca descartar un resultado de red desconocido sin revisar primero el historial.
+function aqCajaNoncePendiente(tipo,parametros){
+  const key='aqb_caja_'+tipo+'_pendiente_v1';
+  const firma=JSON.stringify(parametros);
+  let intento;
+  try{intento=JSON.parse(localStorage.getItem(key)||'null');}catch(_){intento=null;}
+  if(intento&&intento.firma!==firma){
+    if(!confirm('Existe una operación de Caja anterior sin resultado confirmado. '
+       +'Revisa el historial y confirma que es una operación DIFERENTE. '
+       +'¿Ya lo verificaste?'))return null;
+    localStorage.removeItem(key);intento=null;
+  }
+  if(!intento){
+    if(!globalThis.crypto?.randomUUID)throw new Error('Se necesita HTTPS para usar Caja');
+    intento={firma,nonce:crypto.randomUUID()};
+    localStorage.setItem(key,JSON.stringify(intento));
+  }
+  return intento.nonce;
+}
+function aqCajaNonceConfirmado(tipo){localStorage.removeItem('aqb_caja_'+tipo+'_pendiente_v1');}
 let aqCajaAperturaGuardando=false;
 async function abrirCaja(){
   if(aqCajaAperturaGuardando)return;
@@ -16935,9 +16953,14 @@ async function abrirCaja(){
     }
     // Registro informativo, NO sustituye auditoría del actor en Supabase.
     notaFinal=(notaFinal?notaFinal+' · ':'')+'Apertura solicitada por: '+(CU?.nombre||'Usuario #'+(CU?.id||'?'));
-    const {error:escrituraError}=await sb.from('caja')
-      .insert({fecha:hoy(),tipo:'apertura',monto,notas:notaFinal,usuario_id:usuarioId});
-    if(escrituraError)throw escrituraError;
+    const params={p_fecha:hoy(),p_monto:monto,p_usuario_caja:usuarioId,p_notas:notaFinal};
+    const nonce=aqCajaNoncePendiente('apertura',params);
+    if(!nonce)return;
+    const {data,error:escrituraError}=await sb.rpc('aq_abrir_caja_sesion_v1',{
+      ...params,p_nonce:nonce
+    });
+    if(escrituraError||!data?.movimiento_id)throw escrituraError||new Error('Sin confirmación de apertura');
+    aqCajaNonceConfirmado('apertura');
     closeModal('modal-abrir-caja');
     showNotif('✅ Apertura guardada: Q '+monto.toFixed(2),'#2e7d32');
     await initCaja();
@@ -17098,8 +17121,19 @@ async function cerrarCaja(){
       (info.sinClasificarCantidad?' | Medios de pago sin clasificar: '+info.sinClasificarCantidad:'')+
       ' | Transferencias (fuera de efectivo): '+info.transferencias.toFixed(2)+' | Otros medios (fuera de efectivo): '+info.otrosNoEfectivo.toFixed(2);
     const notas=(notasUsuario?notasUsuario+' · ':'')+resumen;
-    const {error}=await sb.from('caja').insert({fecha,tipo:'cierre',monto,notas,usuario_id:CU?.id||null});
-    if(error)throw error;
+    const parametros={
+      p_fecha:fecha,p_apertura_id:info.aperturaId,p_contado:monto,
+      p_esperado_cliente:info.esperado,p_num_movimientos:info.numeroMovimientos,
+      p_acepta_sin_clasificar:info.sinClasificarCantidad>0,
+      p_acepta_diferencia:Math.abs(diff)>=0.01,p_notas:notas
+    };
+    const nonce=aqCajaNoncePendiente('cierre',parametros);
+    if(!nonce)return;
+    const {data,error}=await sb.rpc('aq_cerrar_caja_sesion_v1',{
+      ...parametros,p_nonce:nonce
+    });
+    if(error||!data?.movimiento_id)throw error||new Error('Cierre sin confirmar');
+    aqCajaNonceConfirmado('cierre');
     aqCajaCierrePreparado=null;
     window._aqFechaCierreForzado=null;window._aqCierreSaldoHistorico=null;
     closeModal('modal-cerrar-caja');
@@ -17662,8 +17696,7 @@ async function abrirLiquidacionGrupo(ids){
   cargaAgrupada.carga_items=Object.values(itemsMap);
   _liqCargaActual=cargaAgrupada;
   // Buscar ventas del empleado del día
-  const{data:usuEmp}=await sb.from('usuarios').select('id').eq('empleado_id',c0.empleado_id).maybeSingle();
-  const usuarioId=usuEmp?.id||null;
+  const usuarioId=(D.usuarios||[]).find(u=>u.empleado_id===c0.empleado_id)?.id||null;
   let ventasQuery=sb.from('ventas')
     .select('*,clientes(nombre),venta_items(*,productos(nombre,precio))')
     .gte('fecha',c0.fecha).order('id',{ascending:false});
@@ -17749,8 +17782,7 @@ async function abrirLiquidacion(cargaId){
   carga._emp=empData;
   _liqCargaActual=carga;
   // Buscar usuario ligado al empleado para filtrar sus ventas
-  const{data:usuEmp}=await sb.from('usuarios').select('id').eq('empleado_id',carga.empleado_id).maybeSingle();
-  const usuarioId=usuEmp?.id||null;
+  const usuarioId=(D.usuarios||[]).find(u=>u.empleado_id===carga.empleado_id)?.id||null;
   // Traer TODAS las ventas desde la fecha de la carga (sin filtrar por estado para no perder ninguna)
   let ventasQuery=sb.from('ventas')
     .select('*,clientes(nombre),venta_items(*,productos(nombre,precio))')
@@ -18926,7 +18958,7 @@ async function guardarPermisos(){
   if(!CU||!SOLO_JEFE.includes(CU.rol)){showNotif('Solo el Jefe puede guardar permisos','#c62828');return;}
   showLoad(true);
   const promesas=Object.entries(_permisosCustom).map(([uid,perms])=>
-    sb.from('usuarios').update({permisos_custom:JSON.stringify(perms)}).eq('id',parseInt(uid))
+    sb.rpc('aq_permisos_usuario_guardar_seguro_v1',{p_id:parseInt(uid),p_permisos_custom:JSON.stringify(perms)})
   );
   await Promise.all(promesas);
   showLoad(false);
@@ -18942,7 +18974,7 @@ async function guardarPermisos(){
 
 async function cargarPermisosCustom(){
   // Cargar permisos_custom de todos los usuarios
-  const{data}=await sb.from('usuarios').select('id,permisos_custom').not('permisos_custom','is',null);
+  const data=D.usuarios||[];
   (data||[]).forEach(u=>{
     if(u.permisos_custom)try{_permisosCustom[u.id]=JSON.parse(u.permisos_custom);}catch(e){}
   });
@@ -19500,8 +19532,7 @@ async function actualizarStockRuta(){
   let html='';
   for(const carga of cargas){
     // Buscar usuario del empleado
-    const{data:usuEmp}=await sb.from('usuarios').select('id').eq('empleado_id',carga.empleado_id).single();
-    const usuarioId=usuEmp?.id||null;
+    const usuarioId=(D.usuarios||[]).find(u=>u.empleado_id===carga.empleado_id)?.id||null;
 
     // Ventas del rutero desde la fecha de carga
     let ventasQ=sb.from('ventas').select('*,venta_items(producto_id,cant)').eq('estado','Entregado').gte('fecha',carga.fecha);
@@ -20974,19 +21005,12 @@ async function aqActualizarCierreReportes(){
 /* Solo las altas nuevas realizadas por un vendedor asociado a un equipo generan incentivos automáticos.
    La RPC verifica la sesión y la pertenencia al equipo antes de insertar el cliente y el incentivo. */
 async function aqCrearClienteConCaptacion(datos){
-  const esVendedor=['vendedor','vendedor_editor'].includes(CU?.rol);
-  if(!esVendedor){
-    const {data,error}=await sb.from('clientes').insert({...datos,creado_por:CU?.nombre||'Jefe'}).select().single();
-    if(error)throw error;
-    return {cliente:data,incentivos:0};
-  }
-  const {data,error}=await sb.rpc('aq_crear_cliente_autocaptacion',{
-    p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_cliente:datos
-  });
-  if(error)throw new Error('La captación automática requiere instalar 03_activar_incentivos_automaticos.sql. '+error.message);
+  const {data,error}=await sb.rpc('aq_crear_cliente_captacion_sesion_v1',{p_cliente:datos});
+  if(error)throw error;
   const id=Number(data?.cliente_id||0);
-  if(!id)throw new Error('La base de datos no devolvió el cliente creado');
-  return {cliente:{...datos,id,creado_por:CU?.nombre||''},incentivos:Number(data?.incentivos_creados||0),mensaje:data?.mensaje||null};
+  if(!id)throw new Error('El servidor no confirmó el ID del cliente');
+  return {cliente:{...datos,id,creado_por:String(CU?.id||'')},
+    incentivos:Number(data?.incentivos_creados||0),mensaje:data?.mensaje||null};
 }
 </script>
 <script id="aq-incentivos-migracion-2026">

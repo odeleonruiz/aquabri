@@ -1,0 +1,55 @@
+name: AQUABRI validación de acceso seguro
+on:
+  push:
+    branches: [security/auth-server-bridge-20261112]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validar-js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Revisar sintaxis de scripts internos
+        run: |
+          node <<'NODE'
+          const fs = require('fs'), vm = require('vm'), assert = require('assert');
+          const html = fs.readFileSync('index.html','utf8');
+          const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+          let count=0;
+          for(const [i, entry] of scripts.entries()){
+            const attr=entry[1], code=entry[2];
+            if(/\bsrc\s*=/.test(attr)||/type\s*=\s*["'](?:application\/json|module)/i.test(attr))continue;
+            if(!code.trim())continue;
+            new vm.Script(code,{filename:'aquabri-script-'+i+'.js'});
+            count++;
+          }
+          assert(count>0,'No se encontraron scripts para validar');
+          console.log('Scripts validados:',count);
+          assert(html.includes("aq_login_usuario_seguro_v1"),'No hay RPC de acceso seguro');
+          assert(html.includes("aq_sesion_perfil_seguro_v1"),'Falta lectura de perfil');
+          assert(!html.includes("x.usuario===u&&x.pass===p"),'Comparación insegura permanece');
+          assert(html.includes("aq_vender_sesion_segura_v1"),'Falta RPC de venta segura');
+          assert(html.includes("aq_cobrar_credito_sesion_segura_v1"),'Falta RPC de cobro seguro');
+          assert(!html.includes("sb.from('usuarios')"),'Consulta directa de usuarios permanece');
+          assert(!html.includes("sb.from('sesiones')"),'Acceso directo a sesiones permanece');
+          assert(!/sb\\.from\\(['"]clientes['"]\\)\\.(insert|update|delete)\\(/.test(html),'Escritura de cliente sin RPC');
+          assert(html.includes('aq_archivar_cliente_sesion_v1'),'Falta archivado no destructivo de clientes');
+          assert(!html.includes("sb.from('creditos').delete().eq('cliente_id',id)"),'Hay borrado destructivo de créditos al eliminar clientes');
+          assert(html.includes('aq_registrar_movimiento_envase_sesion_v1'),'Falta RPC de movimientos de envases');
+          assert(html.includes('aq_anular_movimiento_envase_sesion_v1'),'Falta anulación de préstamos de envases');
+          assert(html.includes('aq_abrir_caja_sesion_v1'),'Falta apertura de caja transaccional');
+          assert(html.includes('aq_cerrar_caja_sesion_v1'),'Falta cierre de caja transaccional');
+          assert(html.includes('aq_registrar_gasto_sesion_v1'),'Falta registro de gasto transaccional');
+          NODE
+      - name: Verificar cabecera de sesión en CORS del laboratorio
+        run: |
+          set -o pipefail
+          respuesta=$(curl --fail --silent --show-error --max-time 20 --request OPTIONS \
+            -H 'Origin: https://odeleonruiz.github.io' \
+            -H 'Access-Control-Request-Method: GET' \
+            -H 'Access-Control-Request-Headers: apikey,authorization,x-aquabri-session' \
+            -D - -o /dev/null \
+            https://xzbawbkstaqvkwtqlqai.supabase.co/rest/v1/clientes)
+          echo "$respuesta" | grep -i 'access-control-allow-headers:' || true
+          echo "$respuesta" | grep -i 'access-control-allow-headers:' | grep -Eqi 'x-aquabri-session|\*'

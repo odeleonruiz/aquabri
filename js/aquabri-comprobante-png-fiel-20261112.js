@@ -1,255 +1,246 @@
-/* AQUABRI · Comprobantes PNG fieles · 2026-11-12
-   Solo afecta captura, descarga y compartir. No modifica ventas ni Supabase. */
+/* AQUABRI · Compartir comprobantes JPG · 2026-11-13
+   Sólo captura y comparte la vista REAL; no escribe en Supabase ni cambia ventas. */
 (function(){
 'use strict';
-let actual=null;
-let ultimaVistaUrl=null;
-const tiempoMaximo=15000;
-const espera=(ms)=>new Promise(resolve=>setTimeout(resolve,ms));
-
-function elemento(){
-  return window.aqDocumentoVisible();
-}
+let actual=null, enlaceURL=null, enlaceNombre='';
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+const visible=()=>window.aqDocumentoVisible();
 function firma(el){
-  const rect=el.getBoundingClientRect();
-  return el.innerHTML+'|'+Math.round(rect.width*10)+'|'+
+  if(!el)return '';
+  const r=el.getBoundingClientRect();
+  return el.innerHTML+'|'+Math.round(r.width*10)+'|'+
     document.documentElement.getAttribute('data-aq-theme');
 }
 function pie(){
-  const m=document.getElementById('modal-saldo_pendiente');
-  const id=m?.classList.contains('open')?'modal-saldo_pendiente':'modal-ticket';
+  const saldo=document.getElementById('modal-saldo_pendiente');
+  const id=saldo?.classList.contains('open')?'modal-saldo_pendiente':'modal-ticket';
   return document.querySelector('#'+id+' .mfoot');
 }
-function limpiarVista(){
-  document.querySelectorAll('.aq-vista-png-real-v2').forEach(e=>e.remove());
-  if(ultimaVistaUrl){
-    const anterior=ultimaVistaUrl;
-    ultimaVistaUrl=null;
+function nombreJPG(){
+  return String(window.aqNombrePNGComprobante?.()||'aquabri_comprobante.png')
+    .replace(/\.png$/i,'.jpg');
+}
+function notificar(texto,color){
+  if(typeof window.showNotif==='function')window.showNotif(texto,color||'#1565c0');
+}
+function enlace(blob,nombre){
+  const zona=pie();
+  if(!zona)return null;
+  let a=zona.parentElement.querySelector('.aq-jpg-descarga-directa');
+  if(!a){
+    a=document.createElement('a');
+    a.className='aq-jpg-descarga-directa';
+    a.textContent='⬇ Guardar imagen JPG';
+    a.style.cssText='display:block;margin:9px 0;padding:10px;text-align:center;background:#e8f5e9;color:#166534;border-radius:8px;font-weight:700;text-decoration:underline';
+    zona.insertAdjacentElement('afterend',a);
+  }
+  if(enlaceURL&&enlaceNombre!==nombre){
+    const anterior=enlaceURL;
     setTimeout(()=>URL.revokeObjectURL(anterior),120000);
+    enlaceURL=null;
   }
-}
-function botones(estado){
-  for(const id of ['modal-ticket','modal-saldo_pendiente']){
-    const m=document.getElementById(id);
-    if(!m?.classList.contains('open'))continue;
-    m.querySelectorAll('button[onclick*="compartirImagenComprobante"]').forEach(b=>{
-      if(!b.dataset.aqTextoOriginal) b.dataset.aqTextoOriginal=b.innerHTML;
-      b.disabled=false;
-      if(estado==='preparando'){
-        b.innerHTML=b.dataset.aqTextoOriginal;
-        b.title='La imagen del mismo comprobante se está preparando';
-      }else if(estado==='error'){
-        b.innerHTML=b.dataset.aqTextoOriginal;
-        b.title='Falló la captura; toca para reintentar';
-      }else{
-        b.innerHTML=b.dataset.aqTextoOriginal;
-        b.title='PNG listo: comparte la misma imagen que ves en el comprobante';
-      }
-    });
+  if(!enlaceURL||a.dataset.aqFirma!==actual?.id){
+    if(enlaceURL)setTimeout(()=>URL.revokeObjectURL(enlaceURL),120000);
+    enlaceURL=URL.createObjectURL(blob);
   }
+  a.href=enlaceURL;
+  a.download=nombre;
+  a.dataset.aqFirma=actual?.id||'';
+  enlaceNombre=nombre;
+  return a;
 }
-function vistaPNG(blob){
+function estado(texto){
   const zona=pie();
   if(!zona)return;
-  limpiarVista();
-  const url=URL.createObjectURL(blob);
-  ultimaVistaUrl=url;
-  const detalles=document.createElement('details');
-  detalles.className='aq-vista-png-real-v2';
-  detalles.style.cssText='margin:10px 0;padding:10px;border:1px solid #bbd4f4;border-radius:9px;background:#f4f8ff;color:#193f70;font:12px system-ui,sans-serif;';
-  const titulo=document.createElement('summary');
-  titulo.textContent='👁 Ver la imagen exacta que se enviará';
-  titulo.style.cssText='cursor:pointer;font-weight:700;padding:5px;';
-  const img=document.createElement('img');
-  img.src=url;img.alt='Imagen PNG real del comprobante AQUABRI';
-  img.style.cssText='display:block;width:100%;height:auto;margin-top:9px;background:white;border:1px solid #d6dee8;border-radius:7px;-webkit-touch-callout:default';
-  const texto=document.createElement('p');
-  texto.textContent='Esta vista y el archivo enviado a WhatsApp usan exactamente el mismo PNG.';
-  texto.style.cssText='margin:7px 0 0;color:#45617b';
-  detalles.append(titulo,img,texto);
-  zona.insertAdjacentElement('afterend',detalles);
+  let n=zona.parentElement.querySelector('.aq-jpg-estado');
+  if(!n){
+    n=document.createElement('div');
+    n.className='aq-jpg-estado';
+    n.setAttribute('role','status');
+    n.style.cssText='font:12px system-ui,sans-serif;text-align:center;color:#315273;margin:5px 0';
+    zona.insertAdjacentElement('beforebegin',n);
+  }
+  n.textContent=texto||'';
 }
 async function esperarImagen(img){
-  // Nunca bloquearse esperando 'load' de una imagen que ya terminó con error.
   if(img.complete)return;
   try{
-    if(typeof img.decode==='function'){
-      await Promise.race([img.decode().catch(()=>{}),espera(2200)]);
-      if(img.complete)return;
-    }
     await Promise.race([
-      new Promise(resolve=>{
-        img.addEventListener('load',resolve,{once:true});
-        img.addEventListener('error',resolve,{once:true});
-      }),
-      espera(2200)
+      typeof img.decode==='function'?img.decode().catch(()=>{}):
+        new Promise(r=>{img.addEventListener('load',r,{once:true});img.addEventListener('error',r,{once:true});}),
+      delay(2200)
     ]);
-  }catch(e){console.warn('Imagen del comprobante aún no disponible',e);}
+  }catch(e){}
 }
-async function capturarExactamente(el){
-  if(!el||!el.isConnected)throw new Error('No hay un comprobante visible');
-  const rect=el.getBoundingClientRect();
-  const ancho=Math.max(1,Math.ceil(rect.width));
-  const alto=Math.max(Math.ceil(rect.height),Math.ceil(el.scrollHeight));
-  if(ancho<60||alto<60)throw new Error('El comprobante todavía no está visible');
-  const libreria=await window.cargarHtml2Canvas();
-  if(document.fonts?.ready)await Promise.race([document.fonts.ready,espera(2200)]);
+async function capturar(el){
+  if(!el||!el.isConnected)throw Error('No hay comprobante abierto.');
+  const lib=await window.cargarHtml2Canvas();
+  // Esperar a que Safari termine layout/fuentes/logotipo.
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  if(document.fonts?.ready)await Promise.race([document.fonts.ready,delay(2200)]);
   await Promise.all(Array.from(el.querySelectorAll('img')).map(esperarImagen));
-  if(!el.isConnected)throw new Error('Se cerró el comprobante antes de capturarlo');
-  // El tamaño del viewport del clon DEBE ser el del teléfono, no la altura
-  // del ticket: forzar un alto mayor cambia los estilos responsive de Safari.
-  const maxEscala=Math.min(2,Math.max(1,window.devicePixelRatio||1.5));
-  const escala=Math.max(0.6,Math.min(maxEscala,
-    Math.sqrt(8500000/(ancho*alto)),8192/alto,8192/ancho));
-  const opciones={
-    backgroundColor:'#ffffff',width:ancho,height:alto,
+  if(!el.isConnected)throw Error('Se cerró el comprobante.');
+  const rect=el.getBoundingClientRect();
+  const width=Math.ceil(rect.width),height=Math.ceil(Math.max(rect.height,el.scrollHeight));
+  if(width<60||height<60)throw Error('El comprobante aún no está visible.');
+  const scale=Math.max(.65,Math.min(2,window.devicePixelRatio||1.5,
+    Math.sqrt(7500000/(width*height)),8192/width,8192/height));
+  const opts={
+    backgroundColor:'#fff',width,height,scale,
     windowWidth:window.innerWidth,windowHeight:window.innerHeight,
-    scale:escala,useCORS:true,allowTaint:false,imageTimeout:4500,logging:false,
+    useCORS:true,allowTaint:false,imageTimeout:3800,logging:false,
     foreignObjectRendering:false
   };
-  let temporizador;
+  let t;
   try{
-    const capturar=async()=>{
-      try{return await libreria(el,opciones);}
-      catch(err){
-        console.warn('Captura principal falló; reintentando sin cambiar diseño:',err);
-        return await libreria(el,{...opciones,scale:Math.min(1,escala),imageTimeout:1600});
+    const run=async()=>{
+      try{return await lib(el,opts);}
+      catch(e){
+        console.warn('JPG AQUABRI: reintentando captura visual',e);
+        return await lib(el,{...opts,scale:Math.min(1,scale),imageTimeout:1400});
       }
     };
     const canvas=await Promise.race([
-      capturar(),
-      new Promise((_,reject)=>{
-        temporizador=setTimeout(()=>reject(new Error('La captura tardó demasiado')),tiempoMaximo);
-      })
+      run(),
+      new Promise((_,reject)=>{t=setTimeout(()=>reject(Error('La captura tardó demasiado.')),14000);})
     ]);
     if(!canvas||canvas.width<60||canvas.height<60)
-      throw new Error('No se pudo generar el PNG con el diseño original');
-    // No usar el antiguo dibujo de texto como reemplazo: cambia el comprobante.
+      throw Error('No se pudo capturar el comprobante original.');
     return canvas;
-  }finally{clearTimeout(temporizador);}
+  }finally{clearTimeout(t);}
+}
+function jpegBlob(canvas){
+  return new Promise((resolve,reject)=>{
+    let terminado=false;
+    const finish=(blob,err)=>{
+      if(terminado)return;
+      terminado=true;clearTimeout(timer);
+      if(blob&&blob.size>100&&blob.type==='image/jpeg')resolve(blob);
+      else reject(err||Error('El teléfono no pudo guardar el JPG.'));
+    };
+    const respaldo=()=>{
+      if(terminado)return;
+      try{
+        const data=canvas.toDataURL('image/jpeg',.94);
+        if(!data.startsWith('data:image/jpeg;base64,'))
+          throw Error('El navegador no admitió JPEG.');
+        const bin=atob(data.split(',')[1]);
+        const bytes=new Uint8Array(bin.length);
+        for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+        finish(new Blob([bytes],{type:'image/jpeg'}));
+      }catch(e){finish(null,e);}
+    };
+    const timer=setTimeout(respaldo,2500);
+    try{
+      if(typeof canvas.toBlob!=='function'){respaldo();return;}
+      canvas.toBlob(blob=>{
+        if(blob?.size>100&&blob.type==='image/jpeg')finish(blob);
+        else respaldo();
+      },'image/jpeg',.94);
+    }catch(e){respaldo();}
+  });
 }
 function preparar(el){
-  if(!el)return Promise.reject(new Error('No se encontró el comprobante'));
+  if(!el)return Promise.reject(Error('No hay comprobante abierto.'));
   const id=firma(el);
-  if(actual&&actual.el===el&&actual.id===id&&actual.promesa)return actual.promesa;
-  limpiarVista();
-  const trabajo={el,id,blob:null,promesa:null};
-  actual=trabajo;
-  botones('preparando');
-  trabajo.promesa=(async()=>{
-    const canvas=await capturarExactamente(el);
-    const blob=await window.aqCanvasBlobSeguro(canvas);
-    if(!blob||blob.size<100)throw new Error('El archivo PNG está vacío');
-    if(actual===trabajo&&firma(el)===id){
-      trabajo.blob=blob;
-      botones('listo');
-    }
-    if(actual!==trabajo||firma(el)!==id)
-      throw new Error('El comprobante cambió durante la captura');
+  if(actual?.el===el&&actual.id===id&&actual.promesa)return actual.promesa;
+  // No reutilizar imagen de otro comprobante.
+  const t={el,id,blob:null,promesa:null};
+  actual=t;
+  const anterior=document.querySelector('.aq-jpg-descarga-directa');
+  if(anterior)anterior.remove();
+  estado('');
+  t.promesa=(async()=>{
+    const canvas=await capturar(el);
+    const blob=await jpegBlob(canvas);
+    if(actual!==t||firma(el)!==id)throw Error('El comprobante cambió. Intenta de nuevo.');
+    t.blob=blob;
+    enlace(blob,nombreJPG());
+    estado('');
     return blob;
   })();
-  trabajo.promesa.catch(err=>{
-    if(actual===trabajo){
+  t.promesa.catch(err=>{
+    if(actual===t){
       actual=null;
-      botones('error');
-      console.error('Comprobante PNG AQUABRI:',err);
-      if(typeof window.showNotif==='function')window.showNotif('No se preparó el PNG; toca Compartir para reintentar.','#c62828');
+      estado('');
+      console.warn('AQUABRI JPG:',err);
     }
   });
-  return trabajo.promesa;
+  return t.promesa;
 }
-function blobListo(el){
-  return actual&&actual.el===el&&actual.id===firma(el)?actual.blob:null;
+function listo(el){
+  return actual?.el===el&&actual.id===firma(el)?actual.blob:null;
 }
-window.aqCapturarComprobanteEnCanvas=capturarExactamente;
-window.aqPrecalentarPNGComprobante=function(el){
-  preparar(el).catch(()=>{});
-};
-window.descargarTicketPDF=async function(){
-  if(!window.aqValidarDetalleVentaComprobante())return false;
-  const el=elemento();
-  const btn=document.activeElement instanceof HTMLButtonElement?document.activeElement:null;
-  if(btn){btn.disabled=true;}
+async function compartir(blob,nombre){
+  if(typeof File!=='function'||typeof navigator.share!=='function')return 'sin_soporte';
   try{
-    const png=await preparar(el);
-    const enlaces=window.aqMostrarEnlacesComprobante(png,window.aqNombrePNGComprobante());
-    window.aqSolicitarDescargaPNG(enlaces);
-    window.showNotif('✅ Imagen PNG lista para descargar.','#2e7d32');
-    return true;
-  }catch(err){
-    alert('No se pudo generar el mismo comprobante: '+(err?.message||err));
-    return false;
-  }finally{if(btn)btn.disabled=false;}
-};
-function mostrarPanelCompartir(el,nombre){
-  document.getElementById('aq-panel-compartir-fiel')?.remove();
-  const capa=document.createElement('div');
-  capa.id='aq-panel-compartir-fiel';
-  capa.setAttribute('role','dialog');
-  capa.setAttribute('aria-label','Compartir comprobante AQUABRI');
-  capa.style.cssText='position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#162737dc;padding:14px;box-sizing:border-box';
-  const panel=document.createElement('div');
-  panel.style.cssText='width:min(100%,490px);max-height:92dvh;overflow:auto;border-radius:13px;background:#fff;color:#203246;padding:17px;box-sizing:border-box;font:14px system-ui,sans-serif';
-  const titulo=document.createElement('h3');titulo.textContent='Compartir comprobante';titulo.style.margin='0 0 8px';
-  const estado=document.createElement('p');estado.textContent='Preparando la imagen original…';estado.setAttribute('role','status');
-  const imagen=document.createElement('img');imagen.alt='Vista del PNG que vas a compartir';
-  imagen.style.cssText='display:none;width:100%;max-height:52dvh;object-fit:contain;background:#fff;border:1px solid #dde4ed;border-radius:8px;margin:8px 0';
-  const acciones=document.createElement('div');acciones.style.cssText='display:flex;gap:9px;flex-wrap:wrap;margin-top:12px';
-  const compartir=document.createElement('button');compartir.type='button';compartir.textContent='Compartir imagen';
-  compartir.disabled=true;compartir.style.cssText='padding:11px 14px;border:0;border-radius:8px;background:#25d366;color:#12351f;font-weight:700;cursor:pointer';
-  const descargar=document.createElement('a');descargar.textContent='Descargar PNG';
-  descargar.style.cssText='display:none;padding:11px 14px;border-radius:8px;background:#e7f1ff;color:#164c86;text-decoration:none;font-weight:700';
-  const cerrar=document.createElement('button');cerrar.type='button';cerrar.textContent='Cerrar';
-  cerrar.style.cssText='padding:11px 14px;border:0;border-radius:8px;background:#e5e9ee;color:#334155;cursor:pointer';
-  let url=null;
-  function salir(){
-    capa.remove();
-    if(url)setTimeout(()=>URL.revokeObjectURL(url),120000);
+    const file=new File([blob],nombre,{type:'image/jpeg'});
+    if(navigator.canShare&&!navigator.canShare({files:[file]}))return 'sin_soporte';
+    // Llamar navigator.share sin trabajo asíncrono previo, durante el toque.
+    await navigator.share({files:[file],title:'Comprobante AQUABRI'});
+    return 'compartido';
+  }catch(e){
+    if(e?.name==='AbortError')return 'cancelado';
+    console.warn('Compartir JPG:',e);
+    return 'fallo';
   }
-  cerrar.onclick=salir;
-  acciones.append(compartir,descargar,cerrar);
-  panel.append(titulo,estado,imagen,acciones);capa.append(panel);document.body.appendChild(capa);
-  preparar(el).then(blob=>{
-    if(!capa.isConnected)return;
-    url=URL.createObjectURL(blob);
-    imagen.src=url;imagen.style.display='block';
-    descargar.href=url;descargar.download=nombre;descargar.style.display='inline-block';
-    compartir.disabled=false;estado.textContent='Imagen lista: es el mismo comprobante que ves en AQUABRI.';
-    compartir.onclick=async()=>{
-      // navigator.share se llama DIRECTAMENTE dentro del toque del botón.
-      const resultado=await window.aqCompartirPNG(blob,nombre);
-      if(resultado==='compartido'||resultado==='cancelado'){salir();return;}
-      salir();
-      window.aqAbrirAlternativaCompartirPNG(blob,nombre,
-        window.aqErrorCompartirPNG||'El celular no permite compartir archivos');
-    };
-  }).catch(err=>{
-    if(!capa.isConnected)return;
-    estado.textContent='No se pudo generar el diseño original: '+(err?.message||err);
-    compartir.disabled=false;compartir.textContent='Reintentar PNG';
-    compartir.onclick=()=>{salir();mostrarPanelCompartir(el,nombre);};
-  });
 }
-window.compartirImagenComprobante=async function(){
+function alternativa(blob,nombre){
+  const a=enlace(blob,nombre);
+  if(!a)return;
+  a.focus();
+  notificar('Imagen JPG lista. Toca «Guardar imagen JPG» para guardarla o compartirla.');
+}
+window.aqCapturarComprobanteEnCanvas=capturar;
+window.aqPrecalentarPNGComprobante=function(el){preparar(el).catch(()=>{});};
+window.compartirImagenComprobante=function(){
   if(!window.aqValidarDetalleVentaComprobante())return false;
-  const el=elemento();
+  const el=visible(),nombre=nombreJPG();
   if(!el)return false;
-  const nombre=window.aqNombrePNGComprobante();
-  const png=blobListo(el);
-  if(!png){
-    // Si aún se está preparando, mostrar progreso real y un botón que conserva
-    // el gesto del usuario para la hoja nativa de iPhone/Android.
-    mostrarPanelCompartir(el,nombre);
-    return false;
+  const blob=listo(el);
+  if(blob){
+    // Ruta rápida habitual: un toque -> hoja nativa (WhatsApp, Guardar Imagen).
+    compartir(blob,nombre).then(resultado=>{
+      if(resultado==='fallo'||resultado==='sin_soporte')alternativa(blob,nombre);
+    });
+  }else{
+    // Sin cuadro extra: terminar la imagen y presentar el acceso directo.
+    estado('Preparando JPG…');
+    preparar(el).then(async imagen=>{
+      estado('');
+      // Puede perder la activación del toque en Safari: en ese caso dejar enlace.
+      const resultado=await compartir(imagen,nombre);
+      if(resultado==='fallo'||resultado==='sin_soporte')alternativa(imagen,nombre);
+    }).catch(e=>{
+      estado('No se pudo generar la imagen. Vuelve a tocar Compartir.');
+      notificar('Error al generar JPG: '+(e?.message||e),'#c62828');
+    });
   }
-  const estado=await window.aqCompartirPNG(png,nombre);
-  if(estado==='compartido')return true;
-  if(estado==='cancelado')return false;
-  window.aqAbrirAlternativaCompartirPNG(png,nombre,
-    window.aqErrorCompartirPNG||'El navegador no abrió el menú de compartir');
   return false;
 };
-const precargar=()=>{window.cargarHtml2Canvas?.().catch(err=>console.warn('Capturador PNG pendiente:',err));};
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',precargar,{once:true});
-else precargar();
+window.descargarTicketPDF=function(){
+  if(!window.aqValidarDetalleVentaComprobante())return false;
+  const el=visible(),nombre=nombreJPG();
+  if(!el)return false;
+  const descargar=blob=>{
+    const a=enlace(blob,nombre);
+    if(!a)throw Error('No se encontró el botón para guardar.');
+    // En Android/PC se descarga; en Safari queda además el enlace real para tocar.
+    a.click();
+    notificar('Imagen JPG lista. Si no se guardó, toca «Guardar imagen JPG».','#2e7d32');
+  };
+  const blob=listo(el);
+  if(blob){try{descargar(blob);}catch(e){notificar(e.message,'#c62828');}}
+  else{
+    estado('Preparando JPG…');
+    preparar(el).then(descargar).catch(e=>{
+      estado('No se pudo generar el JPG.');
+      notificar('Error al guardar JPG: '+(e?.message||e),'#c62828');
+    });
+  }
+  return false;
+};
+const preload=()=>window.cargarHtml2Canvas?.().catch(e=>console.warn('Precarga JPG:',e));
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',preload,{once:true});
+else preload();
 })();

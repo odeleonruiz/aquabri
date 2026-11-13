@@ -7,9 +7,9 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const visible=()=>window.aqDocumentoVisible();
 function firma(el){
   if(!el)return '';
-  const r=el.getBoundingClientRect();
-  return el.innerHTML+'|'+Math.round(r.width*10)+'|'+
-    document.documentElement.getAttribute('data-aq-theme');
+  // El CSS responsive puede reajustar décimas el ancho en Safari sin que
+  // cambie el comprobante. Evitar invalidar y recapturar por ese motivo.
+  return el.innerHTML;
 }
 function pie(){
   const saldo=document.getElementById('modal-saldo_pendiente');
@@ -76,7 +76,10 @@ async function capturar(el){
   if(!el||!el.isConnected)throw Error('No hay comprobante abierto.');
   const lib=await window.cargarHtml2Canvas();
   // Esperar a que Safari termine layout/fuentes/logotipo.
-  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  await Promise.race([
+    new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),
+    delay(450)
+  ]);
   if(document.fonts?.ready)await Promise.race([document.fonts.ready,delay(2200)]);
   await Promise.all(Array.from(el.querySelectorAll('img')).map(esperarImagen));
   if(!el.isConnected)throw Error('Se cerró el comprobante.');
@@ -151,8 +154,13 @@ function preparar(el){
   if(anterior)anterior.remove();
   estado('');
   t.promesa=(async()=>{
-    const canvas=await capturar(el);
-    const blob=await jpegBlob(canvas);
+    const blob=await Promise.race([
+      (async()=>{
+        const canvas=await capturar(el);
+        return await jpegBlob(canvas);
+      })(),
+      delay(18000).then(()=>{throw Error('La preparación no respondió. Toca de nuevo.');})
+    ]);
     if(actual!==t||firma(el)!==id)throw Error('El comprobante cambió. Intenta de nuevo.');
     t.blob=blob;
     enlace(blob,nombreJPG());
@@ -204,15 +212,14 @@ window.compartirImagenComprobante=function(){
       if(resultado==='fallo'||resultado==='sin_soporte')alternativa(blob,nombre);
     });
   }else{
-    // Sin cuadro extra: terminar la imagen y presentar el acceso directo.
-    estado('Preparando JPG…');
-    preparar(el).then(async imagen=>{
-      estado('');
-      // Puede perder la activación del toque en Safari: en ese caso dejar enlace.
-      const resultado=await compartir(imagen,nombre);
-      if(resultado==='fallo'||resultado==='sin_soporte')alternativa(imagen,nombre);
+    // Safari exige iniciar navigator.share desde el toque. Si la imagen aún
+    // se prepara, esperar sin perder el gesto: el próximo toque será instantáneo.
+    estado('Preparando comprobante…');
+    preparar(el).then(()=>{
+      estado('✅ Imagen lista. Toca WhatsApp para compartirla.');
+      notificar('Comprobante listo para compartir.','#2e7d32');
     }).catch(e=>{
-      estado('No se pudo generar la imagen. Vuelve a tocar Compartir.');
+      estado('No se pudo preparar el JPG. Toca Compartir para reintentar.');
       notificar('Error al generar JPG: '+(e?.message||e),'#c62828');
     });
   }
@@ -232,9 +239,13 @@ window.descargarTicketPDF=function(){
   const blob=listo(el);
   if(blob){try{descargar(blob);}catch(e){notificar(e.message,'#c62828');}}
   else{
-    estado('Preparando JPG…');
-    preparar(el).then(descargar).catch(e=>{
-      estado('No se pudo generar el JPG.');
+    estado('Preparando comprobante…');
+    preparar(el).then(imagen=>{
+      const a=enlace(imagen,nombre);
+      estado('✅ Imagen lista. Toca «Guardar imagen JPG» para descargarla.');
+      if(a)notificar('JPG listo: toca Guardar imagen JPG.','#2e7d32');
+    }).catch(e=>{
+      estado('No se pudo generar el JPG. Intenta de nuevo.');
       notificar('Error al guardar JPG: '+(e?.message||e),'#c62828');
     });
   }

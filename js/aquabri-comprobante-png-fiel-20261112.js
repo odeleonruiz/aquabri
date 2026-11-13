@@ -61,13 +61,15 @@ function botones(estadoActual){
     controles.forEach(btn=>{
       if(!btn.dataset.aqJpgOriginal)btn.dataset.aqJpgOriginal=btn.innerHTML;
       btn.disabled=estadoActual==='preparando';
+      // Mantener los botones visualmente iguales: sólo se habilitan cuando
+      // la imagen bonita ya existe. El resumen rápido nunca depende del JPG.
+      btn.innerHTML=btn.dataset.aqJpgOriginal;
       if(estadoActual==='preparando'){
-        btn.textContent='⏳ Preparando comprobante…';
         btn.setAttribute('aria-busy','true');
+        btn.title='Se está preparando la imagen del comprobante';
       }else{
-        btn.innerHTML=btn.dataset.aqJpgOriginal;
         btn.removeAttribute('aria-busy');
-        btn.title=estadoActual==='error'?'Toca para reintentar preparar el comprobante':'';
+        btn.title=estadoActual==='error'?'Toca para intentar generar la imagen de nuevo':'';
       }
     });
   }
@@ -103,18 +105,23 @@ async function capturar(el){
     new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),
     delay(450)
   ]);
-  if(document.fonts?.ready)await Promise.race([document.fonts.ready,delay(2200)]);
+  // El ticket usa tipografías del sistema; no esperar cargas externas de
+  // toda la aplicación para comenzar la captura.
+  if(document.fonts?.ready)await Promise.race([document.fonts.ready,delay(650)]);
   await Promise.all(Array.from(el.querySelectorAll('img')).map(esperarImagen));
   if(!el.isConnected)throw Error('Se cerró el comprobante.');
   const rect=el.getBoundingClientRect();
   const width=Math.ceil(rect.width),height=Math.ceil(Math.max(rect.height,el.scrollHeight));
   if(width<60||height<60)throw Error('El comprobante aún no está visible.');
-  const scale=Math.max(.65,Math.min(2,window.devicePixelRatio||1.5,
-    Math.sqrt(7500000/(width*height)),8192/width,8192/height));
+  // Menos píxeles en teléfonos = captura más ágil y menos memoria, sin
+  // eliminar el diseño, tablas, colores ni logo del comprobante.
+  const esMovil=window.innerWidth<=600;
+  const scale=Math.max(.65,Math.min(esMovil?1.4:2,window.devicePixelRatio||1.5,
+    Math.sqrt(6500000/(width*height)),8192/width,8192/height));
   const opts={
     backgroundColor:'#fff',width,height,scale,
     windowWidth:window.innerWidth,windowHeight:window.innerHeight,
-    useCORS:true,allowTaint:false,imageTimeout:3800,logging:false,
+    useCORS:true,allowTaint:false,imageTimeout:2300,logging:false,
     foreignObjectRendering:false
   };
   let t;
@@ -123,7 +130,7 @@ async function capturar(el){
       try{return await lib(el,opts);}
       catch(e){
         console.warn('JPG AQUABRI: reintentando captura visual',e);
-        return await lib(el,{...opts,scale:Math.min(1,scale),imageTimeout:1400});
+        return await lib(el,{...opts,scale:Math.min(1,scale),imageTimeout:950});
       }
     };
     const canvas=await Promise.race([
@@ -229,6 +236,25 @@ function alternativa(blob,nombre){
   a.focus();
   notificar('Tu celular no abrió Compartir. Usa «Guardar imagen JPG» como alternativa.');
 }
+// Opción opcional y realmente inmediata: resumen textual separado.
+// Jamás sustituye la imagen del botón principal de WhatsApp.
+window.compartirResumenComprobanteWhatsApp=function(){
+  if(!window.aqValidarDetalleVentaComprobante())return false;
+  const el=visible();
+  if(!el)return false;
+  const texto=String(el.innerText||el.textContent||'')
+    .replace(/\\r/g,'')
+    .replace(/[^\\S\\n]+/g,' ')
+    .replace(/\\n{3,}/g,'\\n\\n')
+    .trim();
+  if(!texto){notificar('No se encontró el resumen del comprobante.','#c62828');return false;}
+  const mensaje='AQUABRI · Resumen del comprobante\\n\\n'+texto.slice(0,3500);
+  const url='https://wa.me/?text='+encodeURIComponent(mensaje);
+  // El enlace se abre directamente con el toque, sin captura ni conversiones.
+  const ventana=window.open(url,'_blank');
+  if(!ventana)window.location.href=url;
+  return false;
+};
 window.aqCapturarComprobanteEnCanvas=capturar;
 window.aqPrecalentarPNGComprobante=function(el){preparar(el).catch(()=>{});};
 window.compartirImagenComprobante=function(){

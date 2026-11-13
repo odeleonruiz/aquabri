@@ -3869,11 +3869,8 @@ function aqAsegurarFechaVentaDeHoy(){
   return fecha;
 }
 function hoy(){
-  const d=new Date();
-  const y=d.getFullYear();
-  const m=String(d.getMonth()+1).padStart(2,'0');
-  const dia=String(d.getDate()).padStart(2,'0');
-  return y+'-'+m+'-'+dia;
+  // Fecha de operación unificada con Supabase: zona horaria Guatemala.
+  return aqFechaVentaGT();
 }
 function showNotif(m,c='#2e7d32'){const n=document.getElementById('notif');n.textContent=m;n.style.background=c;n.style.display='block';setTimeout(()=>n.style.display='none',3000);}
 function openModal(id){

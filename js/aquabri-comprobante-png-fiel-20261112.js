@@ -172,8 +172,14 @@
     const el=documento();
     if(!el)return false;
     const blob=listo(el);
-    if(blob)descargar(blob,nombre());
-    else preparar(el).catch(()=>aviso('No se pudo descargar el comprobante.'));
+    if(blob){
+      // iPhone/Safari instalado puede bloquear descargas programáticas de blob.
+      // Usar su menú nativo: Guardar en Archivos / Guardar imagen.
+      const ios=/iPhone|iPad|iPod/i.test(navigator.userAgent||'')||
+        (/Macintosh/.test(navigator.userAgent||'')&&navigator.maxTouchPoints>1);
+      if(ios&&typeof navigator.share==='function')compartirNativo(blob,nombre());
+      else descargar(blob,nombre());
+    }else preparar(el).catch(()=>aviso('No se pudo descargar el comprobante.'));
     return false;
   };
   // En los documentos abiertos de saldo/crédito la vista puede actualizarse

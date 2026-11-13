@@ -5,6 +5,7 @@
 (function(){
   'use strict';
   let trabajo=null;
+  let compartirPendiente=null;
   const esperar=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const estaAbierto=id=>!!document.getElementById(id)?.classList.contains('open');
   const documento=()=>window.aqDocumentoVisible?.();
@@ -22,7 +23,9 @@
       if(!modal?.classList.contains('open'))continue;
       modal.querySelectorAll('button[onclick*="compartirImagenComprobante"],button[onclick*="descargarTicketPDF"]').forEach(btn=>{
         // No reemplazar nunca el texto, no añadir controles ni ventanitas.
-        btn.disabled=ocupados;
+        // No impedir el toque del usuario: si el JPG sigue generándose,
+        // el toque quedará pendiente y se intentará compartir al terminar.
+        btn.disabled=false;
         if(ocupados)btn.setAttribute('aria-busy','true');
         else btn.removeAttribute('aria-busy');
       });
@@ -55,10 +58,20 @@
     // Captura a resolución suficiente sin agotar memoria en teléfonos.
     const escala=Math.max(.65,Math.min(window.devicePixelRatio||1,1.25,
       Math.sqrt(4500000/(width*height)),6000/height,6000/width));
+    // html2canvas clona el documento de la aplicación (mucho mayor que el
+    // recibo). Omitir ramas de la interfaz que no son el ticket reduce la
+    // clonación sin alterar las hojas de estilo ni el contenido del recibo.
+    const ruta=new Set();
+    for(let nodo=el;nodo;nodo=nodo.parentElement)ruta.add(nodo);
+    const ignorar=nodo=>{
+      if(nodo?.ownerDocument?.head?.contains(nodo))return false;
+      return !ruta.has(nodo)&&!el.contains(nodo);
+    };
     const opts={
       backgroundColor:'#ffffff',width,height,scale:escala,
       windowWidth:window.innerWidth,windowHeight:window.innerHeight,
-      useCORS:true,allowTaint:false,imageTimeout:1600,
+      ignoreElements:ignorar,
+      useCORS:true,allowTaint:false,imageTimeout:1200,
       logging:false,foreignObjectRendering:false
     };
     let timeout;
@@ -163,8 +176,33 @@
     const el=documento();
     if(!el)return false;
     const blob=listo(el);
-    if(blob)compartirNativo(blob,nombre());
-    else preparar(el).catch(()=>aviso('No se pudo generar la imagen del comprobante.'));
+    if(blob){
+      // Imagen preparada: abrir hoja nativa en este mismo gesto, SIN esperas.
+      compartirNativo(blob,nombre());
+      return false;
+    }
+    // El usuario ya tocó Compartir: no obligarlo a tocar dos veces.
+    // Si la captura termina mientras sigue activa la autorización temporal
+    // del toque de Safari, abrir la hoja automáticamente.
+    const id=idDe(el);
+    if(compartirPendiente?.el===el&&compartirPendiente.id===id)return false;
+    const solicitud={el,id};
+    compartirPendiente=solicitud;
+    preparar(el).then(imagen=>{
+      if(compartirPendiente!==solicitud||documento()!==el||idDe(el)!==id)return;
+      if(navigator.userActivation?.isActive===false){
+        aviso('Imagen lista. Toca Compartir otra vez para abrir el menú del iPhone.');
+        return;
+      }
+      compartirNativo(imagen,nombre());
+    }).catch(e=>{
+      if(compartirPendiente===solicitud){
+        console.warn('No se pudo preparar el comprobante:',e);
+        aviso('No se pudo preparar la imagen. Intenta Compartir otra vez.');
+      }
+    }).finally(()=>{
+      if(compartirPendiente===solicitud)compartirPendiente=null;
+    });
     return false;
   };
   window.descargarTicketPDF=function(){

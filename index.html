@@ -3698,7 +3698,10 @@ async function goPage(p){
   const allowed=PERMS[CU?.rol]||['inicio'];
   if(!allowed.includes(p)){showNotif('Sin permiso','#c62828');return;}
   // Bloqueo operativo: no comenzar ventas de un nuevo día con el cierre anterior pendiente.
-  if(p==='ventas' && await aqBloquearNuevoDiaPorCierre())return;
+  if(p==='ventas'){
+    if(await aqBloquearNuevoDiaPorCierre())return;
+    aqAsegurarFechaVentaDeHoy();
+  }
   localStorage.setItem('aqb_page',p);
   document.querySelectorAll('.page').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('.sb-btn').forEach(b=>b.classList.remove('active'));
@@ -3847,6 +3850,24 @@ function aqCentavos(v){return Math.round((Number(v)||0)*100+Number.EPSILON);}
 function aqLineaCentavos(item){return Math.round((aqCentavos(item.precio)-aqCentavos(item.desc))*(Number(item.cant)||0));}
 function aqTotalCarritoCentavos(lista){return (lista||[]).reduce((s,i)=>s+aqLineaCentavos(i),0);}
 function fQ(v){return 'Q '+(aqCentavos(v)/100).toFixed(2);}
+function aqFechaVentaGT(){
+  const partes=new Intl.DateTimeFormat('en-US',{timeZone:'America/Guatemala',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+  const parte=t=>partes.find(p=>p.type===t)?.value||'';
+  return parte('year')+'-'+parte('month')+'-'+parte('day');
+}
+function aqAsegurarFechaVentaDeHoy(){
+  const fecha=aqFechaVentaGT();
+  for(const id of ['v-fecha-venta','pos-fecha-venta']){
+    const campo=document.getElementById(id);
+    if(!campo)continue;
+    campo.value=fecha;
+    campo.min=fecha;
+    campo.max=fecha;
+    campo.readOnly=true;
+    campo.title='La fecha de las ventas es siempre la fecha actual de Guatemala';
+  }
+  return fecha;
+}
 function hoy(){
   const d=new Date();
   const y=d.getFullYear();
@@ -5362,6 +5383,7 @@ function toggleCredito(){
 async function cobrar(enviarWsp=false){
   if(!cart.length){showNotif('Carrito vacío','#c62828');return;}
   if(await aqBloquearNuevoDiaPorCierre())return;
+  aqAsegurarFechaVentaDeHoy();
   // Guard robusto: bloquea por timestamp, no solo por flag
   const ahora=Date.now();
   if(window._cobrando||(window._ultimoCobro&&ahora-window._ultimoCobro<4000)){
@@ -5380,9 +5402,8 @@ async function cobrar(enviarWsp=false){
   // Verificar la ÚLTIMA apertura o cierre, no cualquier cierre del día.
   // Nunca abrir Caja automáticamente desde cobrar(): hacerlo solo en el módulo Caja.
   try{
-    const fechaVentaInput=document.getElementById('v-fecha-venta')?.value||hoy();
-    const esJefe=CU&&SOLO_JEFE.includes(CU.rol);
-    const saltarCaja=esJefe&&fechaVentaInput!==hoy();
+    const fechaVentaInput=aqAsegurarFechaVentaDeHoy();
+    const saltarCaja=false; // No se salta la apertura, ni siquiera para ventas del Jefe.
     if(!saltarCaja){
       const {data:estados,error:errorCaja}=await sb.from('caja')
         .select('id,tipo').eq('fecha',hoy()).in('tipo',['apertura','cierre'])
@@ -5420,7 +5441,7 @@ async function cobrar(enviarWsp=false){
   const esCredito=document.getElementById('v-credito').value==='1';
   const medioPago=aqCajaMetodoSeleccionado('v-medio-pago');
   const bonifs=cart.filter(i=>i.bonifNombre).map(i=>i.bonifNombre).join('; ');
-  const fechaVenta=document.getElementById('v-fecha-venta')?.value||hoy();
+  const fechaVenta=aqAsegurarFechaVentaDeHoy();
   if(!Number.isFinite(total)||total<0||!Number.isFinite(dg)||dg<0){
     alert('Importes inválidos. Comprueba precios, ofertas y descuento general antes de cobrar.');
     document.getElementById('loading-screen').style.display='none';
@@ -16243,18 +16264,19 @@ function posEntregaChange(){
 async function posCobrar(conWhatsapp){
   if(!posCart.length){showNotif('El carrito está vacío','#c62828');return;}
   if(await aqBloquearNuevoDiaPorCierre())return;
+  aqAsegurarFechaVentaDeHoy();
   const ahora2=Date.now();
   if(window._cobrando||(window._ultimoCobro&&ahora2-window._ultimoCobro<4000)){showNotif('⏳ Espera, procesando...','#e65100');return;}
-  const {data:cajahoy2}=await sb.from('caja').select('id').eq('fecha',hoy()).eq('tipo','apertura');
-  const {data:cierrehoy2}=await sb.from('caja').select('id').eq('fecha',hoy()).eq('tipo','cierre');
-  if(!cajahoy2?.length){
-    showNotif('⚠️ Debes abrir la caja antes de vender','#e65100');
-    if(confirm('No has abierto la caja hoy. ¿Ir a Caja?'))goPage('caja');
+  const {data:controlCaja,error:errorEstadoCaja}=await sb.from('caja')
+    .select('id,tipo').eq('fecha',aqFechaVentaGT())
+    .in('tipo',['apertura','cierre']).order('id',{ascending:false}).limit(1);
+  if(errorEstadoCaja){
+    showNotif('No se pudo verificar la Caja. No se enviará la venta.','#c62828');
     return;
   }
-  if(cierrehoy2?.length){
-    showNotif('🔒 La caja está cerrada','#c62828');
-    if(confirm('La caja está cerrada. ¿Ir a Caja para abrirla?'))goPage('caja');
+  if(controlCaja?.[0]?.tipo!=='apertura'){
+    showNotif('🔒 Debes tener una caja abierta hoy para vender','#c62828');
+    if(confirm('La Caja no está abierta hoy. ¿Ir al módulo Caja?'))goPage('caja');
     return;
   }
   // Construir la misma estructura que cobrar() pero usando posCart
@@ -16273,7 +16295,7 @@ async function posCobrar(conWhatsapp){
   // Sincronizar al cart principal y llamar cobrar()
   cart=[...posCart];
   document.getElementById('v-cli').value=cliId||'';
-  const posF=document.getElementById('pos-fecha-venta');if(posF)document.getElementById('v-fecha-venta').value=posF.value||hoy();
+  aqAsegurarFechaVentaDeHoy();
   // Sincronizar nombre libre del POS al desktop input
   if(posNombreLibre){const vCliInp=document.getElementById('v-cli-input');if(vCliInp)vCliInp.value=posNombreLibre;}
   document.getElementById('v-entrega').value=entrega;
@@ -20971,7 +20993,7 @@ html[data-aq-theme="dark"] .aq-caja-pendiente p{color:#f5e4cf!important}
 <script id="aq-caja-obligatoria-reportes-v8">
 // Operaciones diarias consultan el estado compartido en Supabase, no el localStorage.
 async function aqBuscarCajaPendienteAnterior(){
-  const fechaActual=hoy();
+  const fechaActual=aqFechaVentaGT();
   const {data:aperturas,error:eA}=await sb.from('caja')
     .select('id,fecha,monto,created_at,usuario_id').eq('tipo','apertura')
     .lt('fecha',fechaActual).order('fecha',{ascending:false}).order('id',{ascending:false}).limit(1);

@@ -29,11 +29,17 @@ await recursive(root,out);
 if(qaMode){
   const qaSource=join(root,'qa-seguridad','index.html');
   await copyFile(qaSource,join(out,'index.html'));
-  const {readFile}=await import('node:fs/promises');
+  const {readFile,writeFile}=await import('node:fs/promises');
   const qaHtml=await readFile(join(out,'index.html'),'utf8');
   if(!qaHtml.includes("const SURL='https://xzbawbkstaqvkwtqlqai.supabase.co'")){
     throw new Error('QA build aborted: staging Supabase URL is absent.');
   }
+  // GitHub Pages uses /aquabri/; Capacitor serves from the application root.
+  // Rewrite only the packaged copy, never the QA website source.
+  if(!qaHtml.includes('<base href="/aquabri/">')){
+    throw new Error('QA build aborted: expected base URL not found.');
+  }
+  await writeFile(join(out,'index.html'),qaHtml.replace('<base href="/aquabri/">','<base href="/">'),'utf8');
   // Examine EVERY packaged text asset, not only the entrypoint.
   const verify=async dir=>{
     for(const ent of await readdir(dir,{withFileTypes:true})){

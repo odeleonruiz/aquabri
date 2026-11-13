@@ -5556,7 +5556,7 @@ async function cobrar(enviarWsp=false){
     docActual._ptosGanados=Number(venta.puntos_ganados)||0;
     docActual._saldoNuevo=venta.saldo_puntos==null?null:Number(venta.saldo_puntos);
   }
-  mostrarTicket(venta,cart,dg,total,pagado,cid,entTexto,esCredito,bonifs);
+  await mostrarTicket(venta,cart,dg,total,pagado,cid,entTexto,esCredito,bonifs);
   
   if(enviarWsp){
     const tel=document.getElementById('v-wsp-tel').value.trim();
@@ -5693,16 +5693,50 @@ async function cobrar(enviarWsp=false){
 let docActual={venta:null,items:[],dg:0,total:0,pagado:0,cid:null,entrega:'',esCredito:false,bonifs:''};
 let tipoDocActual='comprobante';
 
+
+/* Estado de pago sólo lectura para el comprobante: no modifica ventas, créditos ni caja. */
+async function aqConsultarPagoComprobante(venta, totalReferencia){
+  const cent=v=>Math.round((Number(v)||0)*100);
+  const total=Math.max(0,cent(Number.isFinite(Number(venta?.total))?venta.total:totalReferencia));
+  const vid=Number(venta?.id);
+  if(!Number.isSafeInteger(vid)||vid<=0)throw Error('Identificador de venta inválido');
+  const [resCred,resCaja]=await Promise.all([
+    sb.from('creditos').select('monto,pagado').eq('venta_id',vid),
+    sb.from('caja').select('tipo,monto').eq('venta_id',vid).eq('tipo','venta')
+  ]);
+  if(resCred.error||resCaja.error)throw Error('No se pudo verificar el pago del comprobante');
+  const creditos=resCred.data||[];
+  let saldo=0;
+  if(creditos.length){
+    saldo=creditos.reduce((ac,c)=>ac+Math.max(0,cent(c.monto)-cent(c.pagado)),0);
+    saldo=Math.min(total,saldo);
+  }else{
+    const enCaja=(resCaja.data||[]).reduce((ac,c)=>ac+Math.max(0,cent(c.monto)),0);
+    const confirmado=Math.min(total,Math.max(0,cent(venta.pagado),enCaja));
+    saldo=Math.max(0,total-confirmado);
+  }
+  return {verificado:true,credito:creditos.length>0,pagado:(total-saldo)/100,saldo:saldo/100};
+}
+async function aqVerificarPagoComprobante(venta,total){
+  try{return await aqConsultarPagoComprobante(venta,total);}
+  catch(e){console.warn('Estado de pago del comprobante no confirmado:',e);
+    return {verificado:false,credito:false,pagado:null,saldo:null};}
+}
+
 async function cambiarTipoDoc(tipo,el){
   tipoDocActual=tipo;
   document.querySelectorAll('#modal-ticket .tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
   const d=docActual;
-  if(tipo==='comprobante')renderComprobante(d.venta,d.items,d.dg,d.total,d.pagado,d.cid,d.entrega,d.esCredito,d.bonifs);
+  if(tipo==='comprobante'){
+    d.venta._aqPagoComprobante=await aqVerificarPagoComprobante(d.venta,d.total);
+    renderComprobante(d.venta,d.items,d.dg,d.total,d.pagado,d.cid,d.entrega,d.esCredito,d.bonifs);
+  }
   else await renderRecordatorioEnTicket(d.cid);
 }
 
-function mostrarTicket(venta,items,dg,total,pagado,cid,entrega,esCredito,bonifs){
+async function mostrarTicket(venta,items,dg,total,pagado,cid,entrega,esCredito,bonifs){
+  venta._aqPagoComprobante=await aqVerificarPagoComprobante(venta,total);
   docActual={venta,items,dg,total,pagado,cid,entrega,esCredito,bonifs};
   tipoDocActual='comprobante';
   document.querySelectorAll('#modal-ticket .tab').forEach(t=>t.classList.remove('active'));
@@ -5713,6 +5747,11 @@ function mostrarTicket(venta,items,dg,total,pagado,cid,entrega,esCredito,bonifs)
 
 function renderComprobante(venta,items,dg,total,pagado,cid,entrega,esCredito,bonifs){
   const c=D.cfg;const cli=D.clientes.find(x=>x.id==cid);
+  const pago=venta?._aqPagoComprobante;
+  const pagoVerificado=pago?.verificado===true;
+  const montoPagado=pagoVerificado?pago.pagado:0;
+  const saldoPendiente=pagoVerificado?pago.saldo:0;
+  const creditoPendiente=pagoVerificado&&pago.credito&&saldoPendiente>0.005;
   const colorPrimario='#1f5fbf';
   const colorTitulo='#183153';
   const colorTexto='#223548';
@@ -5761,7 +5800,7 @@ function renderComprobante(venta,items,dg,total,pagado,cid,entrega,esCredito,bon
     <div style="padding:24px 28px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:3px solid ${colorPrimario};background:#ffffff;color:${colorTexto}">
       <div style="min-width:0">${logoHtml}${c.slogan?`<div style="font-size:12px;color:${colorSuave};margin-top:6px;line-height:1.35">${c.slogan}</div>`:''}</div>
       <div style="text-align:right;min-width:170px;color:${colorTexto}">
-        <div style="font-size:20px;font-weight:900;color:${colorPrimario};letter-spacing:1px">${esCredito?'CRÉDITO':'COMPROBANTE'}</div>
+        <div style="font-size:20px;font-weight:900;color:${colorPrimario};letter-spacing:1px">${creditoPendiente?'CRÉDITO':'COMPROBANTE'}</div>
         <div style="font-size:12px;color:${colorSuave};margin-top:6px;line-height:1.45">
           ${c.telefono?`<div style="color:${colorSuave}">📞 ${c.telefono}</div>`:''}
           ${c.direccion?`<div style="color:${colorSuave}">📍 ${c.direccion}</div>`:''}
@@ -5780,7 +5819,7 @@ function renderComprobante(venta,items,dg,total,pagado,cid,entrega,esCredito,bon
         <div style="font-size:12px;color:${colorSuave}">N° de comprobante: <b style="color:${colorTitulo};font-size:13px">#${venta.id}</b></div>
         <div style="font-size:12px;color:${colorSuave};margin-top:5px">Fecha: <b style="color:${colorTitulo}">${venta.fecha}</b></div>
         <div style="font-size:12px;color:${colorSuave};margin-top:5px">Entrega: <b style="color:${colorTitulo}">${entrega}</b></div>
-        ${esCredito?`<div style="margin-top:8px;background:#ffebee;color:#b42318;font-weight:800;font-size:11px;padding:5px 9px;border-radius:999px;display:inline-block;border:1px solid #f4b3b9">🔴 CRÉDITO / FIADO</div>`:''}
+        ${creditoPendiente?`<div style="margin-top:8px;background:#ffebee;color:#b42318;font-weight:800;font-size:11px;padding:5px 9px;border-radius:999px;display:inline-block;border:1px solid #f4b3b9">🔴 CRÉDITO / FIADO</div>`:''}
       </div>
     </div>
 
@@ -5844,16 +5883,17 @@ function renderComprobante(venta,items,dg,total,pagado,cid,entrega,esCredito,bon
           <span style="color:#b42318;font-weight:700">Descuento general</span>
           <span style="color:#b42318;font-weight:800">-${fQ(dg)}</span>
         </div>`:''}
-        ${!esCredito?`<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid ${colorBorde};font-size:13px;color:${colorTexto}">
+        ${pagoVerificado?`<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid ${colorBorde};font-size:13px;color:${colorTexto}">
           <span style="color:${colorSuave}">Pagado</span>
-          <span style="color:#166534;font-weight:800">${fQ(pagado)}</span>
+          <span style="color:#166534;font-weight:800">${fQ(montoPagado)}</span>
         </div>`:''  }
         <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px 14px;background:${colorPrimario};color:#fff;border-radius:8px;margin-top:8px;box-shadow:inset 0 -1px 0 rgba(255,255,255,.08)">
-          <span style="font-size:14px;font-weight:800;color:#fff">TOTAL A PAGAR</span>
+          <span style="font-size:14px;font-weight:800;color:#fff">TOTAL DE LA COMPRA</span>
           <span style="font-size:18px;font-weight:900;color:#fff">${fQ(total)}</span>
         </div>
-        ${!esCredito&&pagado>=total?`<div style="text-align:center;margin-top:8px;background:#e8f5e9;color:#166534;font-weight:800;font-size:12px;padding:7px;border-radius:7px;border:1px solid #b7dfc0">✅ PAGADO</div>`:''}
-        ${esCredito?`<div style="text-align:center;margin-top:8px;background:#ffebee;color:#b42318;font-weight:800;font-size:12px;padding:7px;border-radius:7px;border:1px solid #f4b3b9">⏳ PENDIENTE DE PAGO</div>`:''}
+        ${pagoVerificado&&saldoPendiente<=0.005?`<div style="text-align:center;margin-top:8px;background:#e8f5e9;color:#166534;font-weight:800;font-size:12px;padding:7px;border-radius:7px;border:1px solid #b7dfc0">✅ PAGADO EN SU TOTALIDAD</div>`:''}
+        ${!pagoVerificado?`<div style="text-align:center;margin-top:8px;background:#fff4d6;color:#765205;font-weight:800;font-size:12px;padding:7px;border-radius:7px">⚠ PAGO SIN VERIFICAR. Actualiza el comprobante.</div>`:''}
+        ${pagoVerificado&&saldoPendiente>0.005?`<div style="text-align:center;margin-top:8px;background:#ffebee;color:#b42318;font-weight:800;font-size:12px;padding:7px;border-radius:7px;border:1px solid #f4b3b9">⏳ SALDO PENDIENTE: ${fQ(saldoPendiente)}</div>`:''}
       </div>
     </div>
 
@@ -5875,7 +5915,7 @@ function renderComprobante(venta,items,dg,total,pagado,cid,entrega,esCredito,bon
       });
       ptosEstaCompra=Math.round(ptosEstaCompra*100)/100;
       if(ptosEstaCompra<=0)return '';
-      if(esCredito){
+      if(creditoPendiente){
         return `<div style="background:#fff7ed;border-top:1px solid #fed7aa;padding:12px 24px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:${colorTexto}">
           <div style="font-size:12px;font-weight:900;color:#c2410c">⭐ Puntos:</div>
           <div style="font-size:11px;color:#7c2d12">Tienes <b>${ptosEstaCompra} puntos</b> pendientes por acreditar cuando pagues esta factura.</div>
@@ -6881,6 +6921,7 @@ async function abrirComprobanteVenta(vid, enviarWsp=false){
   const pagado=parseFloat(venta.pagado||0);
   const cid=venta.cliente_id;
   const esCredito=(venta.estado==='Pendiente'||venta.estado==='Crédito')&&pagado<total;
+  venta._aqPagoComprobante=await aqVerificarPagoComprobante(venta,total);
   docActual={venta,items,dg,total,pagado,cid,entrega:venta.entrega||'',esCredito,bonifs:venta.bonificaciones||''};
   tipoDocActual='comprobante';
   document.querySelectorAll('#modal-ticket .tab').forEach(t=>t.classList.remove('active'));

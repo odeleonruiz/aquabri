@@ -1,0 +1,53 @@
+name: AQUABRI Android QA - APK aislado
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'qa-seguridad/index.html'
+      - 'scripts/build-web.mjs'
+      - '.github/workflows/android-qa-seguridad.yml'
+
+jobs:
+  qa-apk:
+    name: Build Android QA debug APK (staging only)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Install Node dependencies
+        run: npm install --no-audit --no-fund
+      - name: Set isolated QA Android package
+        run: |
+          node -e "const fs=require('fs');const p='capacitor.config.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.appId='com.aquabri.ventas.qa';c.appName='AQUABRI PRUEBAS';fs.writeFileSync(p,JSON.stringify(c,null,2));"
+      - name: Build isolated QA app (never production backend)
+        env:
+          AQUABRI_BUILD_TARGET: qa
+        run: |
+          npm run android:init
+          grep -q "const SURL='https://xzbawbkstaqvkwtqlqai.supabase.co'" www/index.html
+          grep -q "const SURL='https://xzbawbkstaqvkwtqlqai.supabase.co'" android/app/src/main/assets/public/index.html
+          if grep -q 'odwccqqvxpsggggehjtt' android/app/src/main/assets/public/index.html; then
+            echo "ERROR: QA application contains the production Supabase reference."
+            exit 1
+          fi
+          grep -R -q 'com.aquabri.ventas.qa' android/app/src/main || exit 1
+      - name: Build Android QA debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aquabri-android-qa-staging-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 14

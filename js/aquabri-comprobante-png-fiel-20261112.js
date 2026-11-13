@@ -3,6 +3,8 @@
 (function(){
 'use strict';
 let actual=null, enlaceURL=null, enlaceNombre='';
+const esIOS=()=>/iP(hone|ad|od)/.test(navigator.userAgent||'') ||
+  (/Macintosh/.test(navigator.userAgent||'')&&navigator.maxTouchPoints>1);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const visible=()=>window.aqDocumentoVisible();
 function firma(el){
@@ -31,7 +33,7 @@ function enlace(blob,nombre){
     a=document.createElement('a');
     a.className='aq-jpg-descarga-directa';
     a.textContent='⬇ Guardar imagen JPG';
-    a.style.cssText='display:block;margin:9px 0;padding:10px;text-align:center;background:#e8f5e9;color:#166534;border-radius:8px;font-weight:700;text-decoration:underline';
+    a.style.cssText='display:none;margin:9px 0;padding:10px;text-align:center;background:#e8f5e9;color:#166534;border-radius:8px;font-weight:700;text-decoration:underline';
     zona.insertAdjacentElement('afterend',a);
   }
   if(enlaceURL&&enlaceNombre!==nombre){
@@ -48,6 +50,27 @@ function enlace(blob,nombre){
   a.dataset.aqFirma=actual?.id||'';
   enlaceNombre=nombre;
   return a;
+}
+// El teléfono prepara la foto apenas se abre el comprobante: no se exige
+// tocar Compartir dos veces ni se abre una ventana de espera adicional.
+function botones(estadoActual){
+  for(const id of ['modal-ticket','modal-saldo_pendiente']){
+    const modal=document.getElementById(id);
+    if(!modal?.classList.contains('open'))continue;
+    const controles=modal.querySelectorAll('button[onclick*="compartirImagenComprobante"],button[onclick*="descargarTicketPDF"]');
+    controles.forEach(btn=>{
+      if(!btn.dataset.aqJpgOriginal)btn.dataset.aqJpgOriginal=btn.innerHTML;
+      btn.disabled=estadoActual==='preparando';
+      if(estadoActual==='preparando'){
+        btn.textContent='⏳ Preparando comprobante…';
+        btn.setAttribute('aria-busy','true');
+      }else{
+        btn.innerHTML=btn.dataset.aqJpgOriginal;
+        btn.removeAttribute('aria-busy');
+        btn.title=estadoActual==='error'?'Toca para reintentar preparar el comprobante':'';
+      }
+    });
+  }
 }
 function estado(texto){
   const zona=pie();
@@ -146,13 +169,17 @@ function jpegBlob(canvas){
 function preparar(el){
   if(!el)return Promise.reject(Error('No hay comprobante abierto.'));
   const id=firma(el);
-  if(actual?.el===el&&actual.id===id&&actual.promesa)return actual.promesa;
+  if(actual?.el===el&&actual.id===id&&actual.promesa){
+    botones(actual.blob?'listo':'preparando');
+    return actual.promesa;
+  }
   // No reutilizar imagen de otro comprobante.
   const t={el,id,blob:null,promesa:null};
   actual=t;
   const anterior=document.querySelector('.aq-jpg-descarga-directa');
   if(anterior)anterior.remove();
   estado('');
+  botones('preparando');
   t.promesa=(async()=>{
     const blob=await Promise.race([
       (async()=>{
@@ -164,13 +191,15 @@ function preparar(el){
     if(actual!==t||firma(el)!==id)throw Error('El comprobante cambió. Intenta de nuevo.');
     t.blob=blob;
     enlace(blob,nombreJPG());
+    botones('listo');
     estado('');
     return blob;
   })();
   t.promesa.catch(err=>{
     if(actual===t){
       actual=null;
-      estado('');
+      botones('error');
+      estado('No se pudo preparar la imagen. Toca Compartir o Descargar para reintentar.');
       console.warn('AQUABRI JPG:',err);
     }
   });
@@ -196,8 +225,9 @@ async function compartir(blob,nombre){
 function alternativa(blob,nombre){
   const a=enlace(blob,nombre);
   if(!a)return;
+  a.style.display='block';
   a.focus();
-  notificar('Imagen JPG lista. Toca «Guardar imagen JPG» para guardarla o compartirla.');
+  notificar('Tu celular no abrió Compartir. Usa «Guardar imagen JPG» como alternativa.');
 }
 window.aqCapturarComprobanteEnCanvas=capturar;
 window.aqPrecalentarPNGComprobante=function(el){preparar(el).catch(()=>{});};
@@ -207,21 +237,14 @@ window.compartirImagenComprobante=function(){
   if(!el)return false;
   const blob=listo(el);
   if(blob){
-    // Ruta rápida habitual: un toque -> hoja nativa (WhatsApp, Guardar Imagen).
+    // Safari iPhone y Chrome Android: hoja nativa en el mismo toque.
     compartir(blob,nombre).then(resultado=>{
       if(resultado==='fallo'||resultado==='sin_soporte')alternativa(blob,nombre);
     });
   }else{
-    // Safari exige iniciar navigator.share desde el toque. Si la imagen aún
-    // se prepara, esperar sin perder el gesto: el próximo toque será instantáneo.
-    estado('Preparando comprobante…');
-    preparar(el).then(()=>{
-      estado('✅ Imagen lista. Toca WhatsApp para compartirla.');
-      notificar('Comprobante listo para compartir.','#2e7d32');
-    }).catch(e=>{
-      estado('No se pudo preparar el JPG. Toca Compartir para reintentar.');
-      notificar('Error al generar JPG: '+(e?.message||e),'#c62828');
-    });
+    // Si el botón estaba habilitado después de un error, prepara la imagen.
+    // Nunca abrir un diálogo artificial ni ofrecer un JPG con diseño distinto.
+    preparar(el).catch(e=>notificar('No se pudo crear la imagen: '+(e?.message||e),'#c62828'));
   }
   return false;
 };
@@ -229,26 +252,27 @@ window.descargarTicketPDF=function(){
   if(!window.aqValidarDetalleVentaComprobante())return false;
   const el=visible(),nombre=nombreJPG();
   if(!el)return false;
-  const descargar=blob=>{
-    const a=enlace(blob,nombre);
-    if(!a)throw Error('No se encontró el botón para guardar.');
-    // En Android/PC se descarga; en Safari queda además el enlace real para tocar.
-    a.click();
-    notificar('Imagen JPG lista. Si no se guardó, toca «Guardar imagen JPG».','#2e7d32');
-  };
   const blob=listo(el);
-  if(blob){try{descargar(blob);}catch(e){notificar(e.message,'#c62828');}}
-  else{
-    estado('Preparando comprobante…');
-    preparar(el).then(imagen=>{
-      const a=enlace(imagen,nombre);
-      estado('✅ Imagen lista. Toca «Guardar imagen JPG» para descargarla.');
-      if(a)notificar('JPG listo: toca Guardar imagen JPG.','#2e7d32');
-    }).catch(e=>{
-      estado('No se pudo generar el JPG. Intenta de nuevo.');
-      notificar('Error al guardar JPG: '+(e?.message||e),'#c62828');
-    });
+  if(!blob){
+    preparar(el).catch(e=>notificar('Error preparando comprobante: '+(e?.message||e),'#c62828'));
+    return false;
   }
+  // iOS no siempre admite un download de blob desde una PWA. Con el JPG
+  // ya listo, la hoja nativa permite "Guardar imagen" o "Guardar en Archivos".
+  if(esIOS()&&typeof navigator.share==='function'){
+    compartir(blob,nombre).then(resultado=>{
+      if(resultado==='fallo'||resultado==='sin_soporte'){
+        const a=enlace(blob,nombre);
+        if(a){a.style.display='block';a.click();}
+      }
+    });
+    return false;
+  }
+  const a=enlace(blob,nombre);
+  if(!a){notificar('No se encontró el botón para guardar.','#c62828');return false;}
+  a.click();
+  // En Android/PC, descarga directa; conservar acceso alternativo si se bloqueó.
+  notificar('Se solicitó guardar el JPG.','#2e7d32');
   return false;
 };
 const preload=()=>window.cargarHtml2Canvas?.().catch(e=>console.warn('Precarga JPG:',e));

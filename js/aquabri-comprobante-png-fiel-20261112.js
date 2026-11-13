@@ -243,12 +243,12 @@ window.compartirResumenComprobanteWhatsApp=function(){
   const el=visible();
   if(!el)return false;
   const texto=String(el.innerText||el.textContent||'')
-    .replace(/\\r/g,'')
-    .replace(/[^\\S\\n]+/g,' ')
-    .replace(/\\n{3,}/g,'\\n\\n')
+    .replace(/\r/g,'')
+    .replace(/[^\S\n]+/g,' ')
+    .replace(/\n{3,}/g,'\n\n')
     .trim();
   if(!texto){notificar('No se encontró el resumen del comprobante.','#c62828');return false;}
-  const mensaje='AQUABRI · Resumen del comprobante\\n\\n'+texto.slice(0,3500);
+  const mensaje='AQUABRI · Resumen del comprobante\n\n'+texto.slice(0,3500);
   const url='https://wa.me/?text='+encodeURIComponent(mensaje);
   // El enlace se abre directamente con el toque, sin captura ni conversiones.
   const ventana=window.open(url,'_blank');

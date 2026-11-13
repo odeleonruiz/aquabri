@@ -17,4 +17,19 @@ const recursive=async (from,to,depth=0)=>{
   }
 };
 await recursive(root,out);
+// QA builds use ONLY the isolated frontend, which points at Supabase staging.
+// Default behavior remains the exact existing production frontend.
+if(process.env.AQUABRI_BUILD_TARGET==='qa'){
+  const qaSource=join(root,'qa-seguridad','index.html');
+  await copyFile(qaSource,join(out,'index.html'));
+  const {readFile}=await import('node:fs/promises');
+  const qaHtml=await readFile(join(out,'index.html'),'utf8');
+  if(!qaHtml.includes("const SURL='https://xzbawbkstaqvkwtqlqai.supabase.co'") ||
+     qaHtml.includes('odwccqqvxpsggggehjtt')){
+    throw new Error('QA build aborted: staging Supabase URL is not isolated.');
+  }
+  console.log('AQUABRI QA: isolated staging frontend selected.');
+}else if(process.env.AQUABRI_BUILD_TARGET && process.env.AQUABRI_BUILD_TARGET!=='production'){
+  throw new Error('Unsupported AQUABRI_BUILD_TARGET.');
+}
 console.log('AQUABRI web assets copied to www for Capacitor.');

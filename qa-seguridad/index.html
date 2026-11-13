@@ -3353,6 +3353,23 @@ const sb=supabase.createClient(SURL,SKEY);
 
 let D={cfg:{},usuarios:[],clientes:[],cats:[],prods:[],insumos:[],ventas:[],envases:[],envBod:0,actCat:[],actPres:[],actItems:[],gastos:[],metas:[],metasEmp:[],empleados:[],pagos:[],vales:[],creditos:[],deudasProv:[],facturas:[],comisiones:[],vehiculos:[],cargas:[]};
 let CU=null,cart=[],prodLigados=[],factItems=[],cargaItems=[],rutaParadasIds=[];
+let aqPermisosAuthEfectivos=null; // Sólo QA: fuente autorizada en Supabase Auth
+function aqPermisosEfectivos(){
+  if(!CU || !(aqPermisosAuthEfectivos instanceof Set))return [];
+  const allowed=new Set(aqPermisosAuthEfectivos);
+  // Compatibilidad de pantallas agrupadas que no tienen código independiente.
+  if(allowed.has('vehiculos'))allowed.add('cargas');
+  if(CU.rol==='jefe')allowed.add('clientes-empleado');
+  return [...allowed];
+}
+async function aqConsultarPermisosAuth(perfil){
+  const {data,error}=await sb.rpc('aq_mis_permisos_auth_v1');
+  if(error||!data||!Array.isArray(data.permisos)||
+     Number(data.id)!==Number(perfil.id)||data.rol!==perfil.rol){
+    throw new Error('No se pudieron verificar los permisos del usuario en Supabase.');
+  }
+  return new Set(data.permisos.filter(p=>typeof p==='string'));
+}
 let mapaL=null,mapaMarkers={},miPosMarker=null,modoMarcar=false,mkLat=null,mkLng=null;
 let tcBase64='',userFotoBase64='';
 
@@ -3505,9 +3522,13 @@ async function aqPerfilAutenticado(){
   return perfil;
 }
 async function aqCargarCuenta(perfil){
+  // Un usuario con acceso Auth no obtiene automáticamente privilegios del jefe.
+  // Consultar los permisos validados en base de datos, no confiar en la lista JS.
+  const verificados=await aqConsultarPermisosAuth(perfil);
   await loadAll();
   applyConfig();
   CU=perfil;
+  aqPermisosAuthEfectivos=verificados;
 }
 async function init(){
   if(_aqInicioEnProceso||_aqInicioFinalizado)return;
@@ -3581,6 +3602,7 @@ async function doLogin(){
     console.error('Error en acceso Auth v2',error);
     await sb.auth.signOut({scope:'local'}).catch(()=>{});
     CU=null;
+    aqPermisosAuthEfectivos=null;
     err.textContent='No se pudo iniciar sesión. Revisa tus credenciales o la conexión.';
   }finally{if(boton)boton.disabled=false;}
 }
@@ -3590,6 +3612,7 @@ async function doLogout(){
   // Limpiar solo los tokens antiguos locales; no borrar registros de ventas ni sesiones ajenas.
   localStorage.removeItem('aqb_token');localStorage.removeItem('aqb_uid');
   CU=null;
+  aqPermisosAuthEfectivos=null;
   document.getElementById('app').classList.remove('show');
   document.getElementById('login-screen').classList.add('show');
   document.getElementById('lu').value='';
@@ -3677,7 +3700,7 @@ function startApp(){
   else{document.getElementById('sb-ufb').textContent=(CU.nombre||'J')[0].toUpperCase();document.getElementById('sb-ufb').style.display='';}
   applyPerms();initDates();
   const lastPage=localStorage.getItem('aqb_page')||'inicio';
-  const allowed=PERMS[CU?.rol]||['inicio'];
+  const allowed=aqPermisosEfectivos();
   goPage(allowed.includes(lastPage)?lastPage:'inicio');
   setTimeout(initNotificaciones,1000);
   if(window.innerWidth<=768){document.getElementById('sidebar').classList.add('hidden');document.getElementById('main-wrap').classList.add('full');}
@@ -3717,12 +3740,18 @@ function toggleSB(){sbOpen=!sbOpen;document.getElementById('sidebar').classList.
 function closeSB(){document.getElementById('sidebar').classList.add('hidden');document.getElementById('sb-overlay').classList.remove('show');sbOpen=false;}
 window.addEventListener('resize',()=>{if(window.innerWidth>768){document.getElementById('sb-overlay').classList.remove('show');if(sbOpen)document.getElementById('main-wrap').classList.remove('full');}else{document.getElementById('main-wrap').classList.add('full');}});
 
-function applyPerms(){const customP=CU?.permisos_custom?JSON.parse(CU.permisos_custom):null;let allowed=customP||(PERMS[CU?.rol]||['inicio']);// Si tiene custom pero le falta 'cargas' y tiene 'vehiculos', agregarlo automáticamente
-if(customP&&allowed.includes('vehiculos')&&!allowed.includes('cargas')){allowed=[...allowed,'cargas'];}if(CU&&CU.rol==='jefe'&&!allowed.includes('clientes-empleado')){allowed=[...allowed,'clientes-empleado'];}if(CU&&['vendedor','vendedor_editor'].includes(CU.rol)){allowed=allowed.filter(p=>p!=='reportes');}if(!customP&&CU?.id)_permisosCustom[CU.id]=allowed;document.querySelectorAll('.sb-btn[data-page]').forEach(b=>{b.style.display=allowed.includes(b.dataset.page)?'':'none';});actualizarVisibilidadEnvasesVenta();}
+function applyPerms(){
+  // Mostrar sólo módulos realmente autorizados por la función SQL.
+  const allowed=aqPermisosEfectivos();
+  document.querySelectorAll('.sb-btn[data-page]').forEach(b=>{
+    b.style.display=allowed.includes(b.dataset.page)?'':'none';
+  });
+  actualizarVisibilidadEnvasesVenta();
+}
 const PT={'caja':'🏦 Caja','inicio':'🏠 Inicio','chat':'💬 Chat','puntos':'⭐ Puntos','ahorro':'💰 Ahorro','ventas':'🛒 Ventas','clientes':'👥 Clientes','creditos':'💳 Créditos','mapa':'🗺 Mapa','inventario':'📦 Inventario','envases':'🧴 Envases','activos':'🖥 Activos','facturas':'🧾 Facturas','vehiculos':'🚚 Vehículos','cargas':'📦 Cargas','gastos':'💸 Gastos','metas':'🎯 Metas','reportes':'📊 Reportes','rrhh':'👷 RRHH','comisiones':'💰 Comisiones','clientes-empleado':'👤 Clientes por empleado','usuarios':'👤 Usuarios','config':'⚙️ Configuración'};
 
 async function goPage(p){
-  const allowed=PERMS[CU?.rol]||['inicio'];
+  const allowed=aqPermisosEfectivos();
   if(!allowed.includes(p)){showNotif('Sin permiso','#c62828');return;}
   // Bloqueo operativo: no comenzar ventas de un nuevo día con el cierre anterior pendiente.
   if(p==='ventas' && await aqBloquearNuevoDiaPorCierre())return;
@@ -17381,12 +17410,7 @@ async function confirmarEntregaPedido(){
 // ══════════════════════════════════════════
 
 function usuarioPuedeGestionarEnvases(){
-  if(!CU)return false;
-  if(CU.rol==='jefe'||CU.rol==='Jefe'||CU.rol==='admin')return true;
-  let permisos=null;
-  try{permisos=CU.permisos_custom?JSON.parse(CU.permisos_custom):null;}catch(e){permisos=[];}
-  const permitidos=Array.isArray(permisos)?permisos:(PERMS[CU.rol]||[]);
-  return permitidos.includes('envases');
+  return aqPermisosEfectivos().includes('envases');
 }
 function aqHayEnvasesEnCarritoPos(){
   return posCart.some(i=>{

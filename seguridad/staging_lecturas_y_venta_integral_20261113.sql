@@ -1,10 +1,13 @@
--- AQUABRI / STAGING - Cambios funcionales probados por SQL el 13 de noviembre 2026.
--- No ejecutar en producción sin dependencias (tablas y RPC integral) y migrar frontend.
--- Pruebas transaccionales confirmadas: venta contado jefe y crédito vendedor.
--- La transacción de prueba fue revertida (ROLLBACK) para no alterar registros.
--- Debe ejecutarse después de habilitar RLS en staging y crear funciones/roles base.
+-- AQUABRI STAGING: compatibilidad de lectura, sesión y ventas atómicas.
+
+-- Pruebas verificadas con transacciones ROLLBACK: contado jefe, crédito vendedor y visita del vendedor.
+
+-- REQUIERE las funciones/tables de staging (en especial aq_registrar_venta_integral_v2).
+
+-- NO EJECUTAR este archivo directamente sobre el proyecto oficial sin completar dependencias.
 
 BEGIN;
+
 SET LOCAL lock_timeout = '5s';
 
 CREATE OR REPLACE FUNCTION public.aq_legacy_empleado_actual_v1()
@@ -26,6 +29,26 @@ CREATE OR REPLACE FUNCTION public.aq_legacy_permiso_modulo_v1(p_codigo text)
 AS $function$
  SELECT (SELECT public.aq_sesion_legacy_usuario_actual_v1()) IS NOT NULL
  AND coalesce(aquabri_private.tiene_permiso_usuario((SELECT public.aq_sesion_legacy_usuario_actual_v1()),p_codigo),false);
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.aq_sesion_legacy_puede_ver_cliente_v1(p_cliente integer)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE v_uid integer; v_rol text;
+BEGIN
+ v_uid:=public.aq_sesion_legacy_usuario_actual_v1();
+ IF v_uid IS NULL OR p_cliente IS NULL THEN RETURN false; END IF;
+ SELECT rol INTO v_rol FROM public.usuarios WHERE id=v_uid;
+ IF v_rol='jefe' THEN RETURN true; END IF;
+ RETURN EXISTS(SELECT 1 FROM public.clientes c WHERE c.id=p_cliente AND c.creado_por=v_uid::text)
+   OR EXISTS(SELECT 1 FROM public.aq_clientes_atribucion_manual a
+             WHERE a.cliente_id=p_cliente AND a.usuario_id=v_uid)
+   OR EXISTS(SELECT 1 FROM public.ventas v WHERE v.cliente_id=p_cliente AND v.usuario_id=v_uid);
+END;
 $function$
 ;
 
@@ -91,13 +114,14 @@ END;
 $function$
 ;
 
-REVOKE ALL ON FUNCTION public.aq_legacy_permiso_modulo_v1(text),
-public.aq_legacy_empleado_actual_v1(),
-public.aq_vender_con_envases_sesion_v1(text,bigint,text,jsonb,jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.aq_legacy_permiso_modulo_v1(text),public.aq_legacy_empleado_actual_v1(),
+public.aq_vender_con_envases_sesion_v1(text,bigint,text,jsonb,jsonb),public.aq_sesion_legacy_puede_ver_cliente_v1(integer)
+FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION public.aq_legacy_permiso_modulo_v1(text),
 public.aq_legacy_empleado_actual_v1(),
 public.aq_vender_con_envases_sesion_v1(text,bigint,text,jsonb,jsonb),
+public.aq_sesion_legacy_puede_ver_cliente_v1(integer),
 public.aq_sesion_legacy_usuario_actual_v1(),
 public.aq_sesion_legacy_rol_v1(),
 public.aq_sesion_legacy_tiene_permiso_lectura_v2(text),
@@ -144,7 +168,9 @@ GRANT SELECT ON public."carga_items" TO anon;
 
 DROP POLICY IF EXISTS "aq_compat_legacy_read_v1" ON public."carga_items";
 
-CREATE POLICY "aq_compat_legacy_read_v1" ON public."carga_items" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR ( SELECT aq_legacy_permiso_modulo_v1('vehiculos'::text) AS aq_legacy_permiso_modulo_v1)));
+CREATE POLICY "aq_compat_legacy_read_v1" ON public."carga_items" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR (EXISTS ( SELECT 1
+   FROM cargas c
+  WHERE (c.id = carga_items.carga_id)))));
 
 ALTER TABLE public."cargas" ENABLE ROW LEVEL SECURITY;
 
@@ -152,7 +178,7 @@ GRANT SELECT ON public."cargas" TO anon;
 
 DROP POLICY IF EXISTS "aq_compat_legacy_read_v1" ON public."cargas";
 
-CREATE POLICY "aq_compat_legacy_read_v1" ON public."cargas" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR ( SELECT aq_legacy_permiso_modulo_v1('vehiculos'::text) AS aq_legacy_permiso_modulo_v1)));
+CREATE POLICY "aq_compat_legacy_read_v1" ON public."cargas" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR (empleado_id = ( SELECT aq_legacy_empleado_actual_v1() AS aq_legacy_empleado_actual_v1))));
 
 ALTER TABLE public."cargas_vehiculos" ENABLE ROW LEVEL SECURITY;
 
@@ -168,7 +194,7 @@ GRANT SELECT ON public."clientes_eliminados" TO anon;
 
 DROP POLICY IF EXISTS "aq_compat_legacy_read_v1" ON public."clientes_eliminados";
 
-CREATE POLICY "aq_compat_legacy_read_v1" ON public."clientes_eliminados" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR ( SELECT aq_legacy_permiso_modulo_v1('clientes'::text) AS aq_legacy_permiso_modulo_v1)));
+CREATE POLICY "aq_compat_legacy_read_v1" ON public."clientes_eliminados" FOR SELECT TO anon USING ((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text));
 
 ALTER TABLE public."comisiones" ENABLE ROW LEVEL SECURITY;
 
@@ -248,7 +274,9 @@ GRANT SELECT ON public."liquidacion_items" TO anon;
 
 DROP POLICY IF EXISTS "aq_compat_legacy_read_v1" ON public."liquidacion_items";
 
-CREATE POLICY "aq_compat_legacy_read_v1" ON public."liquidacion_items" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR ( SELECT aq_legacy_permiso_modulo_v1('vehiculos'::text) AS aq_legacy_permiso_modulo_v1)));
+CREATE POLICY "aq_compat_legacy_read_v1" ON public."liquidacion_items" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR (EXISTS ( SELECT 1
+   FROM liquidaciones l
+  WHERE (l.id = liquidacion_items.liquidacion_id)))));
 
 ALTER TABLE public."liquidaciones" ENABLE ROW LEVEL SECURITY;
 
@@ -256,7 +284,7 @@ GRANT SELECT ON public."liquidaciones" TO anon;
 
 DROP POLICY IF EXISTS "aq_compat_legacy_read_v1" ON public."liquidaciones";
 
-CREATE POLICY "aq_compat_legacy_read_v1" ON public."liquidaciones" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR ( SELECT aq_legacy_permiso_modulo_v1('vehiculos'::text) AS aq_legacy_permiso_modulo_v1) OR (usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1))));
+CREATE POLICY "aq_compat_legacy_read_v1" ON public."liquidaciones" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR (usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1)) OR (empleado_id = ( SELECT aq_legacy_empleado_actual_v1() AS aq_legacy_empleado_actual_v1))));
 
 ALTER TABLE public."mantenimientos" ENABLE ROW LEVEL SECURITY;
 
@@ -272,7 +300,7 @@ GRANT SELECT ON public."mensajes" TO anon;
 
 DROP POLICY IF EXISTS "aq_compat_legacy_read_v1" ON public."mensajes";
 
-CREATE POLICY "aq_compat_legacy_read_v1" ON public."mensajes" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR ( SELECT aq_legacy_permiso_modulo_v1('chat'::text) AS aq_legacy_permiso_modulo_v1) OR ((de_usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1)) OR (para_usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1)))));
+CREATE POLICY "aq_compat_legacy_read_v1" ON public."mensajes" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR (de_usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1)) OR (para_usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1))));
 
 ALTER TABLE public."metas" ENABLE ROW LEVEL SECURITY;
 
@@ -296,7 +324,7 @@ GRANT SELECT ON public."notificaciones" TO anon;
 
 DROP POLICY IF EXISTS "aq_compat_legacy_read_v1" ON public."notificaciones";
 
-CREATE POLICY "aq_compat_legacy_read_v1" ON public."notificaciones" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR ( SELECT aq_legacy_permiso_modulo_v1('chat'::text) AS aq_legacy_permiso_modulo_v1) OR (usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1))));
+CREATE POLICY "aq_compat_legacy_read_v1" ON public."notificaciones" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR (usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1))));
 
 ALTER TABLE public."pagos" ENABLE ROW LEVEL SECURITY;
 
@@ -386,6 +414,18 @@ DROP POLICY IF EXISTS "aq_compat_legacy_read_v1" ON public."ruta_paradas";
 
 CREATE POLICY "aq_compat_legacy_read_v1" ON public."ruta_paradas" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR ( SELECT aq_legacy_permiso_modulo_v1('mapa'::text) AS aq_legacy_permiso_modulo_v1) OR ( SELECT aq_legacy_permiso_modulo_v1('ventas'::text) AS aq_legacy_permiso_modulo_v1)));
 
+ALTER TABLE public."ruta_paradas" ENABLE ROW LEVEL SECURITY;
+
+GRANT UPDATE(estado) ON public."ruta_paradas" TO anon;
+
+DROP POLICY IF EXISTS "aq_legacy_parada_visitada_v1" ON public."ruta_paradas";
+
+CREATE POLICY "aq_legacy_parada_visitada_v1" ON public."ruta_paradas" FOR UPDATE TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR (( SELECT aq_legacy_permiso_modulo_v1('mapa'::text) AS aq_legacy_permiso_modulo_v1) AND (EXISTS ( SELECT 1
+   FROM rutas r
+  WHERE ((r.id = ruta_paradas.ruta_id) AND (r.empleado_id = ( SELECT aq_legacy_empleado_actual_v1() AS aq_legacy_empleado_actual_v1)))))))) WITH CHECK (((estado = 'Visitado'::text) AND ((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR (( SELECT aq_legacy_permiso_modulo_v1('mapa'::text) AS aq_legacy_permiso_modulo_v1) AND (EXISTS ( SELECT 1
+   FROM rutas r
+  WHERE ((r.id = ruta_paradas.ruta_id) AND (r.empleado_id = ( SELECT aq_legacy_empleado_actual_v1() AS aq_legacy_empleado_actual_v1)))))))));
+
 ALTER TABLE public."rutas" ENABLE ROW LEVEL SECURITY;
 
 GRANT SELECT ON public."rutas" TO anon;
@@ -424,6 +464,14 @@ GRANT SELECT ON public."visitas" TO anon;
 
 DROP POLICY IF EXISTS "aq_compat_legacy_read_v1" ON public."visitas";
 
-CREATE POLICY "aq_compat_legacy_read_v1" ON public."visitas" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR ( SELECT aq_legacy_permiso_modulo_v1('mapa'::text) AS aq_legacy_permiso_modulo_v1) OR ( SELECT aq_legacy_permiso_modulo_v1('ventas'::text) AS aq_legacy_permiso_modulo_v1) OR (usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1))));
+CREATE POLICY "aq_compat_legacy_read_v1" ON public."visitas" FOR SELECT TO anon USING (((( SELECT aq_sesion_legacy_rol_v1() AS aq_sesion_legacy_rol_v1) = 'jefe'::text) OR (usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1)) OR ( SELECT aq_sesion_legacy_puede_ver_cliente_v1(visitas.cliente_id) AS aq_sesion_legacy_puede_ver_cliente_v1)));
+
+ALTER TABLE public."visitas" ENABLE ROW LEVEL SECURITY;
+
+GRANT INSERT(cliente_id,fecha,usuario_id,notas,sin_compra) ON public."visitas" TO anon;GRANT USAGE ON SEQUENCE public.visitas_id_seq TO anon;
+
+DROP POLICY IF EXISTS "aq_legacy_visitas_crear_v1" ON public."visitas";
+
+CREATE POLICY "aq_legacy_visitas_crear_v1" ON public."visitas" FOR INSERT TO anon WITH CHECK (((usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1)) AND (( SELECT aq_legacy_permiso_modulo_v1('ventas'::text) AS aq_legacy_permiso_modulo_v1) OR ( SELECT aq_legacy_permiso_modulo_v1('mapa'::text) AS aq_legacy_permiso_modulo_v1)) AND aq_sesion_legacy_puede_ver_cliente_v1(cliente_id)));
 
 COMMIT;

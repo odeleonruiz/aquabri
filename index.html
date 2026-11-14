@@ -3361,7 +3361,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 const SURL='https://odwccqqvxpsggggehjtt.supabase.co';
 const SKEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kd2NjcXF2eHBzZ2dnZ2VoanR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1ODQxNTgsImV4cCI6MjA5MDE2MDE1OH0.4RulBc7xRiqfy5mAK9yxpj49fr7OloTp0-wZ9pZ0LJA';
-const sb=supabase.createClient(SURL,SKEY);
+const sb=supabase.createClient(SURL,SKEY,{global:{headers:{'x-aquabri-session':localStorage.getItem('aqb_token')||''}}});
 
 let D={cfg:{},usuarios:[],clientes:[],cats:[],prods:[],insumos:[],ventas:[],envases:[],envBod:0,actCat:[],actPres:[],actItems:[],gastos:[],metas:[],metasEmp:[],empleados:[],pagos:[],vales:[],creditos:[],deudasProv:[],facturas:[],comisiones:[],vehiculos:[],cargas:[]};
 let CU=null,cart=[],prodLigados=[],factItems=[],cargaItems=[],rutaParadasIds=[];
@@ -3378,27 +3378,24 @@ function genToken(){
   crypto.getRandomValues(bytes);
   return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
 }
-async function saveSession(uid){
-  const token=genToken();
-  const exp=new Date(Date.now()+30*24*60*60*1000).toISOString();
-  const {error}=await sb.from('sesiones').insert({usuario_id:uid,token,expira_en:exp});
-  if(error)throw error;
-  localStorage.setItem('aqb_token',token);
-  localStorage.setItem('aqb_uid',String(uid));
-}
+// La sesión se valida en el servidor. Nunca se carga la lista de contraseñas antes del login.
 async function checkSession(){
   const token=localStorage.getItem('aqb_token');
-  const uid=localStorage.getItem('aqb_uid');
-  if(!token||!uid)return false;
-  // Correr ambas queries en paralelo
-  const[{data:sesion},{data:user}]=await Promise.all([
-    sb.from('sesiones').select('*').eq('token',token).eq('usuario_id',uid).gt('expira_en',new Date().toISOString()).single(),
-    sb.from('usuarios').select('*').eq('id',uid).single(),
-  ]);
-  if(!sesion||!user)return false;
-  CU=user;return true;
+  if(!token)return false;
+  const {data:perfil,error}=await sb.rpc('aq_sesion_perfil_seguro_v1');
+  if(error||!perfil||!perfil.id){
+    localStorage.removeItem('aqb_token');
+    localStorage.removeItem('aqb_uid');
+    return false;
+  }
+  CU=perfil;
+  return true;
 }
-async function clearSession(){const token=localStorage.getItem('aqb_token');if(token)await sb.from('sesiones').delete().eq('token',token);localStorage.removeItem('aqb_token');localStorage.removeItem('aqb_uid');}
+async function clearSession(){
+  try{await sb.rpc('aq_cerrar_sesion_segura_v1');}catch(_e){}
+  localStorage.removeItem('aqb_token');
+  localStorage.removeItem('aqb_uid');
+}
 
 async function loadAll(){
   const hoyStr=hoy();
@@ -3406,7 +3403,7 @@ async function loadAll(){
   // Cargar todo en paralelo — simple y directo
   const[r_cfg,r_usr,r_cats,r_prods,r_ins,r_clis,r_ventas,r_creds,r_emps,r_gas,r_veh,r_metas,r_pts,r_ptsp,r_liq,r_rutcli,r_cred2,r_visitas,r_comisiones,r_insumos,r_pagos,r_vales,r_deudasProv,r_facturas,r_actCat,r_actPres,r_actItems,r_aus,r_grupos,r_envases,r_envBod]=await Promise.all([
     sb.from('config').select('*').single(),
-    sb.from('usuarios').select('*'),
+    sb.rpc('aq_usuarios_listar_seguro_v1'),
     sb.from('categorias').select('*'),
     sb.from('productos').select('*'),
     sb.from('producto_insumos').select('*'),
@@ -3536,16 +3533,7 @@ async function init(){
   try{
     aviso=setTimeout(()=>{
       if(mensaje)mensaje.textContent='Conectando con Supabase… La respuesta está tardando más de lo normal.';
-      showNotif('⚠️ Supabase tarda en responder. No se registrará ninguna venta durante la carga.','#e65100');
     },12000);
-    await Promise.race([
-      loadAll(),
-      new Promise((_,reject)=>{
-        fechaLimite=setTimeout(()=>reject(new Error('Tiempo de espera agotado al cargar información')),35000);
-      })
-    ]);
-    clearTimeout(fechaLimite);
-    applyConfig();
     const autorizado=await Promise.race([
       checkSession(),
       new Promise((_,reject)=>{
@@ -3553,6 +3541,16 @@ async function init(){
       })
     ]);
     clearTimeout(fechaLimite);
+    if(autorizado){
+      await Promise.race([
+        loadAll(),
+        new Promise((_,reject)=>{
+          fechaLimite=setTimeout(()=>reject(new Error('Tiempo de espera agotado al cargar información')),35000);
+        })
+      ]);
+      clearTimeout(fechaLimite);
+      applyConfig();
+    }
     document.getElementById('loading-screen').style.display='none';
     _aqInicioFinalizado=true;
     if(autorizado)startApp();
@@ -3568,21 +3566,27 @@ async function init(){
 async function doLogin(){
   const u=document.getElementById('lu').value.trim();
   const p=document.getElementById('lp').value;
-  const found=D.usuarios.find(x=>x.usuario===u&&x.pass===p);
-  if(!found){document.getElementById('lerr').textContent='Usuario o contraseña incorrectos';return;}
+  const errorBox=document.getElementById('lerr');
+  errorBox.textContent='';
+  if(!u||!p){errorBox.textContent='Ingresa tu usuario y contraseña';return;}
   try{
-    await saveSession(found.id);
-    CU=found;
+    const {data,error}=await sb.rpc('aq_login_usuario_seguro_v1',{p_usuario:u,p_password:p});
     document.getElementById('lp').value='';
-    document.getElementById('login-screen').classList.remove('show');
-    startApp();
+    if(error||!data?.ok||!data.token){
+      errorBox.textContent=data?.error||'Usuario o contraseña incorrectos';
+      return;
+    }
+    localStorage.setItem('aqb_token',data.token);
+    localStorage.setItem('aqb_uid',String(data.usuario?.id||''));
+    // Reconstruir el cliente Supabase con la nueva cabecera segura.
+    window.location.reload();
   }catch(e){
-    console.error('Error creando sesión:',e);
-    document.getElementById('lerr').textContent='No se pudo iniciar sesión. Revisa la conexión e intenta de nuevo.';
+    document.getElementById('lp').value='';
+    errorBox.textContent='No se pudo iniciar sesión. Revisa la conexión.';
   }
 }
 document.getElementById('lp').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
-async function doLogout(){await clearSession();CU=null;document.getElementById('app').classList.remove('show');document.getElementById('login-screen').classList.add('show');document.getElementById('lu').value='';document.getElementById('lp').value='';document.getElementById('lerr').textContent='';}
+async function doLogout(){await clearSession();CU=null;window.location.reload();}
 
 function startApp(){
   // Limpiar visitas de días anteriores

@@ -244,6 +244,23 @@ html[data-aq-theme="dark"] #page-ventas .aq-master-editar-precio,html[data-aq-th
 #rep-creditos-por-usuario .aq-cred-importe{font-size:17px;font-weight:850;color:#c66b05;white-space:nowrap;font-variant-numeric:tabular-nums}
 html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffbf64}
 </style>
+<style id="aq-pagos-mes-layout-v1">
+/* Solo historial de pagos RRHH: evita que los botones se monten sobre el mes en iPhone. */
+#aq-rrhh-historial .aq-pagos-mes-controls{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;align-items:stretch}
+#aq-rrhh-historial .aq-pagos-mes-picker{width:100%;min-width:0;max-width:none;margin:0;flex:none}
+#aq-rrhh-historial .aq-pagos-mes-picker label{display:block;margin-bottom:5px}
+#aq-rrhh-historial #pagos-hist-mes{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;min-height:42px}
+#aq-rrhh-historial .aq-pagos-mes-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;min-width:0}
+#aq-rrhh-historial .aq-pagos-mes-actions .btn{width:100%;min-width:0;min-height:40px;padding:8px 6px;white-space:nowrap;font-size:12px;line-height:1.2}
+@media(min-width:900px){
+  #aq-rrhh-historial .aq-pagos-mes-controls{grid-template-columns:minmax(200px,260px) minmax(0,1fr);align-items:end;gap:12px}
+  #aq-rrhh-historial .aq-pagos-mes-actions{max-width:440px}
+}
+@media(max-width:380px){
+  #aq-rrhh-historial .aq-pagos-mes-actions{gap:5px}
+  #aq-rrhh-historial .aq-pagos-mes-actions .btn{font-size:11px;padding:8px 3px}
+}
+</style>
 </head>
 <body>
 
@@ -2643,11 +2660,13 @@ document.addEventListener('DOMContentLoaded',()=>{
     </div>
     <div class="card" id="aq-rrhh-historial">
       <div class="card-title">💰 Historial de pagos por mes</div>
-      <div class="aq-history-controls">
-        <button type="button" class="btn bsm aq-secondary-btn" title="Mes anterior" onclick="aqCambiarMesPagos(-1)">‹ Anterior</button>
-        <div class="fg"><label for="pagos-hist-mes">Mes de pagos</label><input id="pagos-hist-mes" type="month" onchange="renderPagos()"></div>
-        <button type="button" class="btn bsm aq-secondary-btn" title="Mes siguiente" onclick="aqCambiarMesPagos(1)">Siguiente ›</button>
-        <button type="button" class="btn bp bsm" onclick="aqCambiarMesPagos(0)">Este mes</button>
+      <div class="aq-history-controls aq-pagos-mes-controls">
+        <div class="fg aq-pagos-mes-picker"><label for="pagos-hist-mes">Mes de pagos</label><input id="pagos-hist-mes" type="month" onchange="renderPagos()"></div>
+        <div class="aq-pagos-mes-actions">
+          <button type="button" class="btn bsm aq-secondary-btn" title="Mes anterior" onclick="aqCambiarMesPagos(-1)">‹ Anterior</button>
+          <button type="button" class="btn bsm aq-secondary-btn" title="Mes siguiente" onclick="aqCambiarMesPagos(1)">Siguiente ›</button>
+          <button type="button" class="btn bp bsm" onclick="aqCambiarMesPagos(0)">Este mes</button>
+        </div>
       </div>
       <p class="aq-history-status" id="pagos-hist-estado" aria-live="polite">Selecciona el mes que deseas consultar.</p>
       <div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr><th>Fecha</th><th>Empleado</th><th>Tipo</th><th>Monto</th><th>Desc.V.</th><th>Neto</th><th>Acc.</th></tr></thead><tbody id="pagos-tbody"></tbody></table></div>

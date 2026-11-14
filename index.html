@@ -4330,14 +4330,14 @@ function renderNominaInicio(){
     const frec=e.frecuencia_pago||'mensual';
     let montoSemana=0,label='';
     if(frec==='diario'){montoSemana=Math.round(sueldo/30*100)/100;label='x día';}
-    else if(frec==='semanal'){montoSemana=Math.round(sueldo/4*100)/100;label='x semana';}
+    else if(frec==='semanal'){montoSemana=aqCalcularPagoSemanal(e,_rp_sabAct,hoy()).monto;label='x semana';}
     else if(frec==='quincenal'){montoSemana=Math.round(sueldo/2*100)/100;label='x quincena';}
     else{montoSemana=sueldo;label='x mes';}
     // Verificar si ya se pagó la semana pasada
     const pagadoSemPas=D.pagos.some(p=>p.empleado_id===e.id&&p.fecha>=semPasIni&&p.fecha<=semPasFin);
     // Si el empleado ingresó después del inicio de la semana pasada, no aplica
     const fechaIngreso=e.fecha_ingreso?new Date(e.fecha_ingreso+'T00:00:00'):null;
-    const ingresoReciente=fechaIngreso&&fechaIngreso>=new Date(semPasIni+'T00:00:00');
+    const ingresoReciente=aqCalcularPagoSemanal(e,_rp_sabAnt).dias===0;
     // Verificar si ya se pagó la semana actual
     const pagadoSemAct=D.pagos.some(p=>p.empleado_id===e.id&&p.fecha>=semActIni&&p.fecha<=semActFin);
     return{id:e.id,nombre:e.nombre,monto:montoSemana,label,frec,pagadoSemPas:pagadoSemPas||ingresoReciente,pagadoSemAct};
@@ -14005,6 +14005,46 @@ function getNumSabado(sabFecha){
   return sabs.indexOf(sabFecha)+1; // 1-4, o 0 si no está en los primeros 4
 }
 
+
+// ── NÓMINA: el sábado liquida los siete días YA transcurridos (sábado a viernes). ──
+// No cambia registros anteriores; el prorrateo solo calcula pagos nuevos.
+function aqFechaNominaISO(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function aqPeriodoNominaSabado(sabPago){
+  const fin=new Date(sabPago+'T12:00:00');
+  fin.setDate(fin.getDate()-1);
+  const ini=new Date(fin);
+  ini.setDate(ini.getDate()-6);
+  return{ini:aqFechaNominaISO(ini),fin:aqFechaNominaISO(fin)};
+}
+function aqDiasNominaInclusivos(ini,fin){
+  if(!ini||!fin||fin<ini)return 0;
+  const a=ini.split('-').map(Number),b=fin.split('-').map(Number);
+  return Math.round((Date.UTC(b[0],b[1]-1,b[2])-Date.UTC(a[0],a[1]-1,a[2]))/86400000)+1;
+}
+function aqCalcularPagoSemanal(emp,sabPago,hastaFecha){
+  const periodo=aqPeriodoNominaSabado(sabPago);
+  const num=getNumSabado(sabPago);
+  const sueldo=Math.max(0,Number(emp?.sueldo)||0);
+  const cuarto=Math.round(sueldo/4*100)/100;
+  // El 4.º pago solo corrige CENTAVOS de redondeo: nunca recupera
+  // semanas anteriores no trabajadas ni pagos omitidos.
+  const cuota=num===0?0:(num===4?Math.round((sueldo-cuarto*3)*100)/100:cuarto);
+  const inicio=emp?.fecha_ingreso&&emp.fecha_ingreso>periodo.ini?emp.fecha_ingreso:periodo.ini;
+  const fin=hastaFecha&&hastaFecha<periodo.fin?hastaFecha:periodo.fin;
+  const dias=num===0?0:Math.min(7,Math.max(0,aqDiasNominaInclusivos(inicio,fin)));
+  return{periodo,num,dias,diasPeriodo:7,cuota,monto:Math.round(cuota*dias/7*100)/100};
+}
+function aqPagoSemanalRegistrado(eid,sabPago){
+  const marca='Periodo semanal: '+sabPago;
+  return D.pagos.find(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&(
+    String(p.notas||'').includes(marca)||
+    // Compatibilidad con pagos históricos sin la etiqueta de período.
+    (!String(p.notas||'').includes('Periodo semanal:')&&p.fecha>=sabPago&&p.fecha<=getSabadoFin(sabPago))
+  ));
+}
+
 // ── SEMANAS FIJAS DEL MES (1-7, 8-14, 15-21, 22-fin) ────────────────────────
 function getSemanasMes(anio, mes){
   const fin=new Date(anio,mes+1,0).getDate();
@@ -14039,70 +14079,63 @@ function autoFillPago(){
   if(!emp||!wrap){if(wrap)wrap.style.display='none';return;}
   const frec=emp.frecuencia_pago||'mensual';
   const sueldo=parseFloat(emp.sueldo||0);
+  if(window._pagoEmpleadoSeleccionado!==eid){
+    window._pagoEmpleadoSeleccionado=eid;
+    window._periodoSeleccionado=null;
+  }
   const hoyDate=new Date();
   const hoyStr=hoy();
 
-  // Verificar si ya se pagó en el período actual
-  const usarSemAnterior=window._pagarSemanaAnterior===true;
+  // El período se determina después de dibujar y validar los botones.
 
   // Para empleados semanales: mostrar botones de selección de período
   const periodoWrap=document.getElementById('pago-periodo-wrap');
   const periodobtns=document.getElementById('pago-periodo-btns');
   if(frec==='semanal'&&periodoWrap&&periodobtns){
-    const sabAct=getSabadoActual(false);
-    const sabAnt=getSabadoActual(true);
-    const sabActFin=getSabadoFin(sabAct);
-    const sabAntFin=getSabadoFin(sabAnt);
-    const numAct=getNumSabado(sabAct);
-    const numAnt=getNumSabado(sabAnt);
-    const pagadaAct=D.pagos.some(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&p.fecha>=sabAct&&p.fecha<=sabActFin);
-    const pagadaAnt=D.pagos.some(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&p.fecha>=sabAnt&&p.fecha<=sabAntFin);
+    const sabAct=getSabadoActual(false),sabAnt=getSabadoActual(true);
+    const pagadaAct=!!aqPagoSemanalRegistrado(eid,sabAct);
+    const pagadaAnt=!!aqPagoSemanalRegistrado(eid,sabAnt);
+    const aplicaAct=aqCalcularPagoSemanal(emp,sabAct,hoyStr).dias>0;
+    const aplicaAnt=aqCalcularPagoSemanal(emp,sabAnt,hoyStr).dias>0;
+    let sel=window._periodoSeleccionado;
+    if((sel!=='ant'&&sel!=='act')||(sel==='ant'&&!aplicaAnt)||(sel==='act'&&!aplicaAct)){
+      sel=aplicaAnt&&!pagadaAnt?'ant':aplicaAct?'act':aplicaAnt?'ant':'act';
+    }
+    window._periodoSeleccionado=sel;
+    window._pagarSemanaAnterior=sel==='ant';
     periodoWrap.style.display='';
     periodobtns.innerHTML=[
-      {lbl:`Sáb. anterior ${sabAnt.slice(8)}/${sabAnt.slice(5,7)} (pago ${numAnt>0?numAnt+'°':'anterior'})`,key:'ant',pagada:pagadaAnt},
-      {lbl:`Sáb. actual ${sabAct.slice(8)}/${sabAct.slice(5,7)} (pago ${numAct>0?numAct+'°':'extra'})`,key:'act',pagada:pagadaAct},
+      {lbl:`Sáb. anterior ${sabAnt.slice(8)}/${sabAnt.slice(5,7)} (pago ${getNumSabado(sabAnt)}°)`,key:'ant',pagada:pagadaAnt,aplica:aplicaAnt},
+      {lbl:`Sáb. actual ${sabAct.slice(8)}/${sabAct.slice(5,7)} (pago ${getNumSabado(sabAct)}°)`,key:'act',pagada:pagadaAct,aplica:aplicaAct}
     ].map(s=>`
-      <button onclick="seleccionarPeriodoPago('${s.key}')" id="btn-periodo-${s.key}"
-        style="padding:8px 14px;border-radius:10px;border:2px solid ${s.pagada?'#2e7d32':'#1565c0'};background:${s.pagada?'#e8f5e9':'#e3f2fd'};color:${s.pagada?'#2e7d32':'#1565c0'};font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-        ${s.pagada?'✅':'💳'} ${s.lbl} ${s.pagada?'<span style="font-size:9px">(YA PAGADA)</span>':'<span style="font-size:9px;background:#1565c0;color:#fff;padding:1px 5px;border-radius:4px">PENDIENTE</span>'}
+      <button onclick="seleccionarPeriodoPago('${s.key}')" id="btn-periodo-${s.key}" ${s.aplica?'':'disabled'}
+        style="padding:8px 14px;border-radius:10px;border:2px solid ${!s.aplica?'#b0bec5':s.pagada?'#2e7d32':'#1565c0'};background:${!s.aplica?'#f5f5f5':s.pagada?'#e8f5e9':'#e3f2fd'};color:${!s.aplica?'#78909c':s.pagada?'#2e7d32':'#1565c0'};font-size:11px;font-weight:700;cursor:${s.aplica?'pointer':'not-allowed'};display:flex;align-items:center;gap:6px">
+        ${s.aplica?(s.pagada?'✅':'💳'):'—'} ${s.lbl}
+        <span style="font-size:9px">${!s.aplica?'NO CORRESPONDE':s.pagada?'YA PAGADA':'PENDIENTE'}</span>
       </button>`).join('');
-    if(!pagadaAnt){window._periodoSeleccionado='ant';window._pagarSemanaAnterior=true;}
-    else if(!pagadaAct){window._periodoSeleccionado='act';window._pagarSemanaAnterior=false;}
-    else{window._periodoSeleccionado='act';window._pagarSemanaAnterior=false;}
-    setTimeout(()=>{
-      const sel=window._periodoSeleccionado||'act';
-      document.querySelectorAll('[id^=btn-periodo-]').forEach(b=>b.style.opacity='.5');
-      const active=document.getElementById('btn-periodo-'+sel);
-      if(active){active.style.opacity='1';active.style.transform='scale(1.04)';}
-    },50);
-  } else {
+    document.querySelectorAll('[id^=btn-periodo-]').forEach(b=>{
+      const activo=b.id==='btn-periodo-'+sel;
+      b.style.opacity=activo?'1':'.6';b.style.transform=activo?'scale(1.04)':'';
+    });
+  }else{
     if(periodoWrap)periodoWrap.style.display='none';
+    window._pagarSemanaAnterior=false;
   }
-
+  const usarSemAnterior=window._pagarSemanaAnterior===true;
   if(frec==='semanal'){
-    const _sabAct=getSabadoActual(false);
-    const _sabAnt=getSabadoActual(true);
-    const _sabActFin=getSabadoFin(_sabAct);
-    const _sabAntFin=getSabadoFin(_sabAnt);
-    const yaPago=D.pagos.find(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&p.fecha>=_sabAct&&p.fecha<=_sabActFin);
-    const yaPagoSemAnt=D.pagos.find(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&p.fecha>=_sabAnt&&p.fecha<=_sabAntFin);
-    if(yaPago&&yaPagoSemAnt){
-      // Ambas semanas pagadas — mostrar mensaje
+    const sabFecha=getSabadoActual(usarSemAnterior);
+    const calculo=aqCalcularPagoSemanal(emp,sabFecha,hoyStr);
+    const pagado=aqPagoSemanalRegistrado(eid,sabFecha);
+    if(calculo.dias===0||pagado){
       wrap.style.display='';
-      wrap.innerHTML=`<div style="background:#e8f5e9;border:1.5px solid #a5d6a7;border-radius:10px;padding:12px 14px;text-align:center">
-        <div style="font-size:13px;font-weight:700;color:#2e7d32">✅ ${emp.nombre} ya fue pagado esta semana</div>
-        <div style="font-size:11px;color:#558b2f;margin-top:4px">Fecha de pago: ${yaPago.fecha} · Q${fQ(yaPago.neto)}</div>
-        <div style="font-size:10px;color:#81c784;margin-top:4px">Próxima semana disponible del 22 al fin de mes</div>
-      </div>`;
+      wrap.innerHTML=`<div style="background:#e8f5e9;border:1px solid #aed581;border-radius:10px;padding:12px;text-align:center;color:#2e7d32;font-size:12px;font-weight:700">${pagado?'✅ Pago ya registrado para el sábado '+sabFecha:'ℹ️ Sin días trabajados en este período para '+emp.nombre}</div>`;
       document.getElementById('pm').value='0';
+      document.getElementById('pt').value='Sueldo semanal';
+      document.getElementById('pf').value=hoyStr;
       return;
     }
-    // Si ya pagó esta semana pero NO la anterior — permitir pagar la semana actual
-    if(yaPago&&!yaPagoSemAnt){
-      // Quitar flag semana anterior y continuar calculando semana actual
-      window._pagarSemanaAnterior=false;
-    }
   }
+
   // Calcular días trabajados desde ingreso para el período actual
   let diasPeriodo=0,diasTrabajados=0,monto=0,detallePeriodo='',tipo='Sueldo '+frec;
   let _periodoIni=null,_periodoFin=null;
@@ -14113,35 +14146,18 @@ function autoFillPago(){
     detallePeriodo='Pago del día de hoy';
     tipo='Sueldo diario';
   } else if(frec==='semanal'){
-    // Pago cada sábado — primeros 4 del mes
+    // Cuatro cuotas mensuales; se pagan días ya transcurridos hasta el viernes anterior.
     const sabFecha=getSabadoActual(usarSemAnterior);
-    const sabFin=getSabadoFin(sabFecha);
-    _periodoIni=sabFecha;_periodoFin=sabFin;
-    const numSab=getNumSabado(sabFecha); // 1,2,3,4 o 0 si es 5to sábado
-    const sabDate=new Date(sabFecha+'T00:00:00');
-    const sabFinDate=new Date(sabFin+'T00:00:00');
-    diasPeriodo=Math.round((sabFinDate-sabDate)/(1000*60*60*24))+1;
-    const inicioEfectivo=ingreso&&ingreso>sabDate?ingreso:sabDate;
-    diasTrabajados=Math.round((sabFinDate-inicioEfectivo)/(1000*60*60*24))+1;
-    diasTrabajados=Math.max(1,Math.min(diasTrabajados,diasPeriodo));
-    // Calcular monto: sueldo/4 para pagos 1-3, lo que falta para el 4to
-    const mesIniStr=sabFecha.slice(0,7)+'-01';
-    const pagosMes=D.pagos.filter(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&p.fecha>=mesIniStr&&p.fecha<sabFecha);
-    const pagadoMes=pagosMes.reduce((s,p)=>s+parseFloat(p.monto||p.neto||0),0);
-    let montoBase=Math.round(sueldo/4*100)/100;
-    if(numSab===4){
-      const faltante=Math.round((sueldo-pagadoMes)*100)/100;
-      if(faltante>0)montoBase=faltante;
-    } else if(numSab===0){
-      // 5to sábado — ya está completo el mensual
-      montoBase=0;
-    }
-    monto=diasTrabajados<diasPeriodo?Math.round(montoBase/diasPeriodo*diasTrabajados*100)/100:montoBase;
-    detallePeriodo=numSab===0
-      ?`<span style="color:#2e7d32">✅ Mensual completo — 5to sábado sin pago</span>`
-      :diasTrabajados<diasPeriodo
-        ?`Pago ${numSab}° sábado (${sabFecha.slice(8)}/${sabFecha.slice(5,7)}) · <b>${diasTrabajados} días</b> (desde el ${inicioEfectivo.getDate()})`
-        :`Pago ${numSab}° del mes · Sáb ${sabFecha.slice(8)}/${sabFecha.slice(5,7)}${numSab===4?' · <b style="color:#2e7d32">Completa el mensual Q'+sueldo.toFixed(2)+'</b>':''}`;
+    const calculo=aqCalcularPagoSemanal(emp,sabFecha,hoyStr);
+    diasPeriodo=calculo.diasPeriodo;
+    diasTrabajados=calculo.dias;
+    monto=calculo.monto;
+    _periodoIni=calculo.periodo.ini;
+    _periodoFin=calculo.periodo.fin;
+    const fmt=iso=>iso.slice(8)+'/'+iso.slice(5,7);
+    detallePeriodo=calculo.num===0
+      ?'Quinto sábado: sin cuota adicional'
+      :`Pago ${calculo.num}° del mes · Sáb ${fmt(sabFecha)} · período trabajado ${fmt(_periodoIni)} al ${fmt(_periodoFin)} · <b>${diasTrabajados} de 7 días</b>${diasTrabajados<7?' (proporcional hasta la fecha)':''}`;
     tipo='Sueldo semanal';
   } else if(frec==='quincenal'){
     const d=hoyDate.getDate();
@@ -14176,15 +14192,8 @@ function autoFillPago(){
   // Autocompletar campos del formulario
   document.getElementById('pm').value=monto.toFixed(2);
   document.getElementById('pt').value=tipo;
-  // Si se está pagando semana anterior, usar el viernes de esa semana como fecha
-  if(usarSemAnterior&&frec==='semanal'){
-    const viernes=new Date(hoyDate);
-    const diaSem2=hoyDate.getDay()||7;
-    viernes.setDate(hoyDate.getDate()-(diaSem2-1)-7+4);
-    document.getElementById('pf').value=viernes.toISOString().slice(0,10);
-  } else {
-    document.getElementById('pf').value=hoyStr;
-  }
+  // La fecha registrada corresponde al pago real, no al sábado del período.
+  document.getElementById('pf').value=hoyStr;
   // Actualizar vales pendientes antes de calcular neto
   updateVales();
   // Auto-detectar ausencias registradas (sin liquidar) — se aplican al próximo pago que se haga,
@@ -14231,11 +14240,22 @@ async function savePago(){
   const tipo=document.getElementById("pt").value;
   const fecha=document.getElementById("pf").value;
   const neto=m-dv-descAus;
+  let sabPagoNomina=null;
+  if(tipo==='Sueldo semanal'){
+    sabPagoNomina=getSabadoActual(window._periodoSeleccionado==='ant');
+    if(aqCalcularPagoSemanal(emp,sabPagoNomina,hoy()).dias===0){
+      showNotif('No corresponde sueldo por días sin trabajar','#c62828');return;
+    }
+    if(aqPagoSemanalRegistrado(eid,sabPagoNomina)){
+      showNotif('Ese período semanal ya está pagado','#c62828');return;
+    }
+  }
   const detalle=(dv>0?"\nDesc. vales: -Q"+dv.toFixed(2):"")+(descAus>0?"\nDesc. ausencias (días "+ausText+"): -Q"+descAus.toFixed(2):"")+"\nNeto a pagar: Q"+neto.toFixed(2);
   if(!confirm("¿Registrar pago a "+(emp?.nombre||"empleado")+"?\n\nTipo: "+tipo+"\nMonto: Q"+m.toFixed(2)+detalle+"\nFecha: "+fecha))return;
-  await sb.from("vales").update({estado:"Descontado"}).eq("empleado_id",eid).eq("estado","Pendiente");
-  const notasFinal=(document.getElementById("pn2").value+(ausText?'\nAusencias días: '+ausText:'')).trim();
-  await sb.from("pagos").insert({empleado_id:eid,tipo,monto:m,desc_vales:dv+descAus,neto,fecha,notas:notasFinal});
+  const notasFinal=(document.getElementById("pn2").value+(ausText?'\nAusencias días: '+ausText:'')+(sabPagoNomina?'\nPeriodo semanal: '+sabPagoNomina:'')).trim();
+  const {error:errPago}=await sb.from("pagos").insert({empleado_id:eid,tipo,monto:m,desc_vales:dv+descAus,neto,fecha,notas:notasFinal});
+  if(errPago){showNotif('❌ No se pudo registrar el pago: '+errPago.message,'#c62828');return;}
+  if(dv>0)await sb.from("vales").update({estado:"Descontado"}).eq("empleado_id",eid).eq("estado","Pendiente");
   if(window._ausenciasAutoIds&&window._ausenciasAutoIds.length){
     await sb.from('ausencias').update({liquidada:true}).in('id',window._ausenciasAutoIds);
     window._ausenciasAutoIds=[];
@@ -14259,34 +14279,38 @@ function calPagosMes(delta){_calPagosMesOffset+=delta;renderCalPagos();}
 async function registrarPagoRetroactivo(empId,fechaSabado,monto){
   const emp=D.empleados.find(e=>e.id===empId);
   if(!emp)return;
-  if(emp.fecha_ingreso&&getSabadoFin(fechaSabado)<emp.fecha_ingreso){showNotif('⚠️ Esa semana es anterior a la fecha de ingreso del empleado','#c62828');return;}
-  if(!confirm(`¿Registrar el pago de ${emp.nombre} de la semana del ${fechaSabado.slice(8)}/${fechaSabado.slice(5,7)} por ${fQ(monto)}?\n\n(Esto solo actualiza el sistema, asumiendo que ya se lo pagaste en efectivo)`))return;
+  const calculo=aqCalcularPagoSemanal(emp,fechaSabado);
+  if(!calculo.dias){showNotif('⚠️ Sin días trabajados para este período','#c62828');return;}
+  if(fechaSabado>hoy()){showNotif('⚠️ No puedes registrar una semana futura','#c62828');return;}
+  if(aqPagoSemanalRegistrado(empId,fechaSabado)){showNotif('⚠️ Semana ya pagada','#c62828');return;}
+  const importe=calculo.monto;
+  if(!confirm(`¿Registrar el pago de ${emp.nombre} del sábado ${fechaSabado.slice(8)}/${fechaSabado.slice(5,7)} por ${fQ(importe)} (${calculo.dias} de 7 días)?\n\nConfirma únicamente si ya le entregaste el dinero.`))return;
   showLoad(true);
-  const res=await sb.from('pagos').insert({empleado_id:empId,tipo:'Sueldo semanal',monto,desc_vales:0,neto:monto,fecha:fechaSabado,notas:'Pago retroactivo — puesto al día'});
+  const res=await sb.from('pagos').insert({empleado_id:empId,tipo:'Sueldo semanal',monto:importe,desc_vales:0,neto:importe,fecha:hoy(),notas:'Pago retroactivo — puesto al día\nPeriodo semanal: '+fechaSabado});
   showLoad(false);
   if(res.error){showNotif('❌ Error al registrar: '+res.error.message,'#c62828');return;}
   await loadAll();renderCalPagos();showNotif('✅ Pago registrado');
 }
+
 async function ponerAlDia(empId,montoPago){
   const emp=D.empleados.find(e=>e.id===empId);
   if(!emp)return;
-  const anio=(new Date(new Date().getFullYear(),new Date().getMonth()+_calPagosMesOffset,1)).getFullYear();
-  const mes=(new Date(new Date().getFullYear(),new Date().getMonth()+_calPagosMesOffset,1)).getMonth();
-  const sabs=getSabadosMes(anio,mes);
-  const mesIni=`${anio}-${String(mes+1).padStart(2,'0')}-01`;
-  const mesFin=new Date(anio,mes+1,0).toISOString().slice(0,10);
-  const pagosMes=D.pagos.filter(p=>p.empleado_id===empId&&p.tipo==='Sueldo semanal'&&p.fecha>=mesIni&&p.fecha<=mesFin);
-  const pendientes=sabs.filter(s=>s<=hoy()&&!(emp.fecha_ingreso&&getSabadoFin(s)<emp.fecha_ingreso)&&!pagosMes.some(p=>p.fecha>=s&&p.fecha<=getSabadoFin(s)));
+  const d=new Date(new Date().getFullYear(),new Date().getMonth()+_calPagosMesOffset,1);
+  const sabs=getSabadosMes(d.getFullYear(),d.getMonth());
+  const pendientes=sabs.filter(s=>s<=hoy()&&aqCalcularPagoSemanal(emp,s).dias>0&&!aqPagoSemanalRegistrado(empId,s));
   if(!pendientes.length)return;
-  if(!confirm(`¿Registrar ${pendientes.length} pago(s) atrasado(s) de ${emp.nombre} por ${fQ(montoPago)} cada uno (total ${fQ(montoPago*pendientes.length)})?\n\n(Esto solo actualiza el sistema, asumiendo que ya se los pagaste en efectivo)`))return;
+  const conceptos=pendientes.map(s=>({s,calculo:aqCalcularPagoSemanal(emp,s)}));
+  const total=conceptos.reduce((sum,p)=>sum+p.calculo.monto,0);
+  if(!confirm(`¿Registrar ${pendientes.length} pago(s) atrasado(s) de ${emp.nombre} por un total de ${fQ(total)}?\n\nCada semana se calcula según la fecha de ingreso. Solo confirma si ya se pagaron en efectivo.`))return;
   showLoad(true);
-  for(const s of pendientes){
-    const res=await sb.from('pagos').insert({empleado_id:empId,tipo:'Sueldo semanal',monto:montoPago,desc_vales:0,neto:montoPago,fecha:s,notas:'Pago retroactivo — puesto al día'});
-    if(res.error){showLoad(false);showNotif('❌ Error al registrar '+s+': '+res.error.message,'#c62828');return;}
+  for(const p of conceptos){
+    const res=await sb.from('pagos').insert({empleado_id:empId,tipo:'Sueldo semanal',monto:p.calculo.monto,desc_vales:0,neto:p.calculo.monto,fecha:hoy(),notas:'Pago retroactivo — puesto al día\nPeriodo semanal: '+p.s});
+    if(res.error){showLoad(false);showNotif('❌ Error al registrar '+p.s+': '+res.error.message,'#c62828');return;}
   }
   showLoad(false);
   await loadAll();renderCalPagos();showNotif('✅ '+emp.nombre+' puesto al día');
 }
+
 function renderCalPagos(){
   const tituloEl=document.getElementById('cal-pagos-titulo');
   const bodyEl=document.getElementById('cal-pagos-body');
@@ -14321,9 +14345,10 @@ function renderCalPagos(){
     let totalPagado=0;
     const cells=sabs.map((s,i)=>{
       // Buscar si hay pago en esa semana del sábado
-      const sabFin=getSabadoFin(s);
-      const noHabiaIngresado=e.fecha_ingreso&&sabFin<e.fecha_ingreso;
-      const pago=pagosMes.find(p=>p.fecha>=s&&p.fecha<=sabFin);
+      const calculo=aqCalcularPagoSemanal(e,s);
+      const montoProporcional=calculo.monto;
+      const noHabiaIngresado=calculo.dias===0;
+      const pago=aqPagoSemanalRegistrado(e.id,s);
       const esHoy=s===hoy();
       const esFuturo=s>hoy();
       if(noHabiaIngresado){
@@ -14343,16 +14368,16 @@ function renderCalPagos(){
       } else if(esFuturo){
         return`<td style="padding:6px;text-align:center;background:#f5f5f5">
           <div style="font-size:11px;color:#bdbdbd">⏳</div>
-          <div style="font-size:10px;color:#bdbdbd">${fQ(montoPago)}</div>
+          <div style="font-size:10px;color:#bdbdbd">${fQ(montoProporcional)}</div>
         </td>`;
       } else {
-        return`<td style="padding:6px;text-align:center;background:#ffebee;cursor:pointer;${esHoy?'border:2px solid #c62828;':''}" onclick="registrarPagoRetroactivo(${e.id},'${s}',${montoPago})" title="Toca para registrar este pago">
+        return`<td style="padding:6px;text-align:center;background:#ffebee;cursor:pointer;${esHoy?'border:2px solid #c62828;':''}" onclick="registrarPagoRetroactivo(${e.id},'${s}',${montoProporcional})" title="Toca para registrar este pago">
           <div style="font-size:11px;font-weight:700;color:#c62828">⚠️</div>
-          <div style="font-size:10px;color:#c62828">${fQ(montoPago)}</div>
+          <div style="font-size:10px;color:#c62828">${fQ(montoProporcional)}</div>
         </td>`;
       }
     }).join('');
-    const pendientesMes=sabs.filter(s=>s<=hoy()&&!(e.fecha_ingreso&&getSabadoFin(s)<e.fecha_ingreso)&&!pagosMes.some(p=>p.fecha>=s&&p.fecha<=getSabadoFin(s)));
+    const pendientesMes=sabs.filter(s=>s<=hoy()&&aqCalcularPagoSemanal(e,s).dias>0&&!aqPagoSemanalRegistrado(e.id,s));
     html+=`<tr style="border-bottom:1px solid #eee">
       <td style="padding:8px 10px;font-weight:700">${e.nombre}<br><span style="font-size:10px;color:#546e7a;font-weight:400">${fQ(sueldo)}/mes</span></td>
       ${cells}

@@ -5735,8 +5735,24 @@ async function cambiarTipoDoc(tipo,el){
   else await renderRecordatorioEnTicket(d.cid);
 }
 
+async function aqPrepararQrPuntos(venta){
+  if(!venta?.id||!venta.cliente_id||typeof qrcode!=='function')return '';
+  try{
+    const {data,error}=await sb.rpc('aq_enlace_puntos_comprobante_v1',{p_venta_id:Number(venta.id)});
+    if(error||!/^[0-9a-f]{64}$/.test(data||''))return '';
+    const enlace=new URL('https://odeleonruiz.github.io/aquabri/qa-seguridad/puntos.html');
+    enlace.hash='codigo='+data;
+    const qr=qrcode(0,'M');
+    qr.addData(enlace.href);
+    qr.make();
+    return qr.createDataURL(4,16);
+  }catch{return '';}
+}
+
 async function mostrarTicket(venta,items,dg,total,pagado,cid,entrega,esCredito,bonifs){
-  venta._aqPagoComprobante=await aqVerificarPagoComprobante(venta,total);
+  [venta._aqPagoComprobante,venta._aqQrPuntos]=await Promise.all([
+    aqVerificarPagoComprobante(venta,total),aqPrepararQrPuntos(venta)
+  ]);
   docActual={venta,items,dg,total,pagado,cid,entrega,esCredito,bonifs};
   tipoDocActual='comprobante';
   document.querySelectorAll('#modal-ticket .tab').forEach(t=>t.classList.remove('active'));
@@ -5927,6 +5943,10 @@ function renderComprobante(venta,items,dg,total,pagado,cid,entrega,esCredito,bon
       </div>`;
     })()}
 
+    ${venta._aqQrPuntos?`<div style="padding:12px;text-align:center;background:#fff;color:#183153">
+      <div style="font-size:13px;font-weight:800">Consulta tus puntos</div>
+      <img src="${venta._aqQrPuntos}" alt="QR para consultar tus puntos" width="180" height="180" style="display:block;margin:4px auto;max-width:100%;height:auto;image-rendering:pixelated">
+    </div>`:''}
     <div style="padding:14px 28px;background:#fafcff;border-top:1px solid ${colorBorde};display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;color:${colorTexto}">
       <div style="font-size:11px;color:${colorSuave}">${c.nombre||'Aquabri'}${c.telefono?` · ${c.telefono}`:''}</div>
       <div style="font-size:12px;font-weight:900;color:${colorPrimario}">¡Gracias por su preferencia!</div>
@@ -6921,7 +6941,9 @@ async function abrirComprobanteVenta(vid, enviarWsp=false){
   const pagado=parseFloat(venta.pagado||0);
   const cid=venta.cliente_id;
   const esCredito=(venta.estado==='Pendiente'||venta.estado==='Crédito')&&pagado<total;
-  venta._aqPagoComprobante=await aqVerificarPagoComprobante(venta,total);
+  [venta._aqPagoComprobante,venta._aqQrPuntos]=await Promise.all([
+    aqVerificarPagoComprobante(venta,total),aqPrepararQrPuntos(venta)
+  ]);
   docActual={venta,items,dg,total,pagado,cid,entrega:venta.entrega||'',esCredito,bonifs:venta.bonificaciones||''};
   tipoDocActual='comprobante';
   document.querySelectorAll('#modal-ticket .tab').forEach(t=>t.classList.remove('active'));
@@ -15246,7 +15268,7 @@ async function aqGestionarEnlacePuntos(clienteId, revocar=false){
   if(error){showNotif('No se pudo guardar el enlace privado.','#c62828');return;}
   if(revocar){showNotif('Enlace revocado.');return;}
   if(!/^[0-9a-f]{64}$/.test(data||'')){showNotif('No se recibió un enlace válido.','#c62828');return;}
-  const enlace=new URL('./puntos.html',location.href);
+  const enlace=new URL('https://odeleonruiz.github.io/aquabri/qa-seguridad/puntos.html');
   enlace.hash='codigo='+data;
   prompt('Copia y comparte este enlace solo con el cliente:',enlace.href);
 }
@@ -21804,5 +21826,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   const fecha=document.getElementById('aq-f2-fecha');if(fecha&&!fecha.value)fecha.value=hoy();
 });
 </script>
+<script src="vendor/qrcode-generator-1.4.4.js"></script>
 </body>
 </html>

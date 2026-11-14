@@ -474,4 +474,12 @@ DROP POLICY IF EXISTS "aq_legacy_visitas_crear_v1" ON public."visitas";
 
 CREATE POLICY "aq_legacy_visitas_crear_v1" ON public."visitas" FOR INSERT TO anon WITH CHECK (((usuario_id = ( SELECT aq_sesion_legacy_usuario_actual_v1() AS aq_sesion_legacy_usuario_actual_v1)) AND (( SELECT aq_legacy_permiso_modulo_v1('ventas'::text) AS aq_legacy_permiso_modulo_v1) OR ( SELECT aq_legacy_permiso_modulo_v1('mapa'::text) AS aq_legacy_permiso_modulo_v1)) AND aq_sesion_legacy_puede_ver_cliente_v1(cliente_id)));
 
+-- RPC de caja y crédito: sólo su wrapper con sesión puede ejecutarse como anon.
+REVOKE ALL ON FUNCTION public.aq_cobrar_credito_sesion_segura_v1(text,bigint,numeric,text,text,bigint),
+  public.aq_abrir_caja_sesion_v1(text,date,numeric,integer,text),
+  public.aq_cerrar_caja_sesion_v1(text,date,integer,numeric,numeric,integer,boolean,boolean,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.aq_cobrar_credito_sesion_segura_v1(text,bigint,numeric,text,text,bigint),
+  public.aq_abrir_caja_sesion_v1(text,date,numeric,integer,text),
+  public.aq_cerrar_caja_sesion_v1(text,date,integer,numeric,numeric,integer,boolean,boolean,text) TO anon;
+
 COMMIT;

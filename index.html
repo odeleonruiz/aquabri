@@ -3361,7 +3361,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 const SURL='https://odwccqqvxpsggggehjtt.supabase.co';
 const SKEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kd2NjcXF2eHBzZ2dnZ2VoanR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1ODQxNTgsImV4cCI6MjA5MDE2MDE1OH0.4RulBc7xRiqfy5mAK9yxpj49fr7OloTp0-wZ9pZ0LJA';
-const sb=supabase.createClient(SURL,SKEY);
+const sb=supabase.createClient(SURL,SKEY,{global:{headers:{'x-aquabri-session':localStorage.getItem('aqb_token')||''}}});
 
 let D={cfg:{},usuarios:[],clientes:[],cats:[],prods:[],insumos:[],ventas:[],envases:[],envBod:0,actCat:[],actPres:[],actItems:[],gastos:[],metas:[],metasEmp:[],empleados:[],pagos:[],vales:[],creditos:[],deudasProv:[],facturas:[],comisiones:[],vehiculos:[],cargas:[]};
 let CU=null,cart=[],prodLigados=[],factItems=[],cargaItems=[],rutaParadasIds=[];
@@ -3378,27 +3378,24 @@ function genToken(){
   crypto.getRandomValues(bytes);
   return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
 }
-async function saveSession(uid){
-  const token=genToken();
-  const exp=new Date(Date.now()+30*24*60*60*1000).toISOString();
-  const {error}=await sb.from('sesiones').insert({usuario_id:uid,token,expira_en:exp});
-  if(error)throw error;
-  localStorage.setItem('aqb_token',token);
-  localStorage.setItem('aqb_uid',String(uid));
-}
+// La sesión se valida en el servidor. Nunca se carga la lista de contraseñas antes del login.
 async function checkSession(){
   const token=localStorage.getItem('aqb_token');
-  const uid=localStorage.getItem('aqb_uid');
-  if(!token||!uid)return false;
-  // Correr ambas queries en paralelo
-  const[{data:sesion},{data:user}]=await Promise.all([
-    sb.from('sesiones').select('*').eq('token',token).eq('usuario_id',uid).gt('expira_en',new Date().toISOString()).single(),
-    sb.from('usuarios').select('*').eq('id',uid).single(),
-  ]);
-  if(!sesion||!user)return false;
-  CU=user;return true;
+  if(!token)return false;
+  const {data:perfil,error}=await sb.rpc('aq_sesion_perfil_seguro_v1');
+  if(error||!perfil||!perfil.id){
+    localStorage.removeItem('aqb_token');
+    localStorage.removeItem('aqb_uid');
+    return false;
+  }
+  CU=perfil;
+  return true;
 }
-async function clearSession(){const token=localStorage.getItem('aqb_token');if(token)await sb.from('sesiones').delete().eq('token',token);localStorage.removeItem('aqb_token');localStorage.removeItem('aqb_uid');}
+async function clearSession(){
+  try{await sb.rpc('aq_cerrar_sesion_segura_v1');}catch(_e){}
+  localStorage.removeItem('aqb_token');
+  localStorage.removeItem('aqb_uid');
+}
 
 async function loadAll(){
   const hoyStr=hoy();
@@ -3406,7 +3403,7 @@ async function loadAll(){
   // Cargar todo en paralelo — simple y directo
   const[r_cfg,r_usr,r_cats,r_prods,r_ins,r_clis,r_ventas,r_creds,r_emps,r_gas,r_veh,r_metas,r_pts,r_ptsp,r_liq,r_rutcli,r_cred2,r_visitas,r_comisiones,r_insumos,r_pagos,r_vales,r_deudasProv,r_facturas,r_actCat,r_actPres,r_actItems,r_aus,r_grupos,r_envases,r_envBod]=await Promise.all([
     sb.from('config').select('*').single(),
-    sb.from('usuarios').select('*'),
+    sb.rpc('aq_usuarios_listar_seguro_v1'),
     sb.from('categorias').select('*'),
     sb.from('productos').select('*'),
     sb.from('producto_insumos').select('*'),
@@ -3536,16 +3533,7 @@ async function init(){
   try{
     aviso=setTimeout(()=>{
       if(mensaje)mensaje.textContent='Conectando con Supabase… La respuesta está tardando más de lo normal.';
-      showNotif('⚠️ Supabase tarda en responder. No se registrará ninguna venta durante la carga.','#e65100');
     },12000);
-    await Promise.race([
-      loadAll(),
-      new Promise((_,reject)=>{
-        fechaLimite=setTimeout(()=>reject(new Error('Tiempo de espera agotado al cargar información')),35000);
-      })
-    ]);
-    clearTimeout(fechaLimite);
-    applyConfig();
     const autorizado=await Promise.race([
       checkSession(),
       new Promise((_,reject)=>{
@@ -3553,6 +3541,16 @@ async function init(){
       })
     ]);
     clearTimeout(fechaLimite);
+    if(autorizado){
+      await Promise.race([
+        loadAll(),
+        new Promise((_,reject)=>{
+          fechaLimite=setTimeout(()=>reject(new Error('Tiempo de espera agotado al cargar información')),35000);
+        })
+      ]);
+      clearTimeout(fechaLimite);
+      applyConfig();
+    }
     document.getElementById('loading-screen').style.display='none';
     _aqInicioFinalizado=true;
     if(autorizado)startApp();
@@ -3568,21 +3566,27 @@ async function init(){
 async function doLogin(){
   const u=document.getElementById('lu').value.trim();
   const p=document.getElementById('lp').value;
-  const found=D.usuarios.find(x=>x.usuario===u&&x.pass===p);
-  if(!found){document.getElementById('lerr').textContent='Usuario o contraseña incorrectos';return;}
+  const errorBox=document.getElementById('lerr');
+  errorBox.textContent='';
+  if(!u||!p){errorBox.textContent='Ingresa tu usuario y contraseña';return;}
   try{
-    await saveSession(found.id);
-    CU=found;
+    const {data,error}=await sb.rpc('aq_login_usuario_seguro_v1',{p_usuario:u,p_password:p});
     document.getElementById('lp').value='';
-    document.getElementById('login-screen').classList.remove('show');
-    startApp();
+    if(error||!data?.ok||!data.token){
+      errorBox.textContent=data?.error||'Usuario o contraseña incorrectos';
+      return;
+    }
+    localStorage.setItem('aqb_token',data.token);
+    localStorage.setItem('aqb_uid',String(data.usuario?.id||''));
+    // Reconstruir el cliente Supabase con la nueva cabecera segura.
+    window.location.reload();
   }catch(e){
-    console.error('Error creando sesión:',e);
-    document.getElementById('lerr').textContent='No se pudo iniciar sesión. Revisa la conexión e intenta de nuevo.';
+    document.getElementById('lp').value='';
+    errorBox.textContent='No se pudo iniciar sesión. Revisa la conexión.';
   }
 }
 document.getElementById('lp').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
-async function doLogout(){await clearSession();CU=null;document.getElementById('app').classList.remove('show');document.getElementById('login-screen').classList.add('show');document.getElementById('lu').value='';document.getElementById('lp').value='';document.getElementById('lerr').textContent='';}
+async function doLogout(){await clearSession();CU=null;window.location.reload();}
 
 function startApp(){
   // Limpiar visitas de días anteriores
@@ -5488,6 +5492,9 @@ async function cobrar(enviarWsp=false){
     entrega:entTexto,notas:notasVenta,estado,
     bonificaciones:bonifs||null,usuario_id:CU?.id||null,
     nombre_mostrador:nombreLibre||null,
+    aq_medio_pago:medioPago==='efectivo'?'efectivo':medioPago==='transferencia'?'transferencia':'otro',
+    aq_credito:!!esCredito,
+    aq_fecha_vencimiento:esCredito?(document.getElementById('v-cred-fecha')?.value||null):null,
     envases_llevan:envasesLlevan,envases_devuelven:envasesDevueltos};
   if(!window._aqCobroNonce){
     window._aqCobroNonce=(typeof crypto!=='undefined'&&crypto.randomUUID)
@@ -5495,7 +5502,7 @@ async function cobrar(enviarWsp=false){
   }
   let resultado=null,ventaError=null;
   try{
-    const respuesta=await sb.rpc('aq_registrar_venta_con_envases',{
+    const respuesta=await sb.rpc('aq_vender_con_envases_sesion_v1',{
       p_token:localStorage.getItem('aqb_token')||'',
       p_uid:Number(CU?.id)||0,
       p_nonce:window._aqCobroNonce,
@@ -5511,7 +5518,7 @@ async function cobrar(enviarWsp=false){
     document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
     const codigo=ventaError?.code?' · '+ventaError.code:'';
     const msg=ventaError?.message||'Supabase no confirmó la operación.';
-    const faltaFuncion=ventaError?.code==='PGRST202'||/aq_registrar_venta_con_envases|schema cache|function.*not found/i.test(msg);
+    const faltaFuncion=ventaError?.code==='PGRST202'||/aq_vender_con_envases_sesion_v1|schema cache|function.*not found/i.test(msg);
     alert(faltaFuncion
       ?'⚠️ Falta actualizar la función de venta y envases en Supabase. NO se registró esta venta. El carrito sigue intacto.'
       :'❌ No se confirmó la venta. '+msg+codigo+'\nEl carrito sigue disponible. Si hubo un error de conexión, revisa el Historial antes de reintentar para evitar duplicados.');
@@ -5528,67 +5535,8 @@ async function cobrar(enviarWsp=false){
   // Se confirma toda la operación, nunca solamente su encabezado.
   window._aqCobroNonce=null;
 
-  // El detalle ya fue confirmado; a partir de aquí registrar movimientos accesorios.
-  const promesas=[];
-
-  // 2. Actualizar stock de cada producto
-  for(const item of cart){
-    const prod=D.prods.find(p=>p.id===item.pid);
-    if(prod){
-      const bonifExtra=(!item.bonifProdId&&item.bonifCant>0)?parseInt(item.bonifCant):0;
-      const totalDescontar=parseInt(item.cant)+bonifExtra;
-      const nuevoStock=parseInt(prod.stock||0)-totalDescontar; // permite negativo
-      prod.stock=nuevoStock; // actualizar local inmediatamente
-      promesas.push(sb.from('productos').update({stock:nuevoStock}).eq('id',prod.id));
-      // Insumos ligados
-      for(const l of(prod.ligados||[])){
-        const ins=D.insumos.find(x=>x.id===l.insumo_id);
-        if(ins){
-          const ns=parseInt(ins.stock||0)-(parseInt(l.cant)*totalDescontar);
-          ins.stock=ns;
-          promesas.push(sb.from('insumos').update({stock:ns}).eq('id',l.insumo_id));
-        }
-      }
-      // Bonif producto diferente
-      if(item.bonifProdId&&item.bonifCant>0){
-        const bp=D.prods.find(p=>p.id===item.bonifProdId);
-        if(bp){
-          const ns=parseInt(bp.stock||0)-parseInt(item.bonifCant);
-          bp.stock=ns;
-          promesas.push(sb.from('productos').update({stock:ns}).eq('id',bp.id));
-        }
-      }
-    }
-  }
-
-  // 3. Crédito si aplica
-  if(esCredito&&cid){
-    promesas.push(sb.from('creditos').insert({cliente_id:parseInt(cid),venta_id:venta.id,concepto:'Venta #'+venta.id,monto:total,pagado:0,fecha:fechaVenta,fecha_vencimiento:document.getElementById('v-cred-fecha').value||null,estado:'Pendiente',notas:'Auto desde venta'}));
-  }
-  // 4. Registrar en caja si es venta contado Y se entrega de inmediato (no crédito, no pedido pendiente)
-  if(!esCredito&&total>0&&estado==='Entregado'){
-    const clienteNom=cid?D.clientes.find(c=>c.id===parseInt(cid))?.nombre||'Mostrador':'Mostrador';
-    promesas.push(sb.from('caja').insert({
-      fecha:hoy(),
-      tipo:'venta',
-      monto:total,
-      notas:aqCajaAnotarMedio('Venta #'+venta.id+' — '+clienteNom,medioPago),
-      usuario_id:CU?.id||null,
-      venta_id:venta.id
-    }));
-  }
-
-  // Movimientos complementarios: una venta confirmada no debe esconder
-  // fallos de inventario/caja/crédito, pues requieren conciliación.
-  let erroresMovimientos=[];
-  try{
-    const resultadosMovimientos=await Promise.all(promesas);
-    erroresMovimientos=resultadosMovimientos.filter(r=>r?.error).map(r=>r.error.message||'Movimiento rechazado');
-  }catch(e){erroresMovimientos.push(e?.message||String(e));}
-  if(erroresMovimientos.length){
-    console.error('Venta #'+venta.id+' guardada; revisar movimientos complementarios:',erroresMovimientos);
-    alert('⚠️ La venta #'+venta.id+' y sus productos SÍ quedaron guardados, pero falló un movimiento adicional de caja, inventario o crédito.\nRevisa antes de cuadrar o volver a intentar.\n'+erroresMovimientos[0]);
-  }
+  // Staging: una sola transacción ya guardó inventario, crédito, caja, puntos y envases.
+  // No repetir escrituras individuales desde el navegador (evita duplicados y saldos parciales).
   aqRegistrarPrecioHabitualEnVenta(cid,cart);
   // Recarga rápida: solo lo que cambió (ventas + stock) sin recargar todo
   const[rv,rp,rc]=await Promise.all([
@@ -5599,61 +5547,13 @@ async function cobrar(enviarWsp=false){
   if(rv.data)D.ventas=rv.data;
   if(rp.data)D.prods=rp.data;
   if(rc.data)D.creditos=rc.data;
-  // ── SISTEMA DE PUNTOS v2 — simple y directo ──
-  let _ptosGanadosTicket=0;
-  let _saldoNuevoTicket=null;
-  if(cid&&!esCredito){
-    try{
-      // 1. Verificar que el programa esté activo
-      const activo=D.puntosConfig?.activo;
-      const programaActivo=(activo===true||activo===1||activo==='true'||activo==='1');
-      if(programaActivo){
-        // 2. Verificar inscripción fresca desde BD
-        const{data:cli_pts_arr}=await sb.from('puntos_clientes')
-          .select('*').eq('cliente_id',parseInt(cid));
-        const cli_pts=cli_pts_arr?.[0]||null;
-        if(cli_pts){
-          // 3. Config productos frescos
-          const{data:prods_cfg}=await sb.from('puntos_productos').select('*');
-          const cfgMap={};
-          (prods_cfg||[]).forEach(p=>{cfgMap[p.producto_id]=p;});
-          // 4. Calcular puntos solo productos activos
-          let ganados=0;
-          cart.forEach(item=>{
-            const c=cfgMap[item.pid];
-            if(!c)return;
-            const isActivo=c.activo===true||c.activo===1||c.activo==='true'||c.activo==='1'||c.activo==='t';
-            const pct=parseFloat(c.porcentaje||0);
-            if(isActivo&&pct>0){
-              ganados+=parseFloat(item.precio||0)*parseFloat(item.cant||1)*(pct/100);
-            }
-          });
-          ganados=Math.round(ganados*100)/100;
-          if(ganados>0){
-            // 5. Guardar en BD — usar cliente_id para el update
-            const totalAnterior=parseFloat(cli_pts.puntos_totales||0);
-            const totalNuevo=Math.round((totalAnterior+ganados)*100)/100;
-            const{error:updErr}=await sb.from('puntos_clientes')
-              .update({puntos_totales:totalNuevo})
-              .eq('cliente_id',parseInt(cid));
-            if(updErr)console.error('Error update puntos:',updErr);
-            await sb.from('puntos_historial').insert({
-              cliente_id:parseInt(cid),
-              venta_id:venta.id,
-              tipo:'acumulacion',
-              puntos:ganados,
-              descripcion:'Compra #'+venta.id+' — '+ganados+' pts'
-            });
-            // 6. Actualizar cache
-            const cacheIdx=D.puntosClientes.findIndex(p=>p.cliente_id===parseInt(cid));
-            if(cacheIdx>=0)D.puntosClientes[cacheIdx].puntos_totales=totalNuevo;
-            else D.puntosClientes.push({...cli_pts,puntos_totales:totalNuevo});
-            _ptosGanadosTicket=ganados;
-            _saldoNuevoTicket=totalNuevo-parseFloat(cli_pts.puntos_canjeados||0);
-          }
-        }
-      }
-    }catch(e){console.error('Error puntos:',e);}
+  // Puntos confirmados por Supabase dentro de la venta, no recalculados por el navegador.
+  let _ptosGanadosTicket=Math.max(0,Number(resultado.puntos_ganados)||0);
+  let _saldoNuevoTicket=resultado.saldo_puntos==null?null:Number(resultado.saldo_puntos);
+  if(cid&&_ptosGanadosTicket>0){
+    const idx=D.puntosClientes.findIndex(p=>Number(p.cliente_id)===Number(cid));
+    if(idx>=0)D.puntosClientes[idx].puntos_totales=
+      Math.round((Number(D.puntosClientes[idx].puntos_totales||0)+_ptosGanadosTicket)*100)/100;
   }
   if(docActual){docActual._ptosGanados=_ptosGanadosTicket;docActual._saldoNuevo=_saldoNuevoTicket;}
   await mostrarTicket(venta,cart,dg,total,pagado,cid,entTexto,esCredito,bonifs);
@@ -11120,8 +11020,7 @@ async function aqCobroClienteSeguro({clienteId,monto,medio,notas='',creditoId=nu
   aqCobroCreditoGuardando=true;showLoad(true);
   let data=null,err=null;
   try{
-    const r=await sb.rpc('aq_cobrar_credito_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,
+    const r=await sb.rpc('aq_cobrar_credito_sesion_segura_v1',{
       p_nonce:previo.nonce,p_cliente_id:cid,p_monto:payload.monto,
       p_medio:medio,p_notas:payload.notas,p_credito_id:crid
     });data=r.data;err=r.error;
@@ -17101,6 +17000,27 @@ function modalAbrirCaja(){
   openModal('modal-abrir-caja');
 }
 
+// En QA la caja siempre usa un nonce estable hasta que el servidor confirme.
+const AQ_CAJA_QA_NONCE_PREFIX='aqb_caja_nonce_';
+function aqCajaNonceOperar(tipo,datos){
+  const clave=AQ_CAJA_QA_NONCE_PREFIX+tipo;
+  const firma=JSON.stringify(datos);
+  let previo=null;
+  try{previo=JSON.parse(localStorage.getItem(clave)||'null');}catch(_){}
+  if(previo&&previo.firma!==firma){
+    throw new Error('Hay una operación anterior de Caja sin confirmación. Revisa el historial antes de iniciar otra.');
+  }
+  if(!previo){
+    if(!crypto?.randomUUID)throw new Error('Se requiere HTTPS para una operación segura');
+    previo={firma,nonce:crypto.randomUUID()};
+    localStorage.setItem(clave,JSON.stringify(previo));
+  }
+  return previo.nonce;
+}
+function aqCajaNonceConfirmado(tipo){
+  localStorage.removeItem(AQ_CAJA_QA_NONCE_PREFIX+tipo);
+}
+
 let aqCajaAperturaGuardando=false;
 async function abrirCaja(){
   if(aqCajaAperturaGuardando)return;
@@ -17108,40 +17028,38 @@ async function abrirCaja(){
   const inputMonto=document.getElementById('caja-apertura-monto');
   const valor=String(inputMonto?.value||'').trim();
   const monto=Number(valor);
-  if(!valor||!Number.isFinite(monto)||monto<0||Math.abs(monto-Math.round(monto*100)/100)>0.00000001){
-    showNotif('Escribe un monto válido (máximo dos decimales).','#c62828');return;
+  if(!valor||!Number.isFinite(monto)||monto<0||monto>1000000||
+     Math.abs(monto-Math.round(monto*100)/100)>0.00000001){
+    showNotif('Escribe un monto válido de apertura (dos decimales).','#c62828');return;
   }
   const notas=document.getElementById('caja-apertura-notas').value.trim();
   const paraEmpId=document.getElementById('caja-apertura-para')?.value||'';
   aqCajaAperturaGuardando=true;
   try{
-    const {data:ultimos,error:lecturaError}=await sb.from('caja')
-      .select('id,tipo').eq('fecha',hoy()).in('tipo',['apertura','cierre'])
-      .order('id',{ascending:false}).limit(1);
-    if(lecturaError)throw lecturaError;
-    if(ultimos?.[0]?.tipo==='apertura'){
-      showNotif('La Caja ya está abierta. Actualiza el historial antes de continuar.','#e65100');
-      await initCaja();return;
-    }
-    let usuarioId=CU?.id||null;
+    let usuarioId=Number(CU?.id)||0;
     let notaFinal=notas;
     if(paraEmpId){
       const emp=D.empleados.find(e=>e.id===Number(paraEmpId));
-      if(!emp?.usuario_id)throw new Error('El empleado seleccionado no tiene un usuario válido.');
-      usuarioId=emp.usuario_id;
+      if(!emp?.usuario_id)throw new Error('El empleado seleccionado no tiene usuario.');
+      usuarioId=Number(emp.usuario_id);
       notaFinal=(notaFinal?notaFinal+' · ':'')+'Fondo para: '+(emp.nombre||'');
     }
-    // Registro informativo, NO sustituye auditoría del actor en Supabase.
-    notaFinal=(notaFinal?notaFinal+' · ':'')+'Apertura solicitada por: '+(CU?.nombre||'Usuario #'+(CU?.id||'?'));
-    const {error:escrituraError}=await sb.from('caja')
-      .insert({fecha:hoy(),tipo:'apertura',monto,notas:notaFinal,usuario_id:usuarioId});
-    if(escrituraError)throw escrituraError;
+    notaFinal=(notaFinal?notaFinal+' · ':'')+'Apertura solicitada por: '+(CU?.nombre||'Usuario');
+    const payload={fecha:hoy(),monto:Math.round(monto*100)/100,usuarioId,notas:notaFinal};
+    const nonce=aqCajaNonceOperar('apertura',payload);
+    const {data,error}=await sb.rpc('aq_abrir_caja_sesion_v1',{
+      p_nonce:nonce,p_fecha:payload.fecha,p_monto:payload.monto,
+      p_usuario_caja:payload.usuarioId,p_notas:payload.notas
+    });
+    if(error)throw error;
+    if(data?.tipo!=='apertura'||!data.movimiento_id)throw new Error('Supabase no confirmó la apertura');
+    aqCajaNonceConfirmado('apertura');
     closeModal('modal-abrir-caja');
-    showNotif('✅ Apertura guardada: Q '+monto.toFixed(2),'#2e7d32');
+    showNotif((data.repetida?'Apertura ya confirmada: ':'✅ Apertura registrada: ')+fQ(monto),'#2e7d32');
     await initCaja();
   }catch(e){
-    console.error('No se confirmó apertura de Caja:',e);
-    showNotif('No se confirmó la apertura: '+(e?.message||'Error de conexión')+'. Comprueba el historial antes de reintentar.','#c62828');
+    console.error('Apertura segura no confirmada:',e);
+    showNotif('No se confirmó la apertura: '+(e?.message||'Error de conexión')+'. Revisa el historial antes de reintentar.','#c62828');
   }finally{aqCajaAperturaGuardando=false;}
 }
 
@@ -17271,40 +17189,65 @@ function cajaCierreActualizar(){
 }
 async function cerrarCaja(){
   if(aqCajaCierreGuardando)return;
-  if(window._aqFechaCierreForzado&&CU?.rol!=='jefe'){showNotif('Solo el Jefe puede cerrar una caja anterior','#c62828');return;}
+  if(window._aqFechaCierreForzado&&CU?.rol!=='jefe'){
+    showNotif('Solo el Jefe puede cerrar una caja anterior','#c62828');return;
+  }
   const input=document.getElementById('caja-cierre-monto');
-  if(!input.value.trim()||!Number.isFinite(Number(input.value))||Number(input.value)<0){showNotif('Cuenta el efectivo y escribe el monto real','#c62828');return;}
+  if(!input.value.trim()||!Number.isFinite(Number(input.value))||Number(input.value)<0){
+    showNotif('Cuenta el efectivo y escribe el monto real','#c62828');return;
+  }
   const monto=Math.round(Number(input.value)*100)/100;
   const fecha=window._aqFechaCierreForzado||hoy();
-  if(!aqCajaCierrePreparado||aqCajaCierrePreparado.fecha!==fecha){showNotif('Vuelve a abrir el cierre para calcular los movimientos','#c62828');return;}
+  if(!aqCajaCierrePreparado||aqCajaCierrePreparado.fecha!==fecha){
+    showNotif('Vuelve a abrir el cierre para calcular los movimientos','#c62828');return;
+  }
   aqCajaCierreGuardando=true;
   try{
-    // Recalcular justo antes de guardar: detectar ventas y cobros añadidos mientras se contaba.
     const info=await aqCalcularEfectivoCaja(fecha);
-    if(info.aperturaId!==aqCajaCierrePreparado.aperturaId || info.numeroMovimientos!==aqCajaCierrePreparado.numeroMovimientos || info.esperado!==aqCajaCierrePreparado.esperado){
+    if(info.aperturaId!==aqCajaCierrePreparado.aperturaId||
+       info.numeroMovimientos!==aqCajaCierrePreparado.numeroMovimientos||
+       info.esperado!==aqCajaCierrePreparado.esperado){
       aqCajaCierrePreparado=info;aqPintarResumenCierre(info);cajaCierreActualizar();
-      showNotif('La Caja cambió mientras contabas. Revisa el nuevo saldo y confirma otra vez.','#c06d0b');return;
+      showNotif('La Caja cambió mientras contabas. Revisa el nuevo saldo.','#c06d0b');return;
+    }
+    if(info.desconocidos.length){
+      showNotif('Hay movimientos de Caja desconocidos; corrígelos antes de cerrar.','#c62828');return;
     }
     const diff=Math.round((monto-info.esperado)*100)/100;
-    if(info.desconocidos.length&&!confirm('Hay movimientos no reconocidos en la Caja. ¿Revisaste esos registros y deseas continuar?'))return;
-    if(info.sinClasificarCantidad&&!confirm('Hay '+info.sinClasificarCantidad+' movimientos sin medio de pago identificado. Se incluyeron provisionalmente como efectivo. ¿Verificaste el efectivo real y deseas cerrar?'))return;
-    if(Math.abs(diff)>=0.01&&!confirm((diff<0?'Faltante':'Sobrante')+' estimado de '+fQ(Math.abs(diff))+'. ¿Confirmas que contaste '+fQ(monto)+'?'))return;
+    const aceptaSinClasificar=info.sinClasificarCantidad>0;
+    if(aceptaSinClasificar&&!confirm('Hay '+info.sinClasificarCantidad+' movimientos sin medio identificado. ¿Revisaste el efectivo y deseas cerrar?'))return;
+    const aceptaDiferencia=Math.abs(diff)>=0.01;
+    if(aceptaDiferencia&&!confirm((diff<0?'Faltante':'Sobrante')+' estimado de '+fQ(Math.abs(diff))+'. ¿Confirmas el dinero contado?'))return;
     const notasUsuario=document.getElementById('caja-cierre-notas').value.trim();
     const resumen='Cierre conciliado | Esperado: '+info.esperado.toFixed(2)+' | Contado: '+monto.toFixed(2)+
-      ' | Diferencia: '+diff.toFixed(2)+' | Responsable: '+(CU?.nombre||'Usuario #'+(CU?.id||'?'))+
-      ' | Apertura #'+info.aperturaId+(info.desconocidos.length?' | Movimientos no reconocidos: '+info.desconocidos.length:'')+
-      (info.sinClasificarCantidad?' | Medios de pago sin clasificar: '+info.sinClasificarCantidad:'')+
-      ' | Transferencias (fuera de efectivo): '+info.transferencias.toFixed(2)+' | Otros medios (fuera de efectivo): '+info.otrosNoEfectivo.toFixed(2);
+      ' | Diferencia: '+diff.toFixed(2)+' | Responsable: '+(CU?.nombre||'Usuario')+
+      ' | Apertura #'+info.aperturaId+
+      (info.sinClasificarCantidad?' | Medios sin clasificar: '+info.sinClasificarCantidad:'')+
+      ' | Transferencias: '+info.transferencias.toFixed(2)+
+      ' | Otros medios: '+info.otrosNoEfectivo.toFixed(2);
     const notas=(notasUsuario?notasUsuario+' · ':'')+resumen;
-    const {error}=await sb.from('caja').insert({fecha,tipo:'cierre',monto,notas,usuario_id:CU?.id||null});
+    const payload={fecha,apertura:info.aperturaId,monto,esperado:info.esperado,
+      movimientos:info.numeroMovimientos,aceptaSinClasificar,aceptaDiferencia,notas};
+    const nonce=aqCajaNonceOperar('cierre',payload);
+    const {data,error}=await sb.rpc('aq_cerrar_caja_sesion_v1',{
+      p_nonce:nonce,p_fecha:fecha,p_apertura_id:info.aperturaId,
+      p_contado:monto,p_esperado_cliente:info.esperado,
+      p_num_movimientos:info.numeroMovimientos,
+      p_acepta_sin_clasificar:aceptaSinClasificar,
+      p_acepta_diferencia:aceptaDiferencia,p_notas:notas
+    });
     if(error)throw error;
+    if(data?.tipo!=='cierre'||!data.movimiento_id)throw new Error('Supabase no confirmó el cierre');
+    aqCajaNonceConfirmado('cierre');
     aqCajaCierrePreparado=null;
     window._aqFechaCierreForzado=null;window._aqCierreSaldoHistorico=null;
     closeModal('modal-cerrar-caja');
-    showNotif('🔒 Cierre guardado: '+fQ(monto)+(Math.abs(diff)>=0.01?' · Diferencia: '+fQ(diff):''),'#2e7d32');
+    showNotif((data.repetida?'Cierre ya registrado: ':'🔒 Cierre guardado: ')+fQ(monto),'#2e7d32');
     await initCaja();aqActualizarCierreReportes();
-  }catch(e){console.error('No se pudo guardar el cierre:',e);showNotif('No se guardó el cierre: '+(e.message||'Error de conexión'),'#c62828');}
-  finally{aqCajaCierreGuardando=false;}
+  }catch(e){
+    console.error('No se pudo confirmar el cierre seguro:',e);
+    showNotif('No se guardó el cierre: '+(e.message||'Error de conexión')+'. Revisa el historial antes de reintentar.','#c62828');
+  }finally{aqCajaCierreGuardando=false;}
 }
 
 // ══════════════════════════════════════════

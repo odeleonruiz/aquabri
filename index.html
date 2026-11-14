@@ -5492,6 +5492,9 @@ async function cobrar(enviarWsp=false){
     entrega:entTexto,notas:notasVenta,estado,
     bonificaciones:bonifs||null,usuario_id:CU?.id||null,
     nombre_mostrador:nombreLibre||null,
+    aq_medio_pago:medioPago==='efectivo'?'efectivo':medioPago==='transferencia'?'transferencia':'otro',
+    aq_credito:!!esCredito,
+    aq_fecha_vencimiento:esCredito?(document.getElementById('v-cred-fecha')?.value||null):null,
     envases_llevan:envasesLlevan,envases_devuelven:envasesDevueltos};
   if(!window._aqCobroNonce){
     window._aqCobroNonce=(typeof crypto!=='undefined'&&crypto.randomUUID)
@@ -5499,7 +5502,7 @@ async function cobrar(enviarWsp=false){
   }
   let resultado=null,ventaError=null;
   try{
-    const respuesta=await sb.rpc('aq_registrar_venta_con_envases',{
+    const respuesta=await sb.rpc('aq_vender_con_envases_sesion_v1',{
       p_token:localStorage.getItem('aqb_token')||'',
       p_uid:Number(CU?.id)||0,
       p_nonce:window._aqCobroNonce,
@@ -5515,7 +5518,7 @@ async function cobrar(enviarWsp=false){
     document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
     const codigo=ventaError?.code?' · '+ventaError.code:'';
     const msg=ventaError?.message||'Supabase no confirmó la operación.';
-    const faltaFuncion=ventaError?.code==='PGRST202'||/aq_registrar_venta_con_envases|schema cache|function.*not found/i.test(msg);
+    const faltaFuncion=ventaError?.code==='PGRST202'||/aq_vender_con_envases_sesion_v1|schema cache|function.*not found/i.test(msg);
     alert(faltaFuncion
       ?'⚠️ Falta actualizar la función de venta y envases en Supabase. NO se registró esta venta. El carrito sigue intacto.'
       :'❌ No se confirmó la venta. '+msg+codigo+'\nEl carrito sigue disponible. Si hubo un error de conexión, revisa el Historial antes de reintentar para evitar duplicados.');
@@ -5532,67 +5535,8 @@ async function cobrar(enviarWsp=false){
   // Se confirma toda la operación, nunca solamente su encabezado.
   window._aqCobroNonce=null;
 
-  // El detalle ya fue confirmado; a partir de aquí registrar movimientos accesorios.
-  const promesas=[];
-
-  // 2. Actualizar stock de cada producto
-  for(const item of cart){
-    const prod=D.prods.find(p=>p.id===item.pid);
-    if(prod){
-      const bonifExtra=(!item.bonifProdId&&item.bonifCant>0)?parseInt(item.bonifCant):0;
-      const totalDescontar=parseInt(item.cant)+bonifExtra;
-      const nuevoStock=parseInt(prod.stock||0)-totalDescontar; // permite negativo
-      prod.stock=nuevoStock; // actualizar local inmediatamente
-      promesas.push(sb.from('productos').update({stock:nuevoStock}).eq('id',prod.id));
-      // Insumos ligados
-      for(const l of(prod.ligados||[])){
-        const ins=D.insumos.find(x=>x.id===l.insumo_id);
-        if(ins){
-          const ns=parseInt(ins.stock||0)-(parseInt(l.cant)*totalDescontar);
-          ins.stock=ns;
-          promesas.push(sb.from('insumos').update({stock:ns}).eq('id',l.insumo_id));
-        }
-      }
-      // Bonif producto diferente
-      if(item.bonifProdId&&item.bonifCant>0){
-        const bp=D.prods.find(p=>p.id===item.bonifProdId);
-        if(bp){
-          const ns=parseInt(bp.stock||0)-parseInt(item.bonifCant);
-          bp.stock=ns;
-          promesas.push(sb.from('productos').update({stock:ns}).eq('id',bp.id));
-        }
-      }
-    }
-  }
-
-  // 3. Crédito si aplica
-  if(esCredito&&cid){
-    promesas.push(sb.from('creditos').insert({cliente_id:parseInt(cid),venta_id:venta.id,concepto:'Venta #'+venta.id,monto:total,pagado:0,fecha:fechaVenta,fecha_vencimiento:document.getElementById('v-cred-fecha').value||null,estado:'Pendiente',notas:'Auto desde venta'}));
-  }
-  // 4. Registrar en caja si es venta contado Y se entrega de inmediato (no crédito, no pedido pendiente)
-  if(!esCredito&&total>0&&estado==='Entregado'){
-    const clienteNom=cid?D.clientes.find(c=>c.id===parseInt(cid))?.nombre||'Mostrador':'Mostrador';
-    promesas.push(sb.from('caja').insert({
-      fecha:hoy(),
-      tipo:'venta',
-      monto:total,
-      notas:aqCajaAnotarMedio('Venta #'+venta.id+' — '+clienteNom,medioPago),
-      usuario_id:CU?.id||null,
-      venta_id:venta.id
-    }));
-  }
-
-  // Movimientos complementarios: una venta confirmada no debe esconder
-  // fallos de inventario/caja/crédito, pues requieren conciliación.
-  let erroresMovimientos=[];
-  try{
-    const resultadosMovimientos=await Promise.all(promesas);
-    erroresMovimientos=resultadosMovimientos.filter(r=>r?.error).map(r=>r.error.message||'Movimiento rechazado');
-  }catch(e){erroresMovimientos.push(e?.message||String(e));}
-  if(erroresMovimientos.length){
-    console.error('Venta #'+venta.id+' guardada; revisar movimientos complementarios:',erroresMovimientos);
-    alert('⚠️ La venta #'+venta.id+' y sus productos SÍ quedaron guardados, pero falló un movimiento adicional de caja, inventario o crédito.\nRevisa antes de cuadrar o volver a intentar.\n'+erroresMovimientos[0]);
-  }
+  // Staging: una sola transacción ya guardó inventario, crédito, caja, puntos y envases.
+  // No repetir escrituras individuales desde el navegador (evita duplicados y saldos parciales).
   aqRegistrarPrecioHabitualEnVenta(cid,cart);
   // Recarga rápida: solo lo que cambió (ventas + stock) sin recargar todo
   const[rv,rp,rc]=await Promise.all([
@@ -5603,61 +5547,13 @@ async function cobrar(enviarWsp=false){
   if(rv.data)D.ventas=rv.data;
   if(rp.data)D.prods=rp.data;
   if(rc.data)D.creditos=rc.data;
-  // ── SISTEMA DE PUNTOS v2 — simple y directo ──
-  let _ptosGanadosTicket=0;
-  let _saldoNuevoTicket=null;
-  if(cid&&!esCredito){
-    try{
-      // 1. Verificar que el programa esté activo
-      const activo=D.puntosConfig?.activo;
-      const programaActivo=(activo===true||activo===1||activo==='true'||activo==='1');
-      if(programaActivo){
-        // 2. Verificar inscripción fresca desde BD
-        const{data:cli_pts_arr}=await sb.from('puntos_clientes')
-          .select('*').eq('cliente_id',parseInt(cid));
-        const cli_pts=cli_pts_arr?.[0]||null;
-        if(cli_pts){
-          // 3. Config productos frescos
-          const{data:prods_cfg}=await sb.from('puntos_productos').select('*');
-          const cfgMap={};
-          (prods_cfg||[]).forEach(p=>{cfgMap[p.producto_id]=p;});
-          // 4. Calcular puntos solo productos activos
-          let ganados=0;
-          cart.forEach(item=>{
-            const c=cfgMap[item.pid];
-            if(!c)return;
-            const isActivo=c.activo===true||c.activo===1||c.activo==='true'||c.activo==='1'||c.activo==='t';
-            const pct=parseFloat(c.porcentaje||0);
-            if(isActivo&&pct>0){
-              ganados+=parseFloat(item.precio||0)*parseFloat(item.cant||1)*(pct/100);
-            }
-          });
-          ganados=Math.round(ganados*100)/100;
-          if(ganados>0){
-            // 5. Guardar en BD — usar cliente_id para el update
-            const totalAnterior=parseFloat(cli_pts.puntos_totales||0);
-            const totalNuevo=Math.round((totalAnterior+ganados)*100)/100;
-            const{error:updErr}=await sb.from('puntos_clientes')
-              .update({puntos_totales:totalNuevo})
-              .eq('cliente_id',parseInt(cid));
-            if(updErr)console.error('Error update puntos:',updErr);
-            await sb.from('puntos_historial').insert({
-              cliente_id:parseInt(cid),
-              venta_id:venta.id,
-              tipo:'acumulacion',
-              puntos:ganados,
-              descripcion:'Compra #'+venta.id+' — '+ganados+' pts'
-            });
-            // 6. Actualizar cache
-            const cacheIdx=D.puntosClientes.findIndex(p=>p.cliente_id===parseInt(cid));
-            if(cacheIdx>=0)D.puntosClientes[cacheIdx].puntos_totales=totalNuevo;
-            else D.puntosClientes.push({...cli_pts,puntos_totales:totalNuevo});
-            _ptosGanadosTicket=ganados;
-            _saldoNuevoTicket=totalNuevo-parseFloat(cli_pts.puntos_canjeados||0);
-          }
-        }
-      }
-    }catch(e){console.error('Error puntos:',e);}
+  // Puntos confirmados por Supabase dentro de la venta, no recalculados por el navegador.
+  let _ptosGanadosTicket=Math.max(0,Number(resultado.puntos_ganados)||0);
+  let _saldoNuevoTicket=resultado.saldo_puntos==null?null:Number(resultado.saldo_puntos);
+  if(cid&&_ptosGanadosTicket>0){
+    const idx=D.puntosClientes.findIndex(p=>Number(p.cliente_id)===Number(cid));
+    if(idx>=0)D.puntosClientes[idx].puntos_totales=
+      Math.round((Number(D.puntosClientes[idx].puntos_totales||0)+_ptosGanadosTicket)*100)/100;
   }
   if(docActual){docActual._ptosGanados=_ptosGanadosTicket;docActual._saldoNuevo=_saldoNuevoTicket;}
   await mostrarTicket(venta,cart,dg,total,pagado,cid,entTexto,esCredito,bonifs);

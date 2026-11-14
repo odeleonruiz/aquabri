@@ -16219,18 +16219,7 @@ async function posCobrar(conWhatsapp){
   if(await aqBloquearNuevoDiaPorCierre())return;
   const ahora2=Date.now();
   if(window._cobrando||(window._ultimoCobro&&ahora2-window._ultimoCobro<4000)){showNotif('⏳ Espera, procesando...','#e65100');return;}
-  const {data:cajahoy2}=await sb.from('caja').select('id').eq('fecha',hoy()).eq('tipo','apertura');
-  const {data:cierrehoy2}=await sb.from('caja').select('id').eq('fecha',hoy()).eq('tipo','cierre');
-  if(!cajahoy2?.length){
-    showNotif('⚠️ Debes abrir la caja antes de vender','#e65100');
-    if(confirm('No has abierto la caja hoy. ¿Ir a Caja?'))goPage('caja');
-    return;
-  }
-  if(cierrehoy2?.length){
-    showNotif('🔒 La caja está cerrada','#c62828');
-    if(confirm('La caja está cerrada. ¿Ir a Caja para abrirla?'))goPage('caja');
-    return;
-  }
+  // cobrar() verifica el último movimiento de control del usuario.
   // Construir la misma estructura que cobrar() pero usando posCart
   const cliId=parseInt(document.getElementById('pos-cli').value)||null;
   const posNombreLibre=(!cliId&&document.getElementById('pos-cli-input')?.value.trim())||null;

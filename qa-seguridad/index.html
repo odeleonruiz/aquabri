@@ -5418,7 +5418,7 @@ async function cobrar(enviarWsp=false){
     const saltarCaja=esJefe&&fechaVentaInput!==hoy();
     if(!saltarCaja){
       const {data:estados,error:errorCaja}=await sb.from('caja')
-        .select('id,tipo').eq('fecha',hoy()).in('tipo',['apertura','cierre'])
+        .select('id,tipo').eq('fecha',hoy()).eq('usuario_id',CU.id).in('tipo',['apertura','cierre'])
         .order('id',{ascending:false}).limit(1);
       if(errorCaja)throw errorCaja;
       const ultimo=estados?.[0]||null;
@@ -12835,6 +12835,29 @@ function aqCambiarEmpleadoCuadre(){
   generarReporte();
 }
 
+function aqCuadreTurnoReporte(movimientos, usuarioId){
+  const propios=movimientos.filter(m=>Number(m.usuario_id)===Number(usuarioId));
+  const apertura=propios.reduce((ultima,m)=>
+    m.tipo==='apertura' && (!ultima || Number(m.id)>Number(ultima.id))?m:ultima,null);
+  if(!apertura)return null;
+  const cierre=propios.reduce((primero,m)=>
+    m.tipo==='cierre' && Number(m.id)>Number(apertura.id) &&
+    (!primero || Number(m.id)<Number(primero.id))?m:primero,null);
+  let centavos=aqMontoCentes(apertura.monto);
+  let sinClasificar=false;
+  for(const m of propios){
+    if(Number(m.id)<=Number(apertura.id) || (cierre && Number(m.id)>=Number(cierre.id)))continue;
+    const ingreso=['venta','cobro_credito','ingreso','entrada'].includes(m.tipo);
+    if(!ingreso && !['gasto','egreso','salida','pago_proveedor'].includes(m.tipo))continue;
+    const medio=aqCajaMedioDeNotas(m.notas);
+    if(medio==='transferencia' || medio==='otro')continue;
+    if(!medio)sinClasificar=true;
+    const monto=aqMontoCentes(m.monto);
+    centavos+=ingreso?monto:-Math.abs(monto);
+  }
+  return {efectivo:centavos/100,sinClasificar};
+}
+
 async function generarReporte(){
   // Los vendedores no deben abrir ni generar reportes gerenciales.
   if(CU&&['vendedor','vendedor_editor'].includes(CU.rol)){showNotif('Reportes reservados para personal autorizado','#c62828');return;}
@@ -13066,11 +13089,7 @@ async function generarReporte(){
     '<div class="aq-cred-sub">Únicamente de ventas del período seleccionado y que aún están sin pagar. Si se cobraron completos, no aparecen aquí. Los créditos que se pagaron siguen en “Ver más detalles” como crédito originalmente generado.</div>'+
     (filasPendientes||'<div class="aq-cred-fila">✅ No quedan créditos pendientes de las ventas seleccionadas.</div>');
   // Fondo entregado y efectivo a rendir: individual, separado del cierre general.
-  const dineroEfectivo=importeMedio('efectivo');
-  const gastosEfectivo=Number(resumenFinanciero.porMedio.efectivo.salida)||0;
-  const efectivoRendir=Math.round((aperturaEmpleado+dineroEfectivo-gastosEfectivo)*100)/100;
-  const faltaClasificarEfectivo=Number(resumenFinanciero.porMedio.sinClasificar.entrada||0)!==0
-    ||Number(resumenFinanciero.porMedio.sinClasificar.salida||0)!==0;
+  const turno=usuFiltro&&esUnSoloDia?aqCuadreTurnoReporte(movimientosCaja,usuFiltro):null;
   const nombreEmpleadoApertura=usuFiltro
     ?String((D.usuarios||[]).find(u=>Number(u.id)===Number(usuFiltro))?.nombre||'empleado')
     :'';
@@ -13086,12 +13105,12 @@ async function generarReporte(){
           ?'Fondo asignado ('+aperturasEmpleado.length+' apertura(s) en el período). No es ingreso de ventas.'
           :'No se registró apertura asignada a este empleado durante el período.')
         :'Selecciona un empleado en «Vendedor» para ver el dinero que recibió al abrir caja.'},
-    ...(usuFiltro&&esUnSoloDia?[{
+    ...(turno?[{
       id:'efectivo_a_rendir_empleado',ic:'💰',lbl:'Efectivo estimado a entregar',
-      val:fQ(efectivoRendir),importe:efectivoRendir,c:'#2e7d32',
-      sub:faltaClasificarEfectivo
-        ?'Estimación incompleta: revisa movimientos sin medio de pago antes del cuadre.'
-        :'Fondo asignado + cobros en efectivo − salidas en efectivo. Confirmar conteo físico.'
+      val:fQ(turno.efectivo),importe:turno.efectivo,c:'#2e7d32',
+      sub:turno.sinClasificar
+        ?'Estimación del último turno con movimientos sin medio identificado incluidos provisionalmente.'
+        :'Fondo y movimientos en efectivo del último turno. Confirmar conteo físico.'
     }]:[])
   ];
   const tarjetasBase=[
@@ -13199,9 +13218,9 @@ async function generarReporte(){
   const aclaracionFondo=usuFiltro
     ?'<div class="aq-nota-clara">🪙 Fondo de apertura del empleado: <b>'+fQ(aperturaEmpleado)+
       '</b>. Se muestra separado de los cobros; no debe sumarse otra vez a «Efectivo recibido». '+
-      (esUnSoloDia?'Efectivo estimado a entregar: <b>'+fQ(efectivoRendir)+'</b>. ':'')+
-      (faltaClasificarEfectivo?'⚠️ Hay movimientos sin medio de pago identificado: este estimado no es un cierre definitivo. ':'')+
-      'El cierre final de Caja sigue siendo general.</div>'
+      (turno?'Efectivo estimado del último turno: <b>'+fQ(turno.efectivo)+'</b>. ':'')+
+      (turno?.sinClasificar?'⚠️ El estimado incluye movimientos sin medio identificado. ':'')+
+      '</div>'
     :'';
   document.getElementById('rep-resumen-simple').innerHTML=
     '<div class="aq-cuenta-clara">💰 Dinero recibido: '+fQ(resumenFinanciero.ventasCobradas)+' por ventas + '+
@@ -15212,11 +15231,24 @@ async function renderPuntos(){
           <button class="btn bp bsm" onclick="canjearPuntos(${p.cliente_id},${saldo})">🎁 Canjear</button>
           <button class="btn bsm" style="background:#546e7a;color:#fff" onclick="verHistorialPuntos(${p.cliente_id})">📋 Historial</button>
           <button class="btn bsm" style="background:#00897b;color:#fff" onclick="comprobantePuntos(${p.cliente_id})">🎟 Comprobante</button>
+          ${CU?.rol==='jefe'?`<button class="btn bi bsm" onclick="aqGestionarEnlacePuntos(${p.cliente_id})">Generar enlace privado</button><button class="btn bsm" onclick="aqGestionarEnlacePuntos(${p.cliente_id},true)">Revocar enlace</button>`:''}
           ${CU&&SOLO_JEFE.includes(CU.rol)?`<button class="btn bsm" style="background:#6a1b9a;color:#fff" onclick="editarPuntos(${p.cliente_id},${saldo},${parseFloat(p.puntos_totales||0)},${parseFloat(p.puntos_canjeados||0)})">✏️ Editar</button><button class="btn bd bsm" onclick="eliminarClientePuntos(${p.cliente_id},'${(cli?.nombre||'').replace(/'/g,'')}')">🗑</button>`:''}
         </div>
       </div>
     </div>`;
   }).join('');
+}
+
+async function aqGestionarEnlacePuntos(clienteId, revocar=false){
+  const aviso=revocar?'¿Revocar el enlace privado de este cliente?':'¿Generar un enlace privado? Cualquier enlace anterior dejará de funcionar.';
+  if(!confirm(aviso))return;
+  const {data,error}=await sb.rpc('aq_enlace_puntos_gestionar_v1',{p_cliente_id:clienteId,p_revocar:revocar});
+  if(error){showNotif('No se pudo guardar el enlace privado.','#c62828');return;}
+  if(revocar){showNotif('Enlace revocado.');return;}
+  if(!/^[0-9a-f]{64}$/.test(data||'')){showNotif('No se recibió un enlace válido.','#c62828');return;}
+  const enlace=new URL('./puntos.html',location.href);
+  enlace.hash='codigo='+data;
+  prompt('Copia y comparte este enlace solo con el cliente:',enlace.href);
 }
 
 async function editarPuntos(clienteId, saldo, totalActual, canjeadosActual){
@@ -16767,7 +16799,7 @@ async function initCaja(){
   const registros = data || [];
   // La apertura y el cierre más recientes forman el estado actual: una reapertura
   // válida posterior a un cierre debe mostrar Caja ABIERTA, no Caja cerrada.
-  const ultimoControl = registros.find(r=>r.tipo==='apertura'||r.tipo==='cierre')||null;
+  const ultimoControl = registros.find(r=>Number(r.usuario_id)===Number(CU.id) && (r.tipo==='apertura'||r.tipo==='cierre'))||null;
   const apertura = ultimoControl?.tipo==='apertura'?ultimoControl:null;
   const cierre = ultimoControl?.tipo==='cierre'?ultimoControl:null;
   _cajaAbierta = apertura;
@@ -16824,6 +16856,19 @@ async function initCaja(){
     btnAbrir.style.display  = 'flex';
     btnCerrar.style.display = 'none';
   }
+
+  if(CU.rol!=='jefe'){
+    btnAbrir.textContent='🔓 Abrir mi caja';
+    btnCerrar.textContent='🔒 Cerrar mi caja';
+  }else{
+    btnCerrar.textContent='🔒 Cerrar Caja';
+    if(apertura){
+      btnAbrir.style.display='flex';
+      btnAbrir.textContent='🔓 Abrir caja de empleado';
+    }
+  }
+  if(!aqPuedeOperarCaja('abrir'))btnAbrir.style.display='none';
+  if(!aqPuedeOperarCaja('cerrar'))btnCerrar.style.display='none';
 
   // Si quedó pendiente el último día de trabajo, mostrar el cierre obligatorio en Caja.
   await aqRenderCierrePendienteCaja();
@@ -16927,9 +16972,18 @@ function cajaAddMonto(v){
   inp.value = (cur + parseFloat(v)).toFixed(2);
 }
 
+function aqPuedeOperarCaja(accion){
+  if(CU?.rol==='jefe')return true;
+  const permisos=aqPermisosEfectivos();
+  return permisos.includes('caja') && permisos.includes('caja.'+accion);
+}
 function modalAbrirCaja(){
+  if(!aqPuedeOperarCaja('abrir')){showNotif('Sin permiso para abrir caja','#c62828');return;}
   const sel=document.getElementById('caja-apertura-para');
-  if(sel)sel.innerHTML='<option value="">— Jefe (caja general) —</option>'+(D.empleados||[]).filter(e=>e.estado==='Activo'&&e.usuario_id).map(e=>`<option value="${e.id}">👷 ${e.nombre}</option>`).join('');
+  const jefe=CU.rol==='jefe';
+  sel.closest('.fg').style.display=jefe?'':'none';
+  sel.innerHTML=jefe?(_cajaAbierta?'<option value="">— Selecciona un empleado —</option>':'<option value="">— Jefe (caja general) —</option>')+(D.empleados||[]).filter(e=>e.estado==='Activo'&&e.usuario_id).map(e=>`<option value="${e.id}">👷 ${e.nombre}</option>`).join(''):'';
+  document.querySelector('#modal-abrir-caja .modal-title').textContent=jefe?'🔓 Abrir Caja':'🔓 Abrir mi caja';
   document.getElementById('caja-apertura-monto').value = '';
   document.getElementById('caja-apertura-notas').value = '';
   openModal('modal-abrir-caja');
@@ -16944,6 +16998,7 @@ function aqNonceAuth(){
   return Array.from(bytes,x=>x.toString(16).padStart(2,'0')).join('');
 }
 async function abrirCaja(){
+  if(!aqPuedeOperarCaja('abrir'))return;
   if(aqCajaAperturaGuardando)return;
   if(await aqBloquearNuevoDiaPorCierre())return;
   const inputMonto=document.getElementById('caja-apertura-monto');
@@ -16954,19 +17009,12 @@ async function abrirCaja(){
   }
   const notas=document.getElementById('caja-apertura-notas').value.trim();
   const paraEmpId=document.getElementById('caja-apertura-para')?.value||'';
+  if(CU.rol==='jefe' && _cajaAbierta && !paraEmpId){showNotif('Selecciona un empleado.','#c62828');return;}
   aqCajaAperturaGuardando=true;
   try{
-    const {data:ultimos,error:lecturaError}=await sb.from('caja')
-      .select('id,tipo').eq('fecha',hoy()).in('tipo',['apertura','cierre'])
-      .order('id',{ascending:false}).limit(1);
-    if(lecturaError)throw lecturaError;
-    if(ultimos?.[0]?.tipo==='apertura'){
-      showNotif('La Caja ya está abierta. Actualiza el historial antes de continuar.','#e65100');
-      await initCaja();return;
-    }
     let usuarioId=CU?.id||null;
     let notaFinal=notas;
-    if(paraEmpId){
+    if(CU.rol==='jefe' && paraEmpId){
       const emp=D.empleados.find(e=>e.id===Number(paraEmpId));
       if(!emp?.usuario_id)throw new Error('El empleado seleccionado no tiene un usuario válido.');
       usuarioId=emp.usuario_id;
@@ -17036,11 +17084,11 @@ async function aqCalcularEfectivoCaja(fecha){
     if((data||[]).length<500)break;
     if(pagina===39)throw new Error('Demasiados movimientos para calcular un cierre completo.');
   }
-  const aperturas=registros.filter(x=>x.tipo==='apertura');
+  const aperturas=registros.filter(x=>x.tipo==='apertura' && Number(x.usuario_id)===Number(CU.id));
   const ultima=aperturas[aperturas.length-1];
   if(!ultima)throw new Error('No existe una apertura para esta fecha.');
-  const posteriores=registros.filter(x=>Number(x.id)>Number(ultima.id));
-  if(posteriores.some(x=>x.tipo==='cierre'))throw new Error('Esta apertura ya tiene un cierre.');
+  const posteriores=registros.filter(x=>Number(x.id)>Number(ultima.id) && !['apertura','cierre'].includes(x.tipo));
+  if(registros.some(x=>Number(x.id)>Number(ultima.id) && x.tipo==='cierre' && Number(x.usuario_id)===Number(CU.id)))throw new Error('Esta apertura ya tiene un cierre.');
   const entradas=['venta','cobro_credito','ingreso','entrada'];
   const egresos=['gasto','egreso','salida','pago_proveedor'];
   const conocidos=[...entradas,...egresos];
@@ -17090,6 +17138,7 @@ function aqPintarResumenCierre(info){
     'Responsable del cierre: '+(CU?.nombre||'Usuario actual')+'. Ingresa el dinero que realmente contaste.';
 }
 async function modalCerrarCaja(){
+  if(!aqPuedeOperarCaja('cerrar'))return;
   const titulo=document.querySelector('#modal-cerrar-caja .modal-title');
   if(titulo)titulo.textContent='🔒 Cerrar Caja';
   window._aqFechaCierreForzado=null;window._aqCierreSaldoHistorico=null;
@@ -17119,8 +17168,8 @@ function cajaCierreActualizar(){
   else{el.textContent='⬇️ Faltante estimado: '+fQ(-diff);el.style.background='var(--rojoc)';el.style.color='var(--rojo)';}
 }
 async function cerrarCaja(){
+  if(!aqPuedeOperarCaja('cerrar'))return;
   if(aqCajaCierreGuardando)return;
-  if(window._aqFechaCierreForzado&&CU?.rol!=='jefe'){showNotif('Solo el Jefe puede cerrar una caja anterior','#c62828');return;}
   const input=document.getElementById('caja-cierre-monto');
   if(!input.value.trim()||!Number.isFinite(Number(input.value))||Number(input.value)<0){showNotif('Cuenta el efectivo y escribe el monto real','#c62828');return;}
   const monto=Math.round(Number(input.value)*100)/100;
@@ -20807,13 +20856,13 @@ async function aqBuscarCajaPendienteAnterior(){
   const fechaActual=hoy();
   const {data:aperturas,error:eA}=await sb.from('caja')
     .select('id,fecha,monto,created_at,usuario_id').eq('tipo','apertura')
-    .lt('fecha',fechaActual).order('fecha',{ascending:false}).order('id',{ascending:false}).limit(1);
+    .eq('usuario_id',CU.id).lt('fecha',fechaActual).order('fecha',{ascending:false}).order('id',{ascending:false}).limit(1);
   if(eA)throw eA;
   const ultima=aperturas?.[0];
   if(!ultima)return null;
   // Si la última operación apertura/cierre de esa fecha es una apertura, falta cierre.
   const {data:ultMov,error:eM}=await sb.from('caja')
-    .select('id,tipo').eq('fecha',ultima.fecha).in('tipo',['apertura','cierre'])
+    .select('id,tipo').eq('fecha',ultima.fecha).eq('usuario_id',CU.id).in('tipo',['apertura','cierre'])
     .order('id',{ascending:false}).limit(1);
   if(eM)throw eM;
   return ultMov?.[0]?.tipo==='apertura'?ultima:null;
@@ -20822,7 +20871,7 @@ async function aqBloquearNuevoDiaPorCierre(){
   try{
     const pendiente=await aqBuscarCajaPendienteAnterior();
     if(!pendiente)return false;
-    const m='🔒 Hay una caja pendiente del '+pendiente.fecha+'. El Jefe debe cerrarla antes de comenzar el nuevo día.';
+    const m='🔒 Hay una caja pendiente del '+pendiente.fecha+'. Ciérrala antes de comenzar el nuevo día.';
     showNotif(m,'#c06d0b');
     if(CU?.rol==='jefe' && !document.getElementById('page-caja')?.classList.contains('active')){
       await goPage('caja');
@@ -20840,12 +20889,12 @@ async function aqRenderCierrePendienteCaja(){
     const pendiente=await aqBuscarCajaPendienteAnterior();
     window._aqCierrePendiente=pendiente;
     if(!pendiente){box.style.display='none';box.innerHTML='';const abrir=document.getElementById('btn-abrir-caja');if(abrir){abrir.disabled=false;abrir.title='';abrir.style.opacity='';}return;}
-    const jefe=CU?.rol==='jefe';
+    const puedeCerrar=aqPuedeOperarCaja('cerrar');
     box.style.display='block';
     box.innerHTML='<strong>⚠️ Cierre pendiente: '+pendiente.fecha+'</strong>'+
       '<p>No se pueden registrar nuevas ventas ni abrir la caja de hoy hasta cerrar ese día. '+
-      (jefe?'Revisa los importes y registra el dinero real del cierre.':'Pide al Jefe que cierre la caja anterior.')+'</p>'+
-      (jefe?'<button type="button" class="btn bw" onclick="aqAbrirCierrePendiente()">🔒 Cerrar caja del '+pendiente.fecha+'</button>':'');
+      (puedeCerrar?'Revisa los importes y registra el dinero real del cierre.':'Pide al Jefe que revise el cierre anterior.')+'</p>'+
+      (puedeCerrar?'<button type="button" class="btn bw" onclick="aqAbrirCierrePendiente()">🔒 Cerrar caja del '+pendiente.fecha+'</button>':'');
     const abrir=document.getElementById('btn-abrir-caja');
     if(abrir){abrir.disabled=true;abrir.title='Primero cierra la caja del '+pendiente.fecha;abrir.style.opacity='.55'}
   }catch(e){
@@ -20854,7 +20903,7 @@ async function aqRenderCierrePendienteCaja(){
   }
 }
 async function aqAbrirCierrePendiente(){
-  if(CU?.rol!=='jefe'){showNotif('Solo el Jefe puede cerrar caja','#c62828');return;}
+  if(!aqPuedeOperarCaja('cerrar')){showNotif('Sin permiso para cerrar caja','#c62828');return;}
   try{
     const pendiente=await aqBuscarCajaPendienteAnterior();
     if(!pendiente){showNotif('Ya no hay cierre pendiente','#2e7d32');await initCaja();return;}
@@ -20891,7 +20940,7 @@ async function aqActualizarCierreReportes(){
       btn.textContent='🔒 Ir a cerrar caja pendiente';
       return;
     }
-    const {data,error}=await sb.from('caja').select('tipo').eq('fecha',hoy())
+    const {data,error}=await sb.from('caja').select('tipo').eq('fecha',hoy()).eq('usuario_id',CU.id)
       .in('tipo',['apertura','cierre']).order('id',{ascending:false}).limit(1);
     if(error)throw error;
     const estado=data?.[0]?.tipo;

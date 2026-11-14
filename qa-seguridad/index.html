@@ -5943,9 +5943,12 @@ function renderComprobante(venta,items,dg,total,pagado,cid,entrega,esCredito,bon
       </div>`;
     })()}
 
-    ${venta._aqQrPuntos?`<div style="padding:12px;text-align:center;background:#fff;color:#183153">
-      <div style="font-size:13px;font-weight:800">Consulta tus puntos</div>
-      <img src="${venta._aqQrPuntos}" alt="QR para consultar tus puntos" width="180" height="180" style="display:block;margin:4px auto;max-width:100%;height:auto;image-rendering:pixelated">
+    ${venta._aqQrPuntos?`<div style="margin:0 20px 12px;padding:7px 10px;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;background:#f5f8fc;color:#183153;border:1px solid #d6dee8;border-radius:10px">
+      <img src="${venta._aqQrPuntos}" alt="QR para consultar tus puntos" width="114" height="114" style="display:block;flex:none;width:114px;height:114px;object-fit:contain;background:#fff;border-radius:4px;image-rendering:pixelated">
+      <div style="flex:0 1 130px">
+        <div style="font-size:13px;font-weight:800">Consulta tus puntos</div>
+        <div style="font-size:11px;color:#5d7188;margin-top:3px">Escanea con tu cámara.</div>
+      </div>
     </div>`:''}
     <div style="padding:14px 28px;background:#fafcff;border-top:1px solid ${colorBorde};display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;color:${colorTexto}">
       <div style="font-size:11px;color:${colorSuave}">${c.nombre||'Aquabri'}${c.telefono?` · ${c.telefono}`:''}</div>

@@ -9,6 +9,14 @@
 -- copia local de datos: aquabri_respaldo_20261113 (no es backup externo).
 
 BEGIN;
+-- Seguro anti-ejecución accidental: debe habilitarse explícitamente tras pruebas de caja, ventas y autenticación.
+DO $guard$
+BEGIN
+  IF current_setting('aq_rls_cutover_verified',true) IS DISTINCT FROM 'SI_CON_PRUEBAS' THEN
+    RAISE EXCEPTION 'CORTE BLOQUEADO: validar frontend seguro, RPC de escritura, respaldo externo y pruebas por rol antes de aplicar RLS';
+  END IF;
+END
+$guard$;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 -- activos_cat: rls_antes=true, politicas_antes=1, politicas_despues=1

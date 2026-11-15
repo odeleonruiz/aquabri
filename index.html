@@ -14025,13 +14025,16 @@ function getNumSabado(sabFecha){
 }
 
 
-// ── NÓMINA: cada sábado liquida el período DOMINGO A SÁBADO, ambos incluidos. ──
+// ── NÓMINA: corte sábado; período remunerado LUNES A DOMINGO, con descanso dominical. ──
 // No cambia registros anteriores; el prorrateo solo calcula pagos nuevos.
 function aqFechaNominaISO(d){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 function aqPeriodoNominaSabado(sabPago){
   const fin=new Date(sabPago+'T12:00:00');
+  // El sábado de pago cubre hasta el domingo siguiente, que es descanso remunerado.
+  // El siguiente corte empieza el lunes: nunca duplicar el domingo.
+  fin.setDate(fin.getDate()+1);
   const ini=new Date(fin);
   ini.setDate(ini.getDate()-6);
   return{ini:aqFechaNominaISO(ini),fin:aqFechaNominaISO(fin)};
@@ -14118,8 +14121,8 @@ function autoFillPago(){
     const sabAct=getSabadoActual(false),sabAnt=getSabadoActual(true);
     const pagadaAct=!!aqPagoSemanalRegistrado(eid,sabAct);
     const pagadaAnt=!!aqPagoSemanalRegistrado(eid,sabAnt);
-    const aplicaAct=aqCalcularPagoSemanal(emp,sabAct,hoyStr).dias>0;
-    const aplicaAnt=aqCalcularPagoSemanal(emp,sabAnt,hoyStr).dias>0;
+    const aplicaAct=aqCalcularPagoSemanal(emp,sabAct).dias>0;
+    const aplicaAnt=aqCalcularPagoSemanal(emp,sabAnt).dias>0;
     let sel=window._periodoSeleccionado;
     if((sel!=='ant'&&sel!=='act')||(sel==='ant'&&!aplicaAnt)||(sel==='act'&&!aplicaAct)){
       sel=aplicaAnt&&!pagadaAnt?'ant':aplicaAct?'act':aplicaAnt?'ant':'act';
@@ -14147,7 +14150,7 @@ function autoFillPago(){
   const usarSemAnterior=window._pagarSemanaAnterior===true;
   if(frec==='semanal'){
     const sabFecha=getSabadoActual(usarSemAnterior);
-    const calculo=aqCalcularPagoSemanal(emp,sabFecha,hoyStr);
+    const calculo=aqCalcularPagoSemanal(emp,sabFecha);
     const pagado=aqPagoSemanalRegistrado(eid,sabFecha);
     if(calculo.dias===0||pagado){
       wrap.style.display='';
@@ -14169,9 +14172,9 @@ function autoFillPago(){
     detallePeriodo='Pago del día de hoy';
     tipo='Sueldo diario';
   } else if(frec==='semanal'){
-    // Cuatro cuotas mensuales. Cada corte incluye el sábado y el descanso dominical de ese período.
+    // Cuatro cuotas mensuales. Cada corte del sábado incluye el domingo de descanso siguiente.
     const sabFecha=getSabadoActual(usarSemAnterior);
-    const calculo=aqCalcularPagoSemanal(emp,sabFecha,hoyStr);
+    const calculo=aqCalcularPagoSemanal(emp,sabFecha);
     diasPeriodo=calculo.diasPeriodo;
     diasTrabajados=calculo.dias;
     monto=calculo.monto;
@@ -14269,7 +14272,7 @@ async function savePago(){
     if(sabPagoNomina>hoy()){
       showNotif('El período semanal aún no ha terminado','#c62828');return;
     }
-    if(aqCalcularPagoSemanal(emp,sabPagoNomina,hoy()).dias===0){
+    if(aqCalcularPagoSemanal(emp,sabPagoNomina).dias===0){
       showNotif('No corresponde sueldo por días sin trabajar','#c62828');return;
     }
     if(aqPagoSemanalRegistrado(eid,sabPagoNomina)){

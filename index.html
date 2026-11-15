@@ -14025,14 +14025,13 @@ function getNumSabado(sabFecha){
 }
 
 
-// ── NÓMINA: el sábado liquida los siete días YA transcurridos (sábado a viernes). ──
+// ── NÓMINA: cada sábado liquida el período DOMINGO A SÁBADO, ambos incluidos. ──
 // No cambia registros anteriores; el prorrateo solo calcula pagos nuevos.
 function aqFechaNominaISO(d){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 function aqPeriodoNominaSabado(sabPago){
   const fin=new Date(sabPago+'T12:00:00');
-  fin.setDate(fin.getDate()-1);
   const ini=new Date(fin);
   ini.setDate(ini.getDate()-6);
   return{ini:aqFechaNominaISO(ini),fin:aqFechaNominaISO(fin)};
@@ -14053,7 +14052,12 @@ function aqCalcularPagoSemanal(emp,sabPago,hastaFecha){
   const inicio=emp?.fecha_ingreso&&emp.fecha_ingreso>periodo.ini?emp.fecha_ingreso:periodo.ini;
   const fin=hastaFecha&&hastaFecha<periodo.fin?hastaFecha:periodo.fin;
   const dias=num===0?0:Math.min(7,Math.max(0,aqDiasNominaInclusivos(inicio,fin)));
-  return{periodo,num,dias,diasPeriodo:7,cuota,monto:Math.round(cuota*dias/7*100)/100};
+  // Cuota semanal completa: conservar la división mensual en cuatro pagos
+  // para no alterar los importes habituales de empleados antiguos.
+  // Semanas parciales por ingreso reciente: valorar cada día a sueldo/30.
+  // Ej.: ingreso 12/11, pago sábado 14/11 => 3 días × Q40 = Q120.
+  const monto=dias===7?cuota:Math.round(sueldo/30*dias*100)/100;
+  return{periodo,num,dias,diasPeriodo:7,cuota,monto};
 }
 function aqPagoSemanalRegistrado(eid,sabPago){
   const marca='Periodo semanal: '+sabPago;
@@ -14165,7 +14169,7 @@ function autoFillPago(){
     detallePeriodo='Pago del día de hoy';
     tipo='Sueldo diario';
   } else if(frec==='semanal'){
-    // Cuatro cuotas mensuales; se pagan días ya transcurridos hasta el viernes anterior.
+    // Cuatro cuotas mensuales. Cada corte incluye el sábado y el descanso dominical de ese período.
     const sabFecha=getSabadoActual(usarSemAnterior);
     const calculo=aqCalcularPagoSemanal(emp,sabFecha,hoyStr);
     diasPeriodo=calculo.diasPeriodo;
@@ -14176,7 +14180,7 @@ function autoFillPago(){
     const fmt=iso=>iso.slice(8)+'/'+iso.slice(5,7);
     detallePeriodo=calculo.num===0
       ?'Quinto sábado: sin cuota adicional'
-      :`Pago ${calculo.num}° del mes · Sáb ${fmt(sabFecha)} · período trabajado ${fmt(_periodoIni)} al ${fmt(_periodoFin)} · <b>${diasTrabajados} de 7 días</b>${diasTrabajados<7?' (proporcional hasta la fecha)':''}`;
+      :`Pago ${calculo.num}° del mes · Sáb ${fmt(sabFecha)} · período trabajado ${fmt(_periodoIni)} al ${fmt(_periodoFin)} · <b>${diasTrabajados} de 7 días</b>${diasTrabajados<7?' (prorrateado a salario mensual / 30)':''}`;
     tipo='Sueldo semanal';
   } else if(frec==='quincenal'){
     const d=hoyDate.getDate();
@@ -14262,6 +14266,9 @@ async function savePago(){
   let sabPagoNomina=null;
   if(tipo==='Sueldo semanal'){
     sabPagoNomina=getSabadoActual(window._periodoSeleccionado==='ant');
+    if(sabPagoNomina>hoy()){
+      showNotif('El período semanal aún no ha terminado','#c62828');return;
+    }
     if(aqCalcularPagoSemanal(emp,sabPagoNomina,hoy()).dias===0){
       showNotif('No corresponde sueldo por días sin trabajar','#c62828');return;
     }

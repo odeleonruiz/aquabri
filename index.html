@@ -21490,20 +21490,86 @@ async function aqVerLotes(){
   }catch(e){box.innerHTML='<p class="tmuted">No se pudo consultar lotes. Comprueba que instalaste el script SQL.</p>';console.warn(e);}
 }
 async function aqHistoricoGarrafones(){
- const desde=document.getElementById('aq-inc-desde').value||'2000-01-01',hasta=document.getElementById('aq-inc-hasta').value||hoy();
- const el=document.getElementById('aq-inc-historico');el.innerHTML='<p class="tmuted">Buscando ventas anteriores...</p>';
+ const desde=document.getElementById('aq-inc-desde')?.value||'2000-01-01';
+ const hasta=document.getElementById('aq-inc-hasta')?.value||hoy();
+ const el=document.getElementById('aq-inc-historico');
+ if(!el)return;
+ el.innerHTML='<p class="tmuted">Buscando historial de garrafones...</p>';
  try{
-  const garrafIds=new Set(D.prods.filter(p=>/garraf[oó]n/i.test(p.nombre)).map(p=>Number(p.id)));
-  const{data,error}=await sb.from('ventas').select('id,fecha,cliente_id,usuario_id,venta_items(producto_id,cant,precio,descuento)').gte('fecha',desde).lte('fecha',hasta).not('estado','in','(Cancelada,Anulado)').limit(5000);
+  const garrafIds=new Set(D.prods.filter(p=>/garraf[oó]n/i.test(p.nombre||'')).map(p=>Number(p.id)));
+  const {data,error}=await sb.from('ventas')
+   .select('id,fecha,cliente_id,nombre_mostrador,notas,estado,fecha_cancelacion,cancelado_por,usuario_id,venta_items(producto_id,cant,precio,descuento)')
+   .gte('fecha',desde).lte('fecha',hasta).order('fecha',{ascending:true}).limit(5000);
   if(error)throw error;
   const rows=[];
   (data||[]).forEach(v=>(v.venta_items||[]).forEach(i=>{
-    const precio=Number(i.precio||0)-Number(i.descuento||0);
-    if(garrafIds.has(Number(i.producto_id))&&precio>=9){rows.push({fecha:v.fecha,cliente_id:v.cliente_id,usuario_id:v.usuario_id,cant:Number(i.cant||0),precio,venta_id:v.id});}
+   const precio=Number(i.precio||0)-Number(i.descuento||0);
+   if(!garrafIds.has(Number(i.producto_id))||precio<9)return;
+   rows.push({
+    venta_id:Number(v.id),fecha:v.fecha,cliente_id:v.cliente_id,
+    nombre_mostrador:v.nombre_mostrador,notas:v.notas,usuario_id:v.usuario_id,
+    estado:v.estado,fecha_cancelacion:v.fecha_cancelacion,cancelado_por:v.cancelado_por,
+    cancelada:!!v.fecha_cancelacion||/cancelad[ao]|anulad[ao]/i.test(String(v.estado||'')),
+    cant:Number(i.cant||0),precio
+   });
   }));
-  const total=rows.reduce((a,r)=>a+r.cant,0);
-  el.innerHTML='<p class="tmuted">'+rows.length+' líneas · '+total+' garrafones vendidos a Q9 o más en el período. Historial para revisión, no liquidación automática.</p>'+(rows.length?'<details><summary>Ver detalle por cliente y vendedor</summary><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Registró venta</th><th>Cantidad</th><th>Precio</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+r.fecha+'</td><td>'+aqIncHtml(aqIncNombreCli(r.cliente_id))+'</td><td>'+aqIncHtml(D.usuarios.find(u=>u.id===r.usuario_id)?.nombre||'Sin identificar')+'</td><td>'+r.cant+'</td><td>'+fQ(r.precio)+'</td></tr>').join('')+'</tbody></table></div></details>':'');
- }catch(e){el.innerHTML='<p class="tmuted">Error consultando historial. '+aqIncHtml(e.message||'')+'</p>';}
+  rows.sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha))||a.venta_id-b.venta_id);
+  // Referencias de caja: solo lectura, sin cambiar la venta ni atribuir un cliente automáticamente.
+  const sinCliente=[...new Set(rows.filter(r=>!Number(r.cliente_id)).map(r=>r.venta_id))];
+  const referenciasCaja=new Map();
+  for(let j=0;j<sinCliente.length;j+=100){
+   const {data:caja,error:cajaError}=await sb.from('caja').select('venta_id,tipo,notas').in('venta_id',sinCliente.slice(j,j+100));
+   if(cajaError){console.warn('No fue posible leer las referencias de caja del historial',cajaError);break;}
+   (caja||[]).forEach(m=>{
+    if(String(m.tipo||'').toLowerCase()!=='venta')return;
+    const ref=String(m.notas||'').replace(/^Venta\s*#\d+\s*[—–-]\s*/i,'').trim();
+    if(ref&&!/^mostrador$/i.test(ref)&&!referenciasCaja.has(Number(m.venta_id))){
+     referenciasCaja.set(Number(m.venta_id),ref);
+    }
+   });
+  }
+  const vigentes=rows.filter(r=>!r.cancelada);
+  const canceladas=rows.filter(r=>r.cancelada);
+  const cantVigentes=vigentes.reduce((sum,r)=>sum+r.cant,0);
+  function nombreYReferencia(r){
+   const id=Number(r.cliente_id)||0;
+   if(id){
+    const cliente=D.clientes.find(c=>Number(c.id)===id);
+    return {nombre:cliente?.nombre||'Cliente no disponible (#'+id+')',detalle:cliente?'':'Cliente vinculado, sin nombre disponible'};
+   }
+   const nombreMostrador=String(r.nombre_mostrador||'').trim();
+   const refCaja=referenciasCaja.get(r.venta_id)||'';
+   if(nombreMostrador){
+    return {nombre:'Mostrador: '+nombreMostrador,detalle:'Sin cliente asociado'+(refCaja&&refCaja!==nombreMostrador?' · Referencia de caja: '+refCaja:'')};
+   }
+   if(refCaja)return {nombre:'Referencia de caja: '+refCaja,detalle:'Sin cliente asociado'};
+   return {nombre:'Mostrador — Sin cliente asociado',detalle:'No se registró nombre ni referencia del cliente'};
+  }
+  function tabla(filas){
+   return '<div class="tbl-wrap"><table><thead><tr><th>Fecha / Venta</th><th>Cliente o referencia</th><th>Registró venta</th><th>Estado</th><th>Cantidad</th><th>Precio</th></tr></thead><tbody>'+
+    filas.map(r=>{
+     const info=nombreYReferencia(r);
+     const usuario=D.usuarios.find(u=>Number(u.id)===Number(r.usuario_id))?.nombre||'Usuario #'+(r.usuario_id??'sin identificar');
+     const obs=String(r.notas||'').trim();
+     const estado=r.cancelada?'Cancelada'+(r.fecha_cancelacion?' ('+r.fecha_cancelacion+')':''):(r.estado||'Vigente');
+     const cancelador=r.cancelada&&r.cancelado_por?' · Por: '+r.cancelado_por:'';
+     return '<tr><td>'+aqIncHtml(r.fecha)+'<small style="display:block;opacity:.78">Venta #'+r.venta_id+'</small></td>'+
+      '<td><b>'+aqIncHtml(info.nombre)+'</b><small style="display:block;opacity:.78">'+aqIncHtml(info.detalle)+'</small>'+
+      (obs?'<small style="display:block;opacity:.78">Observación: '+aqIncHtml(obs)+'</small>':'')+'</td>'+
+      '<td>'+aqIncHtml(usuario)+'</td>'+
+      '<td>'+aqIncHtml(estado+cancelador)+'</td>'+
+      '<td>'+r.cant+'</td><td>'+aqIncHtml(fQ(r.precio))+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+  }
+  el.innerHTML='<p class="tmuted">'+vigentes.length+' líneas vigentes · '+cantVigentes+
+   ' garrafones vendidos a Q9 o más en el período. Historial para revisión, no liquidación automática.</p>'+
+   (vigentes.length?'<details open><summary>Ver detalle por cliente y vendedor (vigentes)</summary>'+tabla(vigentes)+'</details>':
+    '<p class="tmuted">No hay ventas vigentes de garrafones a Q9 o más.</p>')+
+   (canceladas.length?'<details style="margin-top:12px"><summary>Ver ventas canceladas ('+canceladas.length+
+    ' líneas; excluidas del total vigente)</summary>'+tabla(canceladas)+'</details>':'');
+ }catch(e){
+  el.innerHTML='<p class="tmuted">Error consultando historial. '+aqIncHtml(e.message||'')+'</p>';
+ }
 }
 </script>
 <style id="aq-cliente-busqueda-legibilidad-v1">

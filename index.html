@@ -7480,7 +7480,7 @@ async function saveCli(){
     const cercano=clienteMasCercanoConRuta(latVal,lngVal,document.getElementById('cid').value);
     if(cercano){rutaFinal=cercano.ruta;rutaAutoAsignada=true;}
   }
-  const obj={nombre:nom,telefono:document.getElementById('ct').value,direccion:document.getElementById('cd').value,ruta:rutaFinal,lat:latVal,lng:lngVal,tiene_exhibidor:document.getElementById('cexhib').value==='1',descripcion_exhibidor:document.getElementById('cexhib-desc').value,exhibidor_capacidad:parseInt(document.getElementById('cexhib-cap')?.value)||0,exhibidor_costo:parseFloat(document.getElementById('cexhib-costo')?.value)||0,fecha_nacimiento:nacRaw||null,vendedor_id:vendRaw};
+  const obj={nombre:nom,telefono:document.getElementById('ct').value,direccion:document.getElementById('cd').value,ruta:rutaFinal,lat:latVal,lng:lngVal,tiene_exhibidor:document.getElementById('cexhib').value==='1',descripcion_exhibidor:document.getElementById('cexhib-desc').value,exhibidor_capacidad:parseInt(document.getElementById('cexhib-cap')?.value)||0,exhibidor_costo:parseFloat(document.getElementById('cexhib-costo')?.value)||0,fecha_nacimiento:nacRaw||null}; // vendedor_id no existe en public.clientes
   const id=document.getElementById('cid').value;
   if(id){
     const {error}=await sb.from('clientes').update(obj).eq('id',id);
@@ -7504,7 +7504,7 @@ function clienteMasCercanoConRuta(lat,lng,excluirId){
   if(mejor&&mejorDist<=2)return mejor;
   return null;
 }
-function editCli(id){const c=D.clientes.find(x=>x.id===id);if(!c)return;document.getElementById('cid').value=c.id;document.getElementById('cn').value=c.nombre;document.getElementById('ct').value=c.telefono||'';document.getElementById('cd').value=c.direccion||'';document.getElementById('cr').value=c.ruta||'';document.getElementById('clat').value=c.lat||'';document.getElementById('clng').value=c.lng||'';document.getElementById('cexhib').value=c.tiene_exhibidor?'1':'0';if(document.getElementById('cnac'))document.getElementById('cnac').value=c.fecha_nacimiento||'';fillVendedorSelect();if(document.getElementById('cvend'))document.getElementById('cvend').value=c.vendedor_id||'';
+function editCli(id){const c=D.clientes.find(x=>x.id===id);if(!c)return;document.getElementById('cid').value=c.id;document.getElementById('cn').value=c.nombre;document.getElementById('ct').value=c.telefono||'';document.getElementById('cd').value=c.direccion||'';document.getElementById('cr').value=c.ruta||'';document.getElementById('clat').value=c.lat||'';document.getElementById('clng').value=c.lng||'';document.getElementById('cexhib').value=c.tiene_exhibidor?'1':'0';if(document.getElementById('cnac'))document.getElementById('cnac').value=c.fecha_nacimiento||'';fillVendedorSelect();if(document.getElementById('cvend'))document.getElementById('cvend').value=''; // atribución de vendedores se administra por separado
   const btnEx=document.getElementById('btn-cexhib');
   const boxEx=document.getElementById('cexhib-desc-box');
   if(c.tiene_exhibidor){btnEx.style.background='#00695c';btnEx.innerHTML='✅ EXHIBIDOR ACTIVO — Toca para desactivar';boxEx.style.display='';}
@@ -8195,7 +8195,7 @@ async function guardarNuevoCliMapa(){
       ruta:document.getElementById('nmc-ruta').value,
       lat:parseFloat(mkLat),lng:parseFloat(mkLng),
       tiene_exhibidor:document.getElementById('nmc-exhib').value==='1',
-      vendedor_id:_nmcVend,envases:0
+      envases:0 // vendedor_id no existe en public.clientes
     });
     cli=res.cliente;
     if(res.mensaje)showNotif(res.mensaje,'#e65100');

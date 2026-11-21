@@ -6,7 +6,7 @@ set local statement_timeout = '45s';
 
 do $aquabri_preflight$
 begin
-    if current_setting('aq_rls_cutover_verified', true) is distinct from 'SI_CON_PRUEBAS' then
+    if current_setting('aquabri.rls_cutover_verified', true) is distinct from 'SI_CON_PRUEBAS' then
         raise exception 'El corte de Aquabri requiere un respaldo y pruebas por rol';
     end if;
     if has_any_column_privilege('anon', 'public.sesiones', 'SELECT')

@@ -68,7 +68,7 @@ begin
     if faltantes is not null then
         raise exception 'Faltan funciones del frontend Auth: %', array_to_string(faltantes, ', ');
     end if;
-    if current_setting('aq_rls_cutover_verified', true) is distinct from 'SI_CON_PRUEBAS' then
+    if current_setting('aquabri.rls_cutover_verified', true) is distinct from 'SI_CON_PRUEBAS' then
         raise exception 'El corte requiere que el frontend, el respaldo y las pruebas por rol estén listos';
     end if;
 end

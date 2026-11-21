@@ -1,5 +1,5 @@
 -- Borrador del corte RLS para Aquabri principal, separado de las migraciones automáticas.
--- Incluye las 24 tablas pendientes y sus políticas para usuarios autenticados.
+-- Reemplaza las reglas de transición de las 24 tablas originales por las reglas de Supabase Auth.
 -- Coordinar con las políticas del resto del esquema, el frontend Auth y el respaldo verificable.
 
 begin;
@@ -73,6 +73,21 @@ begin
     end if;
 end
 $preflight$;
+
+do $transicion$
+declare
+    politica record;
+begin
+    for politica in
+        select tablename, policyname from pg_policies
+        where schemaname = 'public'
+          and tablename in ('activos_items', 'activos_prestamos', 'caja', 'clientes_eliminados', 'creditos', 'deudas_proveedores', 'envases', 'grupos_ruta', 'liquidacion_items', 'liquidaciones', 'mantenimientos', 'notificaciones', 'precio_historial', 'puntos_canjes_qr', 'puntos_productos', 'ruta_clientes', 'ruta_paradas', 'rutas_personalizadas', 'visitas')
+          and policyname in ('aq_activos_items_lectura_auth', 'aq_activos_prestamos_lectura_auth', 'aq_caja_lectura_auth', 'aq_creditos_lectura_auth', 'aq_deudas_proveedores_lectura_jefe', 'aq_deudas_proveedores_lectura_permiso', 'aq_envases_lectura_permiso', 'aq_grupos_ruta_lectura_auth', 'aq_historial_clientes_solo_jefe_select', 'aq_liquidacion_items_lectura_auth', 'aq_liquidaciones_lectura_auth', 'aq_mantenimientos_lectura_auth', 'aq_notificaciones_propias_lectura_auth', 'aq_notificaciones_propias_marcar_auth', 'aq_precio_historial_lectura_auth', 'aq_principal_delete', 'aq_principal_insert', 'aq_principal_select', 'aq_principal_update', 'aq_puntos_productos_lectura_auth', 'aq_puntos_qr_lectura_autorizada_v1', 'aq_ruta_clientes_lectura_auth', 'aq_ruta_paradas_select_auth_v1', 'aq_rutas_personalizadas_lectura_auth', 'aq_visitas_lectura_auth')
+    loop
+        execute format('drop policy %I on public.%I', politica.policyname, politica.tablename);
+    end loop;
+end
+$transicion$;
 
 alter table public."activos_items" enable row level security;
 revoke all privileges on table public."activos_items" from public, anon, authenticated;

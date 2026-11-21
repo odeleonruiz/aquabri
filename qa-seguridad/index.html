@@ -245,6 +245,24 @@ html[data-aq-theme="dark"] #page-ventas .aq-master-editar-precio,html[data-aq-th
 #rep-creditos-por-usuario .aq-cred-importe{font-size:17px;font-weight:850;color:#c66b05;white-space:nowrap;font-variant-numeric:tabular-nums}
 html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffbf64}
 </style>
+<style id="aq-pagos-mes-layout-v1">
+/* Solo historial de pagos RRHH: evita que los botones se monten sobre el mes en iPhone. */
+#aq-rrhh-historial .aq-pagos-mes-controls{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;align-items:stretch}
+#aq-rrhh-historial .aq-pagos-mes-picker{width:100%;min-width:0;max-width:240px;margin:0 auto;flex:none}
+#aq-rrhh-historial .aq-pagos-mes-picker label{display:block;margin-bottom:5px}
+#aq-rrhh-historial #pagos-hist-mes{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;min-height:42px;font-size:14px;padding:8px 10px;overflow:hidden;text-overflow:ellipsis}
+#aq-rrhh-historial .aq-pagos-mes-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;min-width:0}
+#aq-rrhh-historial .aq-pagos-mes-actions .btn{width:100%;min-width:0;min-height:40px;padding:8px 6px;white-space:nowrap;font-size:12px;line-height:1.2}
+@media(min-width:900px){
+  #aq-rrhh-historial .aq-pagos-mes-controls{grid-template-columns:minmax(200px,260px) minmax(0,1fr);align-items:end;gap:12px}
+  #aq-rrhh-historial .aq-pagos-mes-actions{max-width:440px}
+}
+@media(max-width:380px){
+  #aq-rrhh-historial .aq-pagos-mes-actions{gap:5px}
+  #aq-rrhh-historial .aq-pagos-mes-actions .btn{font-size:11px;padding:8px 3px}
+}
+</style>
+
 </head>
 <body>
 <div id="aq-qa-aviso" role="status" style="position:fixed;top:0;left:0;right:0;z-index:100001;padding:3px 8px;text-align:center;font:700 11px system-ui,sans-serif;background:#fff3cd;color:#663c00;pointer-events:none;box-shadow:0 1px 3px #0003">AQUABRI · PRUEBAS — NO REGISTRAR VENTAS REALES</div>
@@ -255,16 +273,16 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
 </div>
 
 <div id="login-screen">
-  <div class="lcard">
+  <form class="lcard" id="aq-login-form">
     <img id="ll-img" class="logo-login" src="" style="display:none">
     <div id="ll-fb" class="logo-fb">💧</div>
     <h2 id="ll-nombre">Sistema de Ventas</h2>
-    <p>Ingresa tus credenciales</p>
-    <input type="text" id="lu" placeholder="Usuario" autocomplete="username">
-    <input type="password" id="lp" placeholder="Contraseña" autocomplete="current-password">
-    <button class="btn-login" onclick="doLogin()">Ingresar</button>
-    <div class="lerr" id="lerr"></div>
-  </div>
+    <p>Acceso seguro · Entorno de pruebas</p>
+    <input type="text" id="lu" placeholder="Usuario o celular" aria-label="Usuario o celular" autocomplete="username" autocapitalize="off" required>
+    <input type="password" id="lp" placeholder="Contraseña" aria-label="Contraseña" autocomplete="current-password" required>
+    <button class="btn-login" type="submit">Ingresar</button>
+    <div class="lerr" id="lerr" role="status"></div>
+  </form>
 </div>
 
 <div id="app">
@@ -2645,11 +2663,13 @@ document.addEventListener('DOMContentLoaded',()=>{
     </div>
     <div class="card" id="aq-rrhh-historial">
       <div class="card-title">💰 Historial de pagos por mes</div>
-      <div class="aq-history-controls">
-        <button type="button" class="btn bsm aq-secondary-btn" title="Mes anterior" onclick="aqCambiarMesPagos(-1)">‹ Anterior</button>
-        <div class="fg"><label for="pagos-hist-mes">Mes de pagos</label><input id="pagos-hist-mes" type="month" onchange="renderPagos()"></div>
-        <button type="button" class="btn bsm aq-secondary-btn" title="Mes siguiente" onclick="aqCambiarMesPagos(1)">Siguiente ›</button>
-        <button type="button" class="btn bp bsm" onclick="aqCambiarMesPagos(0)">Este mes</button>
+      <div class="aq-history-controls aq-pagos-mes-controls">
+        <div class="fg aq-pagos-mes-picker"><label for="pagos-hist-mes">Mes de pagos</label><input id="pagos-hist-mes" type="month" onchange="renderPagos()"></div>
+        <div class="aq-pagos-mes-actions">
+          <button type="button" class="btn bsm aq-secondary-btn" title="Mes anterior" onclick="aqCambiarMesPagos(-1)">‹ Anterior</button>
+          <button type="button" class="btn bsm aq-secondary-btn" title="Mes siguiente" onclick="aqCambiarMesPagos(1)">Siguiente ›</button>
+          <button type="button" class="btn bp bsm" onclick="aqCambiarMesPagos(0)">Este mes</button>
+        </div>
       </div>
       <p class="aq-history-status" id="pagos-hist-estado" aria-live="polite">Selecciona el mes que deseas consultar.</p>
       <div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr><th>Fecha</th><th>Empleado</th><th>Tipo</th><th>Monto</th><th>Desc.V.</th><th>Neto</th><th>Acc.</th></tr></thead><tbody id="pagos-tbody"></tbody></table></div>
@@ -3514,11 +3534,20 @@ function aqMostrarFalloInicio(error){
 }
 async function aqPerfilAutenticado(){
   const {data:{user},error:authError}=await sb.auth.getUser();
-  if(authError||!user)return null;
+  if(authError){
+    if(authError.name==='AuthSessionMissingError'||[401,403].includes(authError.status))return null;
+    throw authError;
+  }
+  if(!user)return null;
   const {data:perfil,error:perfilError}=await sb.from('usuarios')
     .select('id,nombre,usuario,rol,foto,permisos_custom,empleado_id,auth_uid')
     .eq('auth_uid',user.id).maybeSingle();
-  if(perfilError||!perfil)throw new Error('La identidad no está vinculada a un empleado autorizado.');
+  if(perfilError)throw perfilError;
+  if(!perfil){
+    const {error}=await sb.auth.signOut({scope:'local'});
+    if(error)throw error;
+    return null;
+  }
   return perfil;
 }
 async function aqCargarCuenta(perfil){
@@ -3526,6 +3555,8 @@ async function aqCargarCuenta(perfil){
   // Consultar los permisos validados en base de datos, no confiar en la lista JS.
   const verificados=await aqConsultarPermisosAuth(perfil);
   await loadAll();
+  const {data:{session},error}=await sb.auth.getSession();
+  if(error||session?.user.id!==perfil.auth_uid)throw new Error('La sesión cambió durante el acceso.');
   applyConfig();
   CU=perfil;
   aqPermisosAuthEfectivos=verificados;
@@ -3568,56 +3599,75 @@ async function doLogin(){
   const passwordInput=document.getElementById('lp');
   const err=document.getElementById('lerr');
   const boton=document.querySelector('#login-screen .btn-login');
+  if(boton?.disabled)return;
   const identificador=input.value.trim();
   const clave=passwordInput.value;
   err.textContent='';
   if(!identificador||!clave){err.textContent='Escribe tu usuario o celular y tu contraseña.';return;}
   if(boton)boton.disabled=true;
+  let mensajeFallo='No se pudo iniciar sesión. Revisa tus credenciales o la conexión.';
+  let sesionIniciada=false;
   try{
     const normalizado=identificador.replace(/[\s()-]/g,'');
     if(/^(?:\+?502)?\d{8}$/.test(normalizado)){
       const telefono=normalizado.startsWith('+502')?normalizado:(normalizado.startsWith('502')?'+'+normalizado:'+502'+normalizado);
       const {error}=await sb.auth.signInWithPassword({phone:telefono,password:clave});
+      if(error?.status===429)mensajeFallo='Demasiados intentos. Espera unos minutos y vuelve a intentar.';
       if(error)throw error;
     }else{
-      const response=await fetch('https://xzbawbkstaqvkwtqlqai.supabase.co/functions/v1/aq-auth-usuario-v2',{
+      const response=await fetch(SURL+'/functions/v1/aq-auth-usuario-v2',{
         method:'POST',
         headers:{'content-type':'application/json'},
         cache:'no-store',
+        signal:AbortSignal.timeout?.(15000),
         body:JSON.stringify({usuario:identificador,contrasena:clave})
       });
+      if(response.status===429)mensajeFallo='Demasiados intentos. Espera unos minutos y vuelve a intentar.';
       if(!response.ok)throw new Error('Credenciales incorrectas o temporalmente bloqueadas');
       const tokens=await response.json();
       if(!tokens.access_token||!tokens.refresh_token)throw new Error('Sesión incompleta');
       const {error}=await sb.auth.setSession({access_token:tokens.access_token,refresh_token:tokens.refresh_token});
       if(error)throw error;
     }
+    sesionIniciada=true;
     const perfil=await aqPerfilAutenticado();
-    if(!perfil)throw new Error('Cuenta sin vínculo');
+    if(!perfil){
+      sesionIniciada=false;
+      mensajeFallo='Tu cuenta necesita estar vinculada a Aquabri. Consulta con el administrador.';
+      throw new Error('Cuenta sin perfil de Aquabri');
+    }
     await aqCargarCuenta(perfil);
     passwordInput.value='';
     document.getElementById('login-screen').classList.remove('show');
     startApp();
   }catch(error){
     console.error('Error en acceso Auth v2',error);
-    await sb.auth.signOut({scope:'local'}).catch(()=>{});
+    if(sesionIniciada)await sb.auth.signOut({scope:'local'}).catch(()=>{});
     CU=null;
     aqPermisosAuthEfectivos=null;
-    err.textContent='No se pudo iniciar sesión. Revisa tus credenciales o la conexión.';
+    err.textContent=mensajeFallo;
   }finally{if(boton)boton.disabled=false;}
 }
-document.getElementById('lp').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
-async function doLogout(){
-  await sb.auth.signOut({scope:'local'});
-  // Limpiar solo los tokens antiguos locales; no borrar registros de ventas ni sesiones ajenas.
-  localStorage.removeItem('aqb_token');localStorage.removeItem('aqb_uid');
+document.getElementById('aq-login-form').addEventListener('submit',e=>{
+  e.preventDefault();
+  doLogin();
+});
+sb.auth.onAuthStateChange((evento,sesion)=>{
+  if(!CU)return;
+  if(evento!=='SIGNED_OUT'&&sesion?.user.id===CU.auth_uid)return;
   CU=null;
   aqPermisosAuthEfectivos=null;
   document.getElementById('app').classList.remove('show');
-  document.getElementById('login-screen').classList.add('show');
-  document.getElementById('lu').value='';
-  document.getElementById('lp').value='';
-  document.getElementById('lerr').textContent='';
+  localStorage.removeItem('qa-aqb_ruta_activa_id');
+  location.reload();
+});
+async function doLogout(){
+  const perfil=CU;
+  const {error}=await sb.auth.signOut({scope:'local'});
+  if(error){showNotif('No se pudo cerrar la sesión. Vuelve a intentarlo.','#c62828');return;}
+  if(perfil&&!CU)return;
+  localStorage.removeItem('qa-aqb_ruta_activa_id');
+  location.reload();
 }
 
 function startApp(){
@@ -3629,7 +3679,7 @@ function startApp(){
   if(!CU)return;
   
   // Restaurar ruta activa si había una al recargar
-  const rutaActivaId=localStorage.getItem('aqb_ruta_activa_id');
+  const rutaActivaId=localStorage.getItem('qa-aqb_ruta_activa_id');
   if(rutaActivaId){
     // Esperar hasta que D.clientes esté cargado (importante en celular que es más lento)
     let _intentos=0;
@@ -3699,7 +3749,7 @@ function startApp(){
   if(CU.foto){document.getElementById('sb-uimg').src=CU.foto;document.getElementById('sb-uimg').style.display='';document.getElementById('sb-ufb').style.display='none';}
   else{document.getElementById('sb-ufb').textContent=(CU.nombre||'J')[0].toUpperCase();document.getElementById('sb-ufb').style.display='';}
   applyPerms();initDates();
-  const lastPage=localStorage.getItem('aqb_page')||'inicio';
+  const lastPage=localStorage.getItem('qa-aqb_page')||'inicio';
   const allowed=aqPermisosEfectivos();
   goPage(allowed.includes(lastPage)?lastPage:'inicio');
   setTimeout(initNotificaciones,1000);
@@ -3755,7 +3805,7 @@ async function goPage(p){
   if(!allowed.includes(p)){showNotif('Sin permiso','#c62828');return;}
   // Bloqueo operativo: no comenzar ventas de un nuevo día con el cierre anterior pendiente.
   if(p==='ventas' && await aqBloquearNuevoDiaPorCierre())return;
-  localStorage.setItem('aqb_page',p);
+  localStorage.setItem('qa-aqb_page',p);
   document.querySelectorAll('.page').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('.sb-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('page-'+p)?.classList.add('active');
@@ -4364,8 +4414,6 @@ function renderNominaInicio(){
   const _rp_sabAnt=getSabadoActual(true);
   const semActIni=_rp_sabAct;
   const semActFin=getSabadoFin(_rp_sabAct);
-  const semPasIni=_rp_sabAnt;
-  const semPasFin=getSabadoFin(_rp_sabAnt);
 
   // Verificar quiénes tienen pagos pendientes de la semana pasada
   const filas=empActivos.map(e=>{
@@ -4373,16 +4421,15 @@ function renderNominaInicio(){
     const frec=e.frecuencia_pago||'mensual';
     let montoSemana=0,label='';
     if(frec==='diario'){montoSemana=Math.round(sueldo/30*100)/100;label='x día';}
-    else if(frec==='semanal'){montoSemana=Math.round(sueldo/4*100)/100;label='x semana';}
+    else if(frec==='semanal'){montoSemana=aqCalcularPagoSemanal(e,_rp_sabAct).monto;label='x semana';}
     else if(frec==='quincenal'){montoSemana=Math.round(sueldo/2*100)/100;label='x quincena';}
     else{montoSemana=sueldo;label='x mes';}
     // Verificar si ya se pagó la semana pasada
-    const pagadoSemPas=D.pagos.some(p=>p.empleado_id===e.id&&p.fecha>=semPasIni&&p.fecha<=semPasFin);
+    const pagadoSemPas=frec==='semanal'&&!!aqPagoSemanalRegistrado(e.id,_rp_sabAnt);
     // Si el empleado ingresó después del inicio de la semana pasada, no aplica
-    const fechaIngreso=e.fecha_ingreso?new Date(e.fecha_ingreso+'T00:00:00'):null;
-    const ingresoReciente=fechaIngreso&&fechaIngreso>=new Date(semPasIni+'T00:00:00');
+    const ingresoReciente=frec==='semanal'&&aqCalcularPagoSemanal(e,_rp_sabAnt).dias===0;
     // Verificar si ya se pagó la semana actual
-    const pagadoSemAct=D.pagos.some(p=>p.empleado_id===e.id&&p.fecha>=semActIni&&p.fecha<=semActFin);
+    const pagadoSemAct=frec==='semanal'?!!aqPagoSemanalRegistrado(e.id,_rp_sabAct):D.pagos.some(p=>p.empleado_id===e.id&&p.fecha>=semActIni&&p.fecha<=semActFin);
     return{id:e.id,nombre:e.nombre,monto:montoSemana,label,frec,pagadoSemPas:pagadoSemPas||ingresoReciente,pagadoSemAct};
   });
 
@@ -5140,7 +5187,7 @@ async function actualizarPanelRutaVentas(){
   const panel=document.getElementById('panel-ruta-ventas');
   if(!panel)return;
   if(!navRutaActiva){
-    const rid=localStorage.getItem('aqb_ruta_activa_id');
+    const rid=localStorage.getItem('qa-aqb_ruta_activa_id');
     if(rid)return;
     panel.style.display='none';return;
   }
@@ -7314,7 +7361,6 @@ async function saveCli(){
   const rutaExistMatch=rutaRaw?D.clientes.filter(x=>x.ruta).map(x=>x.ruta.trim()).find(r=>normalizarRuta(r)===normalizarRuta(rutaRaw)):null;
   const rutaNorm=rutaExistMatch||( rutaRaw?rutaRaw.charAt(0).toUpperCase()+rutaRaw.slice(1):'');
   const nacRaw=document.getElementById('cnac')?.value||'';
-  const vendRaw=parseInt(document.getElementById('cvend')?.value)||null;
   const latVal=parseFloat(document.getElementById('clat').value)||null;
   const lngVal=parseFloat(document.getElementById('clng').value)||null;
   let rutaFinal=rutaNorm;
@@ -7323,11 +7369,11 @@ async function saveCli(){
     const cercano=clienteMasCercanoConRuta(latVal,lngVal,document.getElementById('cid').value);
     if(cercano){rutaFinal=cercano.ruta;rutaAutoAsignada=true;}
   }
-  const obj={nombre:nom,telefono:document.getElementById('ct').value,direccion:document.getElementById('cd').value,ruta:rutaFinal,lat:latVal,lng:lngVal,tiene_exhibidor:document.getElementById('cexhib').value==='1',descripcion_exhibidor:document.getElementById('cexhib-desc').value,exhibidor_capacidad:parseInt(document.getElementById('cexhib-cap')?.value)||0,exhibidor_costo:parseFloat(document.getElementById('cexhib-costo')?.value)||0,fecha_nacimiento:nacRaw||null,vendedor_id:vendRaw};
+  const obj={nombre:nom,telefono:document.getElementById('ct').value,direccion:document.getElementById('cd').value,ruta:rutaFinal,lat:latVal,lng:lngVal,tiene_exhibidor:document.getElementById('cexhib').value==='1',descripcion_exhibidor:document.getElementById('cexhib-desc').value,exhibidor_capacidad:parseInt(document.getElementById('cexhib-cap')?.value)||0,exhibidor_costo:parseFloat(document.getElementById('cexhib-costo')?.value)||0,fecha_nacimiento:nacRaw||null};
   const id=document.getElementById('cid').value;
   if(id){
-    const {error}=await sb.rpc('aq_guardar_cliente_auth_v1',{p_cliente:obj,p_cliente_id:Number(id)});
-    if(error){showNotif('Error al guardar cliente: '+error.message,'#c62828');return;}
+    try{await aqGuardarClienteCampos(id,obj);}
+    catch(e){showNotif('Error al guardar cliente: '+(e.message||e),'#c62828');return;}
   } else {
     try{const r=await aqCrearClienteConCaptacion(obj);if(r.mensaje)showNotif(r.mensaje,'#e65100');}
     catch(e){showNotif('Error al registrar cliente: '+(e.message||e),'#c62828');return;}
@@ -7347,7 +7393,7 @@ function clienteMasCercanoConRuta(lat,lng,excluirId){
   if(mejor&&mejorDist<=2)return mejor;
   return null;
 }
-function editCli(id){const c=D.clientes.find(x=>x.id===id);if(!c)return;document.getElementById('cid').value=c.id;document.getElementById('cn').value=c.nombre;document.getElementById('ct').value=c.telefono||'';document.getElementById('cd').value=c.direccion||'';document.getElementById('cr').value=c.ruta||'';document.getElementById('clat').value=c.lat||'';document.getElementById('clng').value=c.lng||'';document.getElementById('cexhib').value=c.tiene_exhibidor?'1':'0';if(document.getElementById('cnac'))document.getElementById('cnac').value=c.fecha_nacimiento||'';fillVendedorSelect();if(document.getElementById('cvend'))document.getElementById('cvend').value=c.vendedor_id||'';
+function editCli(id){const c=D.clientes.find(x=>x.id===id);if(!c)return;document.getElementById('cid').value=c.id;document.getElementById('cn').value=c.nombre;document.getElementById('ct').value=c.telefono||'';document.getElementById('cd').value=c.direccion||'';document.getElementById('cr').value=c.ruta||'';document.getElementById('clat').value=c.lat||'';document.getElementById('clng').value=c.lng||'';document.getElementById('cexhib').value=c.tiene_exhibidor?'1':'0';if(document.getElementById('cnac'))document.getElementById('cnac').value=c.fecha_nacimiento||'';fillVendedorSelect();if(document.getElementById('cvend'))document.getElementById('cvend').value='';
   const btnEx=document.getElementById('btn-cexhib');
   const boxEx=document.getElementById('cexhib-desc-box');
   if(c.tiene_exhibidor){btnEx.style.background='#00695c';btnEx.innerHTML='✅ EXHIBIDOR ACTIVO — Toca para desactivar';boxEx.style.display='';}
@@ -8019,7 +8065,6 @@ function actualizarMiniMapa(lat,lng){
 async function guardarNuevoCliMapa(){
   const nom=document.getElementById('nmc-nombre').value.trim();
   if(!nom){showNotif('Nombre requerido','#c62828');return;}
-  const _nmcVend=parseInt(document.getElementById('nmc-vend')?.value)||null;
   let cli;
   try{
     const res=await aqCrearClienteConCaptacion({
@@ -8029,7 +8074,7 @@ async function guardarNuevoCliMapa(){
       ruta:document.getElementById('nmc-ruta').value,
       lat:parseFloat(mkLat),lng:parseFloat(mkLng),
       tiene_exhibidor:document.getElementById('nmc-exhib').value==='1',
-      vendedor_id:_nmcVend,envases:0
+      envases:0
     });
     cli=res.cliente;
     if(res.mensaje)showNotif(res.mensaje,'#e65100');
@@ -8130,7 +8175,7 @@ async function iniciarNavegacionRuta(rid){
   navParadas=(ruta.ruta_paradas||[]).sort((a,b)=>a.orden-b.orden);
   navIdx=0;
   // Persistir ruta activa en localStorage
-  localStorage.setItem('aqb_ruta_activa_id', rid);
+  localStorage.setItem('qa-aqb_ruta_activa_id', rid);
   // Auto-refresh cada 20 segundos para ver visitados en tiempo real
   if(_autoRefreshInterval)clearInterval(_autoRefreshInterval);
   _autoRefreshInterval=setInterval(async()=>{
@@ -8496,7 +8541,7 @@ function cerrarNavRuta(){
   if(mini)mini.style.display='none';
   navRutaActiva=null;navParadas=[];
   if(_autoRefreshInterval){clearInterval(_autoRefreshInterval);_autoRefreshInterval=null;}
-  localStorage.removeItem('aqb_ruta_activa_id');
+  localStorage.removeItem('qa-aqb_ruta_activa_id');
   if(gmDirectionsRenderer)gmDirectionsRenderer.setDirections({routes:[]});
   D.clientes.filter(c=>c.lat&&c.lng).forEach(c=>{estadosParadas[c.id]='pendiente';addGmMarker(c);});
   renderRutas();
@@ -8998,20 +9043,13 @@ async function verRutaPersonalizada(id){
 }
 async function delRutaPersonalizada(id){
   if(!confirm('¿Eliminar esta ruta guardada?'))return;
-  await sb.from('ruta_clientes').delete().eq('ruta_id',id);
-  await sb.from('rutas_personalizadas').delete().eq('id',id);
-  renderRutasPersonalizadas();
-  showNotif('Ruta eliminada','#c62828');
+  try{await aqModuloRpc('aq_rutas_guardadas_auth_v1',{p_accion:'eliminar',p_id:Number(id)});await renderRutasPersonalizadas();}
+  catch(e){showNotif(e.message,'#c62828');}
 }
 async function limpiarRutasPersonalizadas(){
   if(!confirm('¿Eliminar TODAS las rutas guardadas?'))return;
-  const{data:rutas}=await sb.from('rutas_personalizadas').select('id');
-  if(rutas?.length){
-    for(const r of rutas){await sb.from('ruta_clientes').delete().eq('ruta_id',r.id);}
-    await sb.from('rutas_personalizadas').delete().neq('id',0);
-  }
-  renderRutasPersonalizadas();
-  showNotif('Rutas eliminadas','#c62828');
+  try{await aqModuloRpc('aq_rutas_guardadas_auth_v1',{p_accion:'limpiar'});await renderRutasPersonalizadas();}
+  catch(e){showNotif(e.message,'#c62828');}
 }
 function actualizarInfoRutas(){}
 function agruparPorRutaAsignada(){
@@ -9463,20 +9501,13 @@ async function guardarGruposComoRutas(){
   if(!_gruposCalculados.length){showNotif('Primero calcula el agrupamiento','#c62828');return;}
   if(!confirm('¿Guardar '+_gruposCalculados.length+' rutas? Esto creará las rutas en el sistema.'))return;
   showLoad(true);
-  for(let i=0;i<_gruposCalculados.length;i++){
-    const g=_gruposCalculados[i];
-    const nombreInput=document.getElementById('grupo-nombre-'+i);
-    const diaInput=document.getElementById('grupo-dia-'+i);
-    const nombre=nombreInput?.value||g.nombre;
-    const dia=diaInput?.value||'';
-    // Insertar ruta
-    const{data:ruta}=await sb.from('rutas_personalizadas').insert({nombre,color:g.color,dia_semana:dia||null,activa:true}).select().single();
-    if(ruta?.id){
-      // Insertar clientes de la ruta
-      const items=g.clientes.map((c,orden)=>({ruta_id:ruta.id,cliente_id:c.id,orden}));
-      await sb.from('ruta_clientes').insert(items);
-    }
-  }
+  const rutas=_gruposCalculados.map((g,i)=>({
+    nombre:document.getElementById('grupo-nombre-'+i)?.value||g.nombre,
+    color:g.color,dia:document.getElementById('grupo-dia-'+i)?.value||null,
+    clientes:g.clientes.map(c=>Number(c.id))
+  }));
+  try{await aqModuloRpc('aq_rutas_guardadas_auth_v1',{p_accion:'guardar',p_rutas:rutas});}
+  catch(e){showLoad(false);showNotif('No se guardaron las rutas: '+e.message,'#c62828');return;}
   showLoad(false);
   _gruposCalculados=[];
   document.getElementById('grupos-resultado').innerHTML='<p class="tmuted" style="text-align:center;color:#2e7d32;font-weight:700">✅ Rutas guardadas exitosamente</p>';
@@ -10959,7 +10990,7 @@ function openPago(id,tipo){window._aqPagoProveedorNonce=null;const e=document.ge
 // COBROS DE CRÉDITOS: saldo y movimiento de Caja en UNA transacción Supabase.
 // Una clave de operación pendiente queda en el navegador si la red se interrumpe;
 // reintentar el mismo cobro usa esa clave y no crea un segundo ingreso.
-const AQ_COBRO_CRED_PENDIENTE='aqb_cobro_credito_pendiente_v1';
+const AQ_COBRO_CRED_PENDIENTE='qa-aqb_cobro_credito_pendiente_v1';
 let aqCobroCreditoGuardando=false;
 async function aqCobroClienteSeguro({clienteId,monto,medio,notas='',creditoId=null}){
   if(aqCobroCreditoGuardando){showNotif('Ya se está procesando un cobro','#c62828');return null;}
@@ -11235,19 +11266,16 @@ async function saveProd(){
   const nom=document.getElementById('pn').value.trim();if(!nom){showNotif('Nombre requerido','#c62828');return;}
   const bonifProdVal=document.getElementById('pbp-sel').value;
   const obj={nombre:nom,cat:document.getElementById('pcat').value,precio:parseFloat(document.getElementById('pp').value)||0,costo:parseFloat(document.getElementById('pco').value)||0,stock:parseInt(document.getElementById('pst').value)||0,minstock:parseInt(document.getElementById('pmin').value)||10,retornable:document.getElementById('pret').value,oferta_precio:parseFloat(document.getElementById('pop').value)||0,oferta_desc:document.getElementById('pod').value,bonif_desc:document.getElementById('pbd').value,bonif_prod:bonifProdVal||null,bonif_cant:parseInt(document.getElementById('pbc').value)||0,uds_paquete:parseInt(document.getElementById('puds')?.value)||1};
-  const id=document.getElementById('pid').value;let pid=id?parseInt(id):null;
-  if(id){
-    // Registrar historial de precio si cambió
-    const prodAnterior=D.prods.find(p=>p.id===parseInt(id));
-    if(prodAnterior&&parseFloat(prodAnterior.precio||0)!==parseFloat(obj.precio||0)){
-      await sb.from('precio_historial').insert({producto_id:parseInt(id),precio_anterior:parseFloat(prodAnterior.precio||0),precio_nuevo:parseFloat(obj.precio||0),fecha:hoy(),usuario:CU?.nombre||'Jefe'});
-    }
-    await sb.from('productos').update(obj).eq('id',parseInt(id));
-  }else{const{data:np}=await sb.from('productos').insert(obj).select().single();pid=np.id;}
-  await aqGuardarFotoProducto(pid);
-  await sb.from('producto_insumos').delete().eq('producto_id',pid);
-  for(const l of prodLigados)await sb.from('producto_insumos').insert({producto_id:pid,insumo_id:l.insumo_id,cant:l.cant});
-  await loadAll();clearProdForm();renderProds();fillVSelects();fillPbpSel();showNotif('Producto guardado ✅');
+  const id=document.getElementById('pid').value;
+  const insumos=prodLigados.map(({insumo_id,cant})=>({insumo_id,cant}));
+  let producto;
+  try{
+    producto=await aqModuloRpc('aq_guardar_producto_auth_v1',{p_producto:obj,p_insumos:insumos,p_id:id?Number(id):null});
+  }catch(error){showNotif('No se guardó el producto: '+error.message,'#c62828');return;}
+  document.getElementById('pid').value=producto.id;
+  const fotoGuardada=await aqGuardarFotoProducto(producto.id);
+  await loadAll();renderProds();fillVSelects();fillPbpSel();
+  if(fotoGuardada){clearProdForm();showNotif('Producto guardado ✅');}
 }
 
 function renderProds(){
@@ -12539,9 +12567,7 @@ function syncFiltroGastos(val,tipo){
 async function delGasto(id){
   if(!confirm('¿Eliminar este gasto? Si tiene una salida de Caja vinculada y todavía no se cerró, se eliminarán ambos registros juntos.'))return;
   try{
-    const resp=await sb.rpc('aq_eliminar_gasto_seguro',{
-      p_token:localStorage.getItem('aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
+    const resp=await sb.rpc('aq_eliminar_gasto_auth_v2',{
       p_gasto_id:Number(id)
     });
     if(resp.error)throw resp.error;
@@ -13001,8 +13027,7 @@ async function generarReporte(){
   // Costo de ventas por LOTES: costo histórico capturado al vender; no vuelve a descontar la factura.
   let costosLote={};
   try{
-    const {data:aqCostos,error:aqCostErr}=await sb.rpc('aq_costos_lotes_reporte',{
-      p_token:localStorage.getItem('aqb_token'),p_uid:Number(CU?.id),
+    const {data:aqCostos,error:aqCostErr}=await sb.rpc('aq_costos_lotes_auth_v1',{
       p_desde:desde||'2000-01-01',p_hasta:hasta||hoy()
     });
     if(aqCostErr)throw aqCostErr;
@@ -13025,8 +13050,7 @@ async function generarReporte(){
   const gananciaBruta=tv-costoTotal;
   let devengadosEspeciales=0;
   try{
-    const {data,error}=await sb.rpc('aq_total_incentivos_reporte',{
-      p_token:localStorage.getItem('aqb_token'),p_uid:Number(CU?.id),
+    const {data,error}=await sb.rpc('aq_total_incentivos_auth_v1',{
       p_desde:desde||'2000-01-01',p_hasta:hasta||hoy()
     });
     if(error)throw error;
@@ -13048,8 +13072,8 @@ async function generarReporte(){
     let tipificados=new Map();
     if(ids.length){
       for(let i=0;i<ids.length;i+=500){
-        const{data:tipos,error:et}=await sb.rpc('aq_facturas_tipos_listar',{
-          p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,p_factura_ids:ids.slice(i,i+500)
+        const{data:tipos,error:et}=await sb.rpc('aq_facturas_tipos_auth_v1',{
+          p_factura_ids:ids.slice(i,i+500)
         });
         if(et)throw et;
         (tipos||[]).forEach(x=>tipificados.set(Number(x.factura_id),x.tipo));
@@ -13875,6 +13899,51 @@ function getNumSabado(sabFecha){
   return sabs.indexOf(sabFecha)+1; // 1-4, o 0 si no está en los primeros 4
 }
 
+// ── NÓMINA: corte sábado; período remunerado LUNES A DOMINGO, con descanso dominical. ──
+// No cambia registros anteriores; el prorrateo solo calcula pagos nuevos.
+function aqFechaNominaISO(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function aqPeriodoNominaSabado(sabPago){
+  const fin=new Date(sabPago+'T12:00:00');
+  // El sábado de pago cubre hasta el domingo siguiente, que es descanso remunerado.
+  // El siguiente corte empieza el lunes: nunca duplicar el domingo.
+  fin.setDate(fin.getDate()+1);
+  const ini=new Date(fin);
+  ini.setDate(ini.getDate()-6);
+  return{ini:aqFechaNominaISO(ini),fin:aqFechaNominaISO(fin)};
+}
+function aqDiasNominaInclusivos(ini,fin){
+  if(!ini||!fin||fin<ini)return 0;
+  const a=ini.split('-').map(Number),b=fin.split('-').map(Number);
+  return Math.round((Date.UTC(b[0],b[1]-1,b[2])-Date.UTC(a[0],a[1]-1,a[2]))/86400000)+1;
+}
+function aqCalcularPagoSemanal(emp,sabPago,hastaFecha){
+  const periodo=aqPeriodoNominaSabado(sabPago);
+  const num=getNumSabado(sabPago);
+  const sueldo=Math.max(0,Number(emp?.sueldo)||0);
+  const cuarto=Math.round(sueldo/4*100)/100;
+  // El 4.º pago solo corrige CENTAVOS de redondeo: nunca recupera
+  // semanas anteriores no trabajadas ni pagos omitidos.
+  const cuota=num===0?0:(num===4?Math.round((sueldo-cuarto*3)*100)/100:cuarto);
+  const inicio=emp?.fecha_ingreso&&emp.fecha_ingreso>periodo.ini?emp.fecha_ingreso:periodo.ini;
+  const fin=hastaFecha&&hastaFecha<periodo.fin?hastaFecha:periodo.fin;
+  const dias=num===0?0:Math.min(7,Math.max(0,aqDiasNominaInclusivos(inicio,fin)));
+  // Cuota semanal completa: conservar la división mensual en cuatro pagos
+  // para no alterar los importes habituales de empleados antiguos.
+  // Semanas parciales por ingreso reciente: valorar cada día a sueldo/30.
+  const monto=dias===7?cuota:Math.round(sueldo/30*dias*100)/100;
+  return{periodo,num,dias,diasPeriodo:7,cuota,monto};
+}
+function aqPagoSemanalRegistrado(eid,sabPago){
+  const marca='Periodo semanal: '+sabPago;
+  return D.pagos.find(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&(
+    String(p.notas||'').includes(marca)||
+    // Compatibilidad con pagos históricos sin la etiqueta de período.
+    (!String(p.notas||'').includes('Periodo semanal:')&&p.fecha>=sabPago&&p.fecha<=getSabadoFin(sabPago))
+  ));
+}
+
 // ── SEMANAS FIJAS DEL MES (1-7, 8-14, 15-21, 22-fin) ────────────────────────
 function getSemanasMes(anio, mes){
   const fin=new Date(anio,mes+1,0).getDate();
@@ -13909,70 +13978,63 @@ function autoFillPago(){
   if(!emp||!wrap){if(wrap)wrap.style.display='none';return;}
   const frec=emp.frecuencia_pago||'mensual';
   const sueldo=parseFloat(emp.sueldo||0);
+  if(window._pagoEmpleadoSeleccionado!==eid){
+    window._pagoEmpleadoSeleccionado=eid;
+    window._periodoSeleccionado=null;
+  }
   const hoyDate=new Date();
   const hoyStr=hoy();
 
-  // Verificar si ya se pagó en el período actual
-  const usarSemAnterior=window._pagarSemanaAnterior===true;
+  // El período se determina después de dibujar y validar los botones.
 
   // Para empleados semanales: mostrar botones de selección de período
   const periodoWrap=document.getElementById('pago-periodo-wrap');
   const periodobtns=document.getElementById('pago-periodo-btns');
   if(frec==='semanal'&&periodoWrap&&periodobtns){
-    const sabAct=getSabadoActual(false);
-    const sabAnt=getSabadoActual(true);
-    const sabActFin=getSabadoFin(sabAct);
-    const sabAntFin=getSabadoFin(sabAnt);
-    const numAct=getNumSabado(sabAct);
-    const numAnt=getNumSabado(sabAnt);
-    const pagadaAct=D.pagos.some(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&p.fecha>=sabAct&&p.fecha<=sabActFin);
-    const pagadaAnt=D.pagos.some(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&p.fecha>=sabAnt&&p.fecha<=sabAntFin);
+    const sabAct=getSabadoActual(false),sabAnt=getSabadoActual(true);
+    const pagadaAct=!!aqPagoSemanalRegistrado(eid,sabAct);
+    const pagadaAnt=!!aqPagoSemanalRegistrado(eid,sabAnt);
+    const aplicaAct=aqCalcularPagoSemanal(emp,sabAct).dias>0;
+    const aplicaAnt=aqCalcularPagoSemanal(emp,sabAnt).dias>0;
+    let sel=window._periodoSeleccionado;
+    if((sel!=='ant'&&sel!=='act')||(sel==='ant'&&!aplicaAnt)||(sel==='act'&&!aplicaAct)){
+      sel=aplicaAnt&&!pagadaAnt?'ant':aplicaAct?'act':aplicaAnt?'ant':'act';
+    }
+    window._periodoSeleccionado=sel;
+    window._pagarSemanaAnterior=sel==='ant';
     periodoWrap.style.display='';
     periodobtns.innerHTML=[
-      {lbl:`Sáb. anterior ${sabAnt.slice(8)}/${sabAnt.slice(5,7)} (pago ${numAnt>0?numAnt+'°':'anterior'})`,key:'ant',pagada:pagadaAnt},
-      {lbl:`Sáb. actual ${sabAct.slice(8)}/${sabAct.slice(5,7)} (pago ${numAct>0?numAct+'°':'extra'})`,key:'act',pagada:pagadaAct},
+      {lbl:`Sáb. anterior ${sabAnt.slice(8)}/${sabAnt.slice(5,7)} (pago ${getNumSabado(sabAnt)}°)`,key:'ant',pagada:pagadaAnt,aplica:aplicaAnt},
+      {lbl:`Sáb. actual ${sabAct.slice(8)}/${sabAct.slice(5,7)} (pago ${getNumSabado(sabAct)}°)`,key:'act',pagada:pagadaAct,aplica:aplicaAct}
     ].map(s=>`
-      <button onclick="seleccionarPeriodoPago('${s.key}')" id="btn-periodo-${s.key}"
-        style="padding:8px 14px;border-radius:10px;border:2px solid ${s.pagada?'#2e7d32':'#1565c0'};background:${s.pagada?'#e8f5e9':'#e3f2fd'};color:${s.pagada?'#2e7d32':'#1565c0'};font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
-        ${s.pagada?'✅':'💳'} ${s.lbl} ${s.pagada?'<span style="font-size:9px">(YA PAGADA)</span>':'<span style="font-size:9px;background:#1565c0;color:#fff;padding:1px 5px;border-radius:4px">PENDIENTE</span>'}
+      <button onclick="seleccionarPeriodoPago('${s.key}')" id="btn-periodo-${s.key}" ${s.aplica?'':'disabled'}
+        style="padding:8px 14px;border-radius:10px;border:2px solid ${!s.aplica?'#b0bec5':s.pagada?'#2e7d32':'#1565c0'};background:${!s.aplica?'#f5f5f5':s.pagada?'#e8f5e9':'#e3f2fd'};color:${!s.aplica?'#78909c':s.pagada?'#2e7d32':'#1565c0'};font-size:11px;font-weight:700;cursor:${s.aplica?'pointer':'not-allowed'};display:flex;align-items:center;gap:6px">
+        ${s.aplica?(s.pagada?'✅':'💳'):'—'} ${s.lbl}
+        <span style="font-size:9px">${!s.aplica?'NO CORRESPONDE':s.pagada?'YA PAGADA':'PENDIENTE'}</span>
       </button>`).join('');
-    if(!pagadaAnt){window._periodoSeleccionado='ant';window._pagarSemanaAnterior=true;}
-    else if(!pagadaAct){window._periodoSeleccionado='act';window._pagarSemanaAnterior=false;}
-    else{window._periodoSeleccionado='act';window._pagarSemanaAnterior=false;}
-    setTimeout(()=>{
-      const sel=window._periodoSeleccionado||'act';
-      document.querySelectorAll('[id^=btn-periodo-]').forEach(b=>b.style.opacity='.5');
-      const active=document.getElementById('btn-periodo-'+sel);
-      if(active){active.style.opacity='1';active.style.transform='scale(1.04)';}
-    },50);
-  } else {
+    document.querySelectorAll('[id^=btn-periodo-]').forEach(b=>{
+      const activo=b.id==='btn-periodo-'+sel;
+      b.style.opacity=activo?'1':'.6';b.style.transform=activo?'scale(1.04)':'';
+    });
+  }else{
     if(periodoWrap)periodoWrap.style.display='none';
+    window._pagarSemanaAnterior=false;
   }
-
+  const usarSemAnterior=window._pagarSemanaAnterior===true;
   if(frec==='semanal'){
-    const _sabAct=getSabadoActual(false);
-    const _sabAnt=getSabadoActual(true);
-    const _sabActFin=getSabadoFin(_sabAct);
-    const _sabAntFin=getSabadoFin(_sabAnt);
-    const yaPago=D.pagos.find(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&p.fecha>=_sabAct&&p.fecha<=_sabActFin);
-    const yaPagoSemAnt=D.pagos.find(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&p.fecha>=_sabAnt&&p.fecha<=_sabAntFin);
-    if(yaPago&&yaPagoSemAnt){
-      // Ambas semanas pagadas — mostrar mensaje
+    const sabFecha=getSabadoActual(usarSemAnterior);
+    const calculo=aqCalcularPagoSemanal(emp,sabFecha);
+    const pagado=aqPagoSemanalRegistrado(eid,sabFecha);
+    if(calculo.dias===0||pagado){
       wrap.style.display='';
-      wrap.innerHTML=`<div style="background:#e8f5e9;border:1.5px solid #a5d6a7;border-radius:10px;padding:12px 14px;text-align:center">
-        <div style="font-size:13px;font-weight:700;color:#2e7d32">✅ ${emp.nombre} ya fue pagado esta semana</div>
-        <div style="font-size:11px;color:#558b2f;margin-top:4px">Fecha de pago: ${yaPago.fecha} · Q${fQ(yaPago.neto)}</div>
-        <div style="font-size:10px;color:#81c784;margin-top:4px">Próxima semana disponible del 22 al fin de mes</div>
-      </div>`;
+      wrap.innerHTML=`<div style="background:#e8f5e9;border:1px solid #aed581;border-radius:10px;padding:12px;text-align:center;color:#2e7d32;font-size:12px;font-weight:700">${pagado?'✅ Pago ya registrado para el sábado '+sabFecha:'ℹ️ Sin días trabajados en este período para '+emp.nombre}</div>`;
       document.getElementById('pm').value='0';
+      document.getElementById('pt').value='Sueldo semanal';
+      document.getElementById('pf').value=hoyStr;
       return;
     }
-    // Si ya pagó esta semana pero NO la anterior — permitir pagar la semana actual
-    if(yaPago&&!yaPagoSemAnt){
-      // Quitar flag semana anterior y continuar calculando semana actual
-      window._pagarSemanaAnterior=false;
-    }
   }
+
   // Calcular días trabajados desde ingreso para el período actual
   let diasPeriodo=0,diasTrabajados=0,monto=0,detallePeriodo='',tipo='Sueldo '+frec;
   let _periodoIni=null,_periodoFin=null;
@@ -13983,35 +14045,18 @@ function autoFillPago(){
     detallePeriodo='Pago del día de hoy';
     tipo='Sueldo diario';
   } else if(frec==='semanal'){
-    // Pago cada sábado — primeros 4 del mes
+    // Cuatro cuotas mensuales. Cada corte del sábado incluye el domingo de descanso siguiente.
     const sabFecha=getSabadoActual(usarSemAnterior);
-    const sabFin=getSabadoFin(sabFecha);
-    _periodoIni=sabFecha;_periodoFin=sabFin;
-    const numSab=getNumSabado(sabFecha); // 1,2,3,4 o 0 si es 5to sábado
-    const sabDate=new Date(sabFecha+'T00:00:00');
-    const sabFinDate=new Date(sabFin+'T00:00:00');
-    diasPeriodo=Math.round((sabFinDate-sabDate)/(1000*60*60*24))+1;
-    const inicioEfectivo=ingreso&&ingreso>sabDate?ingreso:sabDate;
-    diasTrabajados=Math.round((sabFinDate-inicioEfectivo)/(1000*60*60*24))+1;
-    diasTrabajados=Math.max(1,Math.min(diasTrabajados,diasPeriodo));
-    // Calcular monto: sueldo/4 para pagos 1-3, lo que falta para el 4to
-    const mesIniStr=sabFecha.slice(0,7)+'-01';
-    const pagosMes=D.pagos.filter(p=>p.empleado_id===eid&&p.tipo==='Sueldo semanal'&&p.fecha>=mesIniStr&&p.fecha<sabFecha);
-    const pagadoMes=pagosMes.reduce((s,p)=>s+parseFloat(p.monto||p.neto||0),0);
-    let montoBase=Math.round(sueldo/4*100)/100;
-    if(numSab===4){
-      const faltante=Math.round((sueldo-pagadoMes)*100)/100;
-      if(faltante>0)montoBase=faltante;
-    } else if(numSab===0){
-      // 5to sábado — ya está completo el mensual
-      montoBase=0;
-    }
-    monto=diasTrabajados<diasPeriodo?Math.round(montoBase/diasPeriodo*diasTrabajados*100)/100:montoBase;
-    detallePeriodo=numSab===0
-      ?`<span style="color:#2e7d32">✅ Mensual completo — 5to sábado sin pago</span>`
-      :diasTrabajados<diasPeriodo
-        ?`Pago ${numSab}° sábado (${sabFecha.slice(8)}/${sabFecha.slice(5,7)}) · <b>${diasTrabajados} días</b> (desde el ${inicioEfectivo.getDate()})`
-        :`Pago ${numSab}° del mes · Sáb ${sabFecha.slice(8)}/${sabFecha.slice(5,7)}${numSab===4?' · <b style="color:#2e7d32">Completa el mensual Q'+sueldo.toFixed(2)+'</b>':''}`;
+    const calculo=aqCalcularPagoSemanal(emp,sabFecha);
+    diasPeriodo=calculo.diasPeriodo;
+    diasTrabajados=calculo.dias;
+    monto=calculo.monto;
+    _periodoIni=calculo.periodo.ini;
+    _periodoFin=calculo.periodo.fin;
+    const fmt=iso=>iso.slice(8)+'/'+iso.slice(5,7);
+    detallePeriodo=calculo.num===0
+      ?'Quinto sábado: sin cuota adicional'
+      :`Pago ${calculo.num}° del mes · Sáb ${fmt(sabFecha)} · período trabajado ${fmt(_periodoIni)} al ${fmt(_periodoFin)} · <b>${diasTrabajados} de 7 días</b>${diasTrabajados<7?' (prorrateado a salario mensual / 30)':''}`;
     tipo='Sueldo semanal';
   } else if(frec==='quincenal'){
     const d=hoyDate.getDate();
@@ -14046,15 +14091,8 @@ function autoFillPago(){
   // Autocompletar campos del formulario
   document.getElementById('pm').value=monto.toFixed(2);
   document.getElementById('pt').value=tipo;
-  // Si se está pagando semana anterior, usar el viernes de esa semana como fecha
-  if(usarSemAnterior&&frec==='semanal'){
-    const viernes=new Date(hoyDate);
-    const diaSem2=hoyDate.getDay()||7;
-    viernes.setDate(hoyDate.getDate()-(diaSem2-1)-7+4);
-    document.getElementById('pf').value=viernes.toISOString().slice(0,10);
-  } else {
-    document.getElementById('pf').value=hoyStr;
-  }
+  // La fecha registrada corresponde al pago real, no al sábado del período.
+  document.getElementById('pf').value=hoyStr;
   // Actualizar vales pendientes antes de calcular neto
   updateVales();
   // Auto-detectar ausencias registradas (sin liquidar) — se aplican al próximo pago que se haga,
@@ -14113,12 +14151,19 @@ async function savePago(){
   const fecha=document.getElementById('pf').value;
   const neto=monto-vales-ausencias;
   if(monto<=0||neto<0){showNotif('Monto y descuentos inválidos','#c62828');return;}
+  let sabPagoNomina=null;
+  if(tipo==='Sueldo semanal'){
+    sabPagoNomina=getSabadoActual(window._periodoSeleccionado==='ant');
+    if(sabPagoNomina>hoy()){showNotif('El período semanal se puede pagar a partir del sábado','#c62828');return;}
+    if(aqCalcularPagoSemanal(emp,sabPagoNomina).dias===0){showNotif('No corresponde sueldo por días sin trabajar','#c62828');return;}
+    if(aqPagoSemanalRegistrado(eid,sabPagoNomina)){showNotif('Ese período semanal ya está pagado','#c62828');return;}
+  }
   const detalle=(vales>0? '\nDesc. vales: -Q'+vales.toFixed(2):'')+
     (ausencias>0?'\nDesc. ausencias: -Q'+ausencias.toFixed(2):'')+
     '\nNeto a pagar: Q'+neto.toFixed(2);
   if(!confirm('¿Registrar pago a '+(emp?.nombre||'empleado')+'?\n\n'+tipo+
     '\nMonto: Q'+monto.toFixed(2)+detalle+'\nFecha: '+fecha))return;
-  const notasFinal=(document.getElementById('pn2').value+(dias?'\nAusencias días: '+dias:'')).trim();
+  const notasFinal=(document.getElementById('pn2').value+(dias?'\nAusencias días: '+dias:'')+(sabPagoNomina?'\nPeriodo semanal: '+sabPagoNomina:'')).trim();
   const payload={p_empleado:eid,p_tipo:tipo,p_monto:monto,p_fecha:fecha,
     p_notas:notasFinal,p_desc_vales:vales,p_desc_ausencias:ausencias,
     p_ausencias:(window._ausenciasAutoIds||[]).map(Number)};
@@ -14142,14 +14187,17 @@ async function savePago(){
 let _calPagosMesOffset=0;
 function calPagosMes(delta){_calPagosMesOffset+=delta;renderCalPagos();}
 
-async function registrarPagoRetroactivo(empId,fechaSabado,monto){
+async function registrarPagoRetroactivo(empId,fechaSabado){
   const emp=D.empleados.find(e=>e.id===empId);if(!emp)return;
-  if(emp.fecha_ingreso&&getSabadoFin(fechaSabado)<emp.fecha_ingreso){showNotif('Semana anterior al ingreso','#c62828');return;}
+  const {dias,monto}=aqCalcularPagoSemanal(emp,fechaSabado);
+  if(!dias||fechaSabado>hoy()||aqPagoSemanalRegistrado(empId,fechaSabado)){
+    showNotif('Este período no tiene un pago pendiente','#c62828');return;
+  }
   if(!confirm(`¿Registrar pago histórico de ${emp.nombre} por ${fQ(monto)} para la semana del ${fechaSabado}? Solo si ya se pagó.`))return;
   showLoad(true);
   try{
     const payload={p_empleado:Number(empId),p_monto:Number(monto),p_fecha:fechaSabado,
-      p_notas:'Pago retroactivo — puesto al día'};
+      p_notas:'Pago retroactivo — puesto al día\nPeriodo semanal: '+fechaSabado};
     const key='retro-'+empId+'-'+fechaSabado;
     const {data,error}=await sb.rpc('aq_rrhh_pagar_retro_auth_v1',{
       ...payload,p_nonce:aqNonceOperacion(key,payload)
@@ -14161,22 +14209,20 @@ async function registrarPagoRetroactivo(empId,fechaSabado,monto){
   }catch(e){showNotif('No se registró: '+(e.message||e),'#c62828');}
   finally{showLoad(false);}
 }
-async function ponerAlDia(empId,montoPago){
+async function ponerAlDia(empId){
   const emp=D.empleados.find(e=>e.id===empId);if(!emp)return;
   const fechaMes=new Date(new Date().getFullYear(),new Date().getMonth()+_calPagosMesOffset,1);
   const anio=fechaMes.getFullYear(),mes=fechaMes.getMonth();
   const sabs=getSabadosMes(anio,mes);
-  const mesIni=`${anio}-${String(mes+1).padStart(2,'0')}-01`;
-  const mesFin=new Date(anio,mes+1,0).toISOString().slice(0,10);
-  const pagosMes=D.pagos.filter(p=>p.empleado_id===empId&&p.tipo==='Sueldo semanal'&&p.fecha>=mesIni&&p.fecha<=mesFin);
-  const pendientes=sabs.filter(s=>s<=hoy()&&!(emp.fecha_ingreso&&getSabadoFin(s)<emp.fecha_ingreso)&&!pagosMes.some(p=>p.fecha>=s&&p.fecha<=getSabadoFin(s)));
+  const pendientes=sabs.filter(s=>s<=hoy()&&aqCalcularPagoSemanal(emp,s).dias>0&&!aqPagoSemanalRegistrado(empId,s));
   if(!pendientes.length)return;
-  if(!confirm(`¿Registrar ${pendientes.length} pagos atrasados por ${fQ(montoPago)} cada uno? Solo si ya los pagaste.`))return;
+  const total=pendientes.reduce((sum,s)=>sum+aqCalcularPagoSemanal(emp,s).monto,0);
+  if(!confirm(`¿Registrar ${pendientes.length} pagos atrasados por ${fQ(total)} en total? Solo si ya los pagaste.`))return;
   showLoad(true);
   let registrados=0;
   try{
     for(const s of pendientes){
-      const payload={p_empleado:Number(empId),p_monto:Number(montoPago),p_fecha:s,p_notas:'Pago retroactivo — puesto al día'};
+      const payload={p_empleado:Number(empId),p_monto:aqCalcularPagoSemanal(emp,s).monto,p_fecha:s,p_notas:'Pago retroactivo — puesto al día\nPeriodo semanal: '+s};
       const key='retro-'+empId+'-'+s;
       const {data,error}=await sb.rpc('aq_rrhh_pagar_retro_auth_v1',{...payload,p_nonce:aqNonceOperacion(key,payload)});
       if(error||!data?.ok)throw error||new Error('No confirmado: '+s);
@@ -14214,16 +14260,14 @@ function renderCalPagos(){
     <tbody>`;
   empActivos.forEach(e=>{
     const sueldo=parseFloat(e.sueldo||0);
-    const montoPago=Math.round(sueldo/4*100)/100;
-    const mesIni=`${anio}-${String(mes+1).padStart(2,'0')}-01`;
-    const mesFin=new Date(anio,mes+1,0).toISOString().slice(0,10);
-    const pagosMes=D.pagos.filter(p=>p.empleado_id===e.id&&p.tipo==='Sueldo semanal'&&p.fecha>=mesIni&&p.fecha<=mesFin);
+    const pagosMes=sabs.map(s=>aqPagoSemanalRegistrado(e.id,s)).filter(Boolean);
     let totalPagado=0;
     const cells=sabs.map((s,i)=>{
       // Buscar si hay pago en esa semana del sábado
-      const sabFin=getSabadoFin(s);
-      const noHabiaIngresado=e.fecha_ingreso&&sabFin<e.fecha_ingreso;
-      const pago=pagosMes.find(p=>p.fecha>=s&&p.fecha<=sabFin);
+      const calculo=aqCalcularPagoSemanal(e,s);
+      const montoProporcional=calculo.monto;
+      const noHabiaIngresado=calculo.dias===0;
+      const pago=aqPagoSemanalRegistrado(e.id,s);
       const esHoy=s===hoy();
       const esFuturo=s>hoy();
       if(noHabiaIngresado){
@@ -14243,16 +14287,16 @@ function renderCalPagos(){
       } else if(esFuturo){
         return`<td style="padding:6px;text-align:center;background:#f5f5f5">
           <div style="font-size:11px;color:#bdbdbd">⏳</div>
-          <div style="font-size:10px;color:#bdbdbd">${fQ(montoPago)}</div>
+          <div style="font-size:10px;color:#bdbdbd">${fQ(montoProporcional)}</div>
         </td>`;
       } else {
-        return`<td style="padding:6px;text-align:center;background:#ffebee;cursor:pointer;${esHoy?'border:2px solid #c62828;':''}" onclick="registrarPagoRetroactivo(${e.id},'${s}',${montoPago})" title="Toca para registrar este pago">
+        return`<td style="padding:6px;text-align:center;background:#ffebee;cursor:pointer;${esHoy?'border:2px solid #c62828;':''}" onclick="registrarPagoRetroactivo(${e.id},'${s}')" title="Toca para registrar este pago">
           <div style="font-size:11px;font-weight:700;color:#c62828">⚠️</div>
-          <div style="font-size:10px;color:#c62828">${fQ(montoPago)}</div>
+          <div style="font-size:10px;color:#c62828">${fQ(montoProporcional)}</div>
         </td>`;
       }
     }).join('');
-    const pendientesMes=sabs.filter(s=>s<=hoy()&&!(e.fecha_ingreso&&getSabadoFin(s)<e.fecha_ingreso)&&!pagosMes.some(p=>p.fecha>=s&&p.fecha<=getSabadoFin(s)));
+    const pendientesMes=sabs.filter(s=>s<=hoy()&&aqCalcularPagoSemanal(e,s).dias>0&&!aqPagoSemanalRegistrado(e.id,s));
     html+=`<tr style="border-bottom:1px solid #eee">
       <td style="padding:8px 10px;font-weight:700">${e.nombre}<br><span style="font-size:10px;color:#546e7a;font-weight:400">${fQ(sueldo)}/mes</span></td>
       ${cells}
@@ -14260,7 +14304,7 @@ function renderCalPagos(){
         <div style="font-size:11px;font-weight:700;color:${totalPagado>=sueldo?'#2e7d32':'#e65100'}">${fQ(totalPagado)}</div>
         <div style="font-size:10px;color:#9e9e9e">de ${fQ(sueldo)}</div>
         ${totalPagado>0&&totalPagado!==pagosMes.reduce((s,p)=>s+parseFloat(p.neto||0),0)?`<div style="font-size:10px;color:#e65100">${fQ(pagosMes.reduce((s,p)=>s+parseFloat(p.neto||0),0))} en mano</div>`:''}
-        ${pendientesMes.length?`<button class="btn bsm" style="background:#2e7d32;color:#fff;font-size:9px;padding:3px 6px;margin-top:4px" onclick="ponerAlDia(${e.id},${montoPago})">✅ Poner al día (${pendientesMes.length})</button>`:''}
+        ${pendientesMes.length?`<button class="btn bsm" style="background:#2e7d32;color:#fff;font-size:9px;padding:3px 6px;margin-top:4px" onclick="ponerAlDia(${e.id})">✅ Poner al día (${pendientesMes.length})</button>`:''}
       </td>
     </tr>`;
   });
@@ -15584,8 +15628,8 @@ function calcularAhorroPorMeta(){
 function guardarConfigAhorro(){
   const pct=document.getElementById('ahorro-pct').value;
   const periodo=document.getElementById('ahorro-periodo').value;
-  localStorage.setItem('ahorro_pct',pct);
-  localStorage.setItem('ahorro_periodo',periodo);
+  localStorage.setItem('qa-ahorro_pct',pct);
+  localStorage.setItem('qa-ahorro_periodo',periodo);
   showNotif('✅ Plan de ahorro guardado');
 }
 
@@ -17617,8 +17661,7 @@ let aqLiqExclusionOK=false;
 async function aqLiqPrepararExclusion(ventasEmp,fecha,productos){
   aqLiqExclusionOK=false;aqLiqExclusionMonto=0;
   try{
-    const {data,error}=await sb.rpc('aq_items_incentivados',{
-      p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0,
+    const {data,error}=await sb.rpc('aq_items_incentivados_auth_v1',{
       p_desde:fecha,p_hasta:hoy()
     });
     if(error)throw error;
@@ -18281,11 +18324,10 @@ function recibirNotificacion(n){
 // ── Enviar notificación a un usuario ──
 async function enviarNotificacion(usuarioId, titulo, mensaje, tipo='info', datos=null){
   if(!usuarioId)return;
-  await sb.from('notificaciones').insert({
-    usuario_id:usuarioId,titulo,mensaje,tipo,
-    datos:datos?JSON.stringify(datos):null,
-    leida:false
-  });
+  try{
+    await aqModuloRpc('aq_notificar_auth_v1',{p_usuario:Number(usuarioId),p_titulo:titulo,p_mensaje:mensaje,p_tipo:tipo,p_datos:datos});
+  }catch(e){showNotif('No se confirmó la notificación: '+e.message,'#e65100');}
+
 }
 
 // Agregar CSS animación
@@ -19773,6 +19815,11 @@ async function editarMantenimiento(id){
   },100);
 }
 
+async function aqModuloRpc(nombre,datos){
+  const {data,error}=await sb.rpc(nombre,datos);
+  if(error||!data?.ok)throw error||new Error('Operación sin confirmar');
+  return data;
+}
 async function guardarMantenimiento(){
   const id=document.getElementById('mant-id').value;
   const tipo=document.getElementById('mant-tipo').value.trim();
@@ -19789,33 +19836,25 @@ async function guardarMantenimiento(){
     notas:document.getElementById('mant-notas').value||null,
     estado:'Pendiente',
   };
-  if(id){await sb.from('mantenimientos').update(datos).eq('id',parseInt(id));}
-  else{await sb.from('mantenimientos').insert(datos);}
+  try{await aqModuloRpc('aq_mantenimiento_auth_v1',{p_accion:'guardar',p_datos:datos,p_id:id?Number(id):null});}
+  catch(e){showNotif(e.message,'#c62828');return;}
   closeModal('modal-mantenimiento');
   renderMantenimiento();
   showNotif('✅ Servicio guardado','#2e7d32');
 }
 
 async function completarMantenimiento(id){
-  const{data:m}=await sb.from('mantenimientos').select('*').eq('id',id).single();
-  if(!m)return;
-  const nuevaFecha=new Date(hoy());
-  nuevaFecha.setDate(nuevaFecha.getDate()+(m.intervalo_dias||90));
-  const proxima=nuevaFecha.toISOString().slice(0,10);
-  await sb.from('mantenimientos').update({estado:'Completado',fecha_ultimo:hoy()}).eq('id',id);
-  await sb.from('mantenimientos').insert({
-    vehiculo_id:m.vehiculo_id,tipo:m.tipo,descripcion:m.descripcion,
-    fecha_ultimo:hoy(),fecha_proximo:proxima,
-    intervalo_dias:m.intervalo_dias,costo:m.costo,notas:m.notas,estado:'Pendiente',
-  });
-  renderMantenimiento();
-  showNotif(`✅ Completado. Próximo: ${proxima}`,'#2e7d32');
+  try{
+    await aqModuloRpc('aq_mantenimiento_auth_v1',{p_accion:'completar',p_datos:{},p_id:Number(id)});
+    await renderMantenimiento();
+    showNotif('Servicio completado y próxima fecha registrada','#2e7d32');
+  }catch(e){showNotif(e.message,'#c62828');}
 }
 
 async function delMantenimiento(id){
-  if(!confirm('¿Eliminar?'))return;
-  await sb.from('mantenimientos').delete().eq('id',id);
-  renderMantenimiento();
+  if(!confirm('¿Eliminar este servicio?'))return;
+  try{await aqModuloRpc('aq_mantenimiento_auth_v1',{p_accion:'eliminar',p_datos:{},p_id:Number(id)});await renderMantenimiento();}
+  catch(e){showNotif(e.message,'#c62828');}
 }
 
 async function renderAlertasMantenimiento(){
@@ -19978,7 +20017,7 @@ async function aqGuardarFotoProducto(id){
  if(!file&&!aqFotoQuitar)return true;
  try{
   if(!CU||!['jefe','inventario'].includes(CU.rol))throw Error('No tienes permiso para modificar imágenes');
-  const payload={token:localStorage.getItem('aqb_token'),usuario_id:Number(localStorage.getItem('aqb_uid')),producto_id:Number(id),accion:aqFotoQuitar?'eliminar':'subir'};
+  const payload={producto_id:Number(id),accion:aqFotoQuitar?'eliminar':'subir'};
   if(!aqFotoQuitar){
    if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Usa JPG, PNG o WebP');
    if(file.size>8*1024*1024)throw Error('Imagen mayor a 8 MB');
@@ -19988,8 +20027,8 @@ async function aqGuardarFotoProducto(id){
    if(blob.size>1500000)throw Error('La imagen comprimida supera 1.5 MB');
    payload.imagen=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob);});
   }
-  const r=await fetch(SURL+'/functions/v1/subir-imagen-producto',{method:'POST',headers:{'Content-Type':'application/json','apikey':SKEY,'Authorization':'Bearer '+SKEY},body:JSON.stringify(payload)});
-  const data=await r.json().catch(()=>({}));if(!r.ok||!data.ok)throw Error(data.error||'Error '+r.status);
+  const {data,error}=await sb.functions.invoke('aq-foto-producto-auth',{body:payload});
+  if(error||!data?.ok)throw Error(data?.error||error?.message||'La imagen no se guardó');
   aqFotoVersiones[id]=Date.now();const g=document.getElementById('pos-grid');if(g)g._cacheKey2='';if(typeof posRenderGrid==='function')posRenderGrid();
   if(status)status.textContent='Imagen guardada correctamente';return true;
  }catch(e){alert('El producto se guardó, pero la imagen no: '+(e.message||e)+'\nVerifica que la Edge Function esté desplegada.');if(status)status.textContent='Error al guardar imagen';return false;}
@@ -20441,10 +20480,10 @@ html[data-aq-theme="dark"] :focus-visible{outline:2px solid #89caff;outline-offs
  window.aqToggleTema=function(){
   const actual=document.documentElement.getAttribute('data-aq-theme');
   const nuevo=actual==='dark'?'light':'dark';
-  try{localStorage.setItem('aqb_tema',nuevo)}catch(e){}
+  try{localStorage.setItem('qa-aqb_tema',nuevo)}catch(e){}
   aqAplicarTema(nuevo);
  };
- let inicio='light';try{inicio=localStorage.getItem('aqb_tema')||'light'}catch(e){}
+ let inicio='light';try{inicio=localStorage.getItem('qa-aqb_tema')||'light'}catch(e){}
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){aqAplicarTema(inicio)});
  else aqAplicarTema(inicio);
 })();
@@ -20991,7 +21030,6 @@ async function aqCrearClienteConCaptacion(datos){
 /* Nuevos módulos: guardan por RPC (token personalizado); sin tablas de comisiones expuestas directamente. */
 let aqIncCache={equipos:[],incentivos:[]};
 let aqIncMovimientos=[];
-function aqIncAuth(){return {p_token:localStorage.getItem('aqb_token')||'',p_uid:Number(CU?.id)||0};}
 function aqIncNombreEmp(id){return D.empleados.find(e=>Number(e.id)===Number(id))?.nombre||'Empleado #'+id;}
 function aqIncNombreCli(id){return D.clientes.find(e=>Number(e.id)===Number(id))?.nombre||'Cliente #'+id;}
 function aqIncFmt(x){return fQ(Number(x)||0);}
@@ -21100,7 +21138,7 @@ async function aqIncInit(){
 async function aqIncRecargar(){
  const estado=document.getElementById('aq-inc-status');if(estado)estado.textContent='⏳ Consultando configuración…';
  try{
-  const {data,error}=await sb.rpc('aq_estado_incentivos',aqIncAuth());
+  const {data,error}=await sb.rpc('aq_estado_incentivos_auth_v1',{});
   if(error)throw error;
   aqIncCache=data||{equipos:[],incentivos:[]};
   aqIncPintar();
@@ -21165,7 +21203,7 @@ function aqIncRenderSugeridos(){
 async function aqCrearEquipo(){
  const nombre=document.getElementById('aq-equipo-nombre').value.trim();const a=Number(document.getElementById('aq-equipo-a').value);const b=Number(document.getElementById('aq-equipo-b').value);
  if(!nombre||!a||!b||a===b){showNotif('Pon nombre y dos empleados distintos','#c62828');return;}
- const {error}=await sb.rpc('aq_guardar_equipo',{...aqIncAuth(),p_nombre:nombre,p_empleado_a:a,p_empleado_b:b});
+ const {error}=await sb.rpc('aq_guardar_equipo_auth_v1',{p_nombre:nombre,p_empleado_a:a,p_empleado_b:b});
  if(error){showNotif(error.message,'#c62828');return;}
  document.getElementById('aq-equipo-nombre').value='';await aqIncRecargar();showNotif('Equipo creado ✅');
 }
@@ -21176,13 +21214,13 @@ async function aqGuardarIncentivo(){
  const confirmado=document.getElementById('aq-inc-confirmar').checked;
  if(!cliente||!producto||!captador||!Number.isFinite(importe)||importe<0||!confirmado){showNotif('Selecciona cliente, garrafón, captador y confirma la captación','#c62828');return;}
  const modalidad=reparto==='equipo'?'equipo':'individual';const beneficiario=modalidad==='individual'?Number(reparto.split(':')[1]):null;
- const {error}=await sb.rpc('aq_guardar_incentivo',{...aqIncAuth(),p_cliente:cliente,p_producto:producto,p_captador:captador,p_equipo:equipo,p_modalidad:modalidad,p_beneficiario:beneficiario,p_importe:importe,p_confirmado:true});
+ const {error}=await sb.rpc('aq_guardar_incentivo_auth_v1',{p_cliente:cliente,p_producto:producto,p_captador:captador,p_equipo:equipo,p_modalidad:modalidad,p_beneficiario:beneficiario,p_importe:importe,p_confirmado:true});
  if(error){showNotif(error.message,'#c62828');return;}
  document.getElementById('aq-inc-confirmar').checked=false;await aqIncRecargar();showNotif('Incentivo autorizado ✅');
 }
 async function aqFinalizarIncentivo(id){
  if(!confirm('¿Finalizar este incentivo? No modifica ventas anteriores.'))return;
- const {error}=await sb.rpc('aq_finalizar_incentivo',{...aqIncAuth(),p_incentivo:id});
+ const {error}=await sb.rpc('aq_finalizar_incentivo_auth_v1',{p_incentivo:id});
  if(error){showNotif(error.message,'#c62828');return;}
  await aqIncRecargar();showNotif('Incentivo finalizado');
 }
@@ -21192,7 +21230,7 @@ async function aqConsultarMovimientos(desde,hasta){
     let permisos=[];try{permisos=JSON.parse(CU?.permisos_custom||'null')||PERMS[CU?.rol]||[];}catch(e){}
     if(!permisos.includes('comisiones')&&!permisos.includes('rrhh'))return [];
   }
-  const {data,error}=await sb.rpc('aq_movimientos_incentivos',{...aqIncAuth(),p_desde:desde,p_hasta:hasta});
+  const {data,error}=await sb.rpc('aq_movimientos_incentivos_auth_v1',{p_desde:desde,p_hasta:hasta});
   if(error)throw error;
   return data||[];
  }catch(e){console.warn('No se pudieron consultar incentivos',e);return [];}
@@ -21242,9 +21280,12 @@ async function aqPagarIncentivo(empleadoId){
  const desde=document.getElementById('aq-inc-desde').value,hasta=document.getElementById('aq-inc-hasta').value;
  const nombre=aqIncNombreEmp(empleadoId);
  if(!confirm('¿Registrar liquidación de incentivos especiales a '+nombre+' del '+desde+' al '+hasta+'? Solo se liquidarán movimientos no pagados y cobrados.'))return;
- const {data,error}=await sb.rpc('aq_liquidar_incentivos',{...aqIncAuth(),p_empleado:Number(empleadoId),p_desde:desde,p_hasta:hasta,p_origen:document.getElementById('aq-inc-origen')?.value||'externo'});
+ const payload={p_empleado:Number(empleadoId),p_desde:desde,p_hasta:hasta,p_origen:document.getElementById('aq-inc-origen')?.value||'externo'};
+ const clave='liquidar-incentivos-'+CU.id+'-'+empleadoId;
+ const {data,error}=await sb.rpc('aq_liquidar_incentivos_auth_v2',{...payload,p_nonce:aqNonceOperacion(clave,payload)});
  if(error){showNotif(error.message,'#c62828');return;}
- showNotif('Incentivos liquidados: '+aqIncFmt(data));await aqReporteIncentivos();
+ aqConfirmarOperacion(clave);
+ showNotif('Incentivos liquidados: '+aqIncFmt(data.monto));await aqReporteIncentivos();
 }
 
 </script>
@@ -21270,7 +21311,7 @@ async function aqVerLotes(){
   box.innerHTML='<p class="tmuted">Consultando lotes…</p>';
   if(CU?.rol!=='jefe'){box.innerHTML='<p class="tmuted">Solo el jefe puede consultar los costos por lote.</p>';return;}
   try{
-    const {data,error}=await sb.rpc('aq_lotes_resumen',{p_token:localStorage.getItem('aqb_token'),p_uid:Number(CU?.id)});
+    const {data,error}=await sb.rpc('aq_lotes_resumen_auth_v1',{});
     if(error)throw error;
     const filas=data||[];
     const prodId=Number(document.getElementById('aq-lotes-producto')?.value)||0;
@@ -21280,20 +21321,86 @@ async function aqVerLotes(){
   }catch(e){box.innerHTML='<p class="tmuted">No se pudo consultar lotes. Comprueba que instalaste el script SQL.</p>';console.warn(e);}
 }
 async function aqHistoricoGarrafones(){
- const desde=document.getElementById('aq-inc-desde').value||'2000-01-01',hasta=document.getElementById('aq-inc-hasta').value||hoy();
- const el=document.getElementById('aq-inc-historico');el.innerHTML='<p class="tmuted">Buscando ventas anteriores...</p>';
+ const desde=document.getElementById('aq-inc-desde')?.value||'2000-01-01';
+ const hasta=document.getElementById('aq-inc-hasta')?.value||hoy();
+ const el=document.getElementById('aq-inc-historico');
+ if(!el)return;
+ el.innerHTML='<p class="tmuted">Buscando historial de garrafones...</p>';
  try{
-  const garrafIds=new Set(D.prods.filter(p=>/garraf[oó]n/i.test(p.nombre)).map(p=>Number(p.id)));
-  const{data,error}=await sb.from('ventas').select('id,fecha,cliente_id,usuario_id,venta_items(producto_id,cant,precio,descuento)').gte('fecha',desde).lte('fecha',hasta).not('estado','in','(Cancelada,Anulado)').limit(5000);
+  const garrafIds=new Set(D.prods.filter(p=>/garraf[oó]n/i.test(p.nombre||'')).map(p=>Number(p.id)));
+  const {data,error}=await sb.from('ventas')
+   .select('id,fecha,cliente_id,nombre_mostrador,notas,estado,fecha_cancelacion,cancelado_por,usuario_id,venta_items(producto_id,cant,precio,descuento)')
+   .gte('fecha',desde).lte('fecha',hasta).order('fecha',{ascending:true}).limit(5000);
   if(error)throw error;
   const rows=[];
   (data||[]).forEach(v=>(v.venta_items||[]).forEach(i=>{
-    const precio=Number(i.precio||0)-Number(i.descuento||0);
-    if(garrafIds.has(Number(i.producto_id))&&precio>=9){rows.push({fecha:v.fecha,cliente_id:v.cliente_id,usuario_id:v.usuario_id,cant:Number(i.cant||0),precio,venta_id:v.id});}
+   const precio=Number(i.precio||0)-Number(i.descuento||0);
+   if(!garrafIds.has(Number(i.producto_id))||precio<9)return;
+   rows.push({
+    venta_id:Number(v.id),fecha:v.fecha,cliente_id:v.cliente_id,
+    nombre_mostrador:v.nombre_mostrador,notas:v.notas,usuario_id:v.usuario_id,
+    estado:v.estado,fecha_cancelacion:v.fecha_cancelacion,cancelado_por:v.cancelado_por,
+    cancelada:!!v.fecha_cancelacion||/cancelad[ao]|anulad[ao]/i.test(String(v.estado||'')),
+    cant:Number(i.cant||0),precio
+   });
   }));
-  const total=rows.reduce((a,r)=>a+r.cant,0);
-  el.innerHTML='<p class="tmuted">'+rows.length+' líneas · '+total+' garrafones vendidos a Q9 o más en el período. Historial para revisión, no liquidación automática.</p>'+(rows.length?'<details><summary>Ver detalle por cliente y vendedor</summary><div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Registró venta</th><th>Cantidad</th><th>Precio</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+r.fecha+'</td><td>'+aqIncHtml(aqIncNombreCli(r.cliente_id))+'</td><td>'+aqIncHtml(D.usuarios.find(u=>u.id===r.usuario_id)?.nombre||'Sin identificar')+'</td><td>'+r.cant+'</td><td>'+fQ(r.precio)+'</td></tr>').join('')+'</tbody></table></div></details>':'');
- }catch(e){el.innerHTML='<p class="tmuted">Error consultando historial. '+aqIncHtml(e.message||'')+'</p>';}
+  rows.sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha))||a.venta_id-b.venta_id);
+  // Referencias de caja: solo lectura, sin cambiar la venta ni atribuir un cliente automáticamente.
+  const sinCliente=[...new Set(rows.filter(r=>!Number(r.cliente_id)).map(r=>r.venta_id))];
+  const referenciasCaja=new Map();
+  for(let j=0;j<sinCliente.length;j+=100){
+   const {data:caja,error:cajaError}=await sb.from('caja').select('venta_id,tipo,notas').in('venta_id',sinCliente.slice(j,j+100));
+   if(cajaError){console.warn('No fue posible leer las referencias de caja del historial',cajaError);break;}
+   (caja||[]).forEach(m=>{
+    if(String(m.tipo||'').toLowerCase()!=='venta')return;
+    const ref=String(m.notas||'').replace(/^Venta\s*#\d+\s*[—–-]\s*/i,'').trim();
+    if(ref&&!/^mostrador$/i.test(ref)&&!referenciasCaja.has(Number(m.venta_id))){
+     referenciasCaja.set(Number(m.venta_id),ref);
+    }
+   });
+  }
+  const vigentes=rows.filter(r=>!r.cancelada);
+  const canceladas=rows.filter(r=>r.cancelada);
+  const cantVigentes=vigentes.reduce((sum,r)=>sum+r.cant,0);
+  function nombreYReferencia(r){
+   const id=Number(r.cliente_id)||0;
+   if(id){
+    const cliente=D.clientes.find(c=>Number(c.id)===id);
+    return {nombre:cliente?.nombre||'Cliente no disponible (#'+id+')',detalle:cliente?'':'Cliente vinculado, sin nombre disponible'};
+   }
+   const nombreMostrador=String(r.nombre_mostrador||'').trim();
+   const refCaja=referenciasCaja.get(r.venta_id)||'';
+   if(nombreMostrador){
+    return {nombre:'Mostrador: '+nombreMostrador,detalle:'Sin cliente asociado'+(refCaja&&refCaja!==nombreMostrador?' · Referencia de caja: '+refCaja:'')};
+   }
+   if(refCaja)return {nombre:'Referencia de caja: '+refCaja,detalle:'Sin cliente asociado'};
+   return {nombre:'Mostrador — Sin cliente asociado',detalle:'No se registró nombre ni referencia del cliente'};
+  }
+  function tabla(filas){
+   return '<div class="tbl-wrap"><table><thead><tr><th>Fecha / Venta</th><th>Cliente o referencia</th><th>Registró venta</th><th>Estado</th><th>Cantidad</th><th>Precio</th></tr></thead><tbody>'+
+    filas.map(r=>{
+     const info=nombreYReferencia(r);
+     const usuario=D.usuarios.find(u=>Number(u.id)===Number(r.usuario_id))?.nombre||'Usuario #'+(r.usuario_id??'sin identificar');
+     const obs=String(r.notas||'').trim();
+     const estado=r.cancelada?'Cancelada'+(r.fecha_cancelacion?' ('+r.fecha_cancelacion+')':''):(r.estado||'Vigente');
+     const cancelador=r.cancelada&&r.cancelado_por?' · Por: '+r.cancelado_por:'';
+     return '<tr><td>'+aqIncHtml(r.fecha)+'<small style="display:block;opacity:.78">Venta #'+r.venta_id+'</small></td>'+
+      '<td><b>'+aqIncHtml(info.nombre)+'</b><small style="display:block;opacity:.78">'+aqIncHtml(info.detalle)+'</small>'+
+      (obs?'<small style="display:block;opacity:.78">Observación: '+aqIncHtml(obs)+'</small>':'')+'</td>'+
+      '<td>'+aqIncHtml(usuario)+'</td>'+
+      '<td>'+aqIncHtml(estado+cancelador)+'</td>'+
+      '<td>'+r.cant+'</td><td>'+aqIncHtml(fQ(r.precio))+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+  }
+  el.innerHTML='<p class="tmuted">'+vigentes.length+' líneas vigentes · '+cantVigentes+
+   ' garrafones vendidos a Q9 o más en el período. Historial para revisión, no liquidación automática.</p>'+
+   (vigentes.length?'<details open><summary>Ver detalle por cliente y vendedor (vigentes)</summary>'+tabla(vigentes)+'</details>':
+    '<p class="tmuted">No hay ventas vigentes de garrafones a Q9 o más.</p>')+
+   (canceladas.length?'<details style="margin-top:12px"><summary>Ver ventas canceladas ('+canceladas.length+
+    ' líneas; excluidas del total vigente)</summary>'+tabla(canceladas)+'</details>':'');
+ }catch(e){
+  el.innerHTML='<p class="tmuted">Error consultando historial. '+aqIncHtml(e.message||'')+'</p>';
+ }
 }
 </script>
 <style id="aq-cliente-busqueda-legibilidad-v1">
@@ -21518,7 +21625,7 @@ async function aqCeCargarAtribuciones(){
   aqCePromesaAtribuciones=(async()=>{
     const mensaje=document.getElementById('aq-ce-asignaciones-estado');
     try{
-      const {data,error}=await sb.rpc('aq_clientes_atribucion_listar',aqIncAuth());
+      const {data,error}=await sb.rpc('aq_clientes_atribucion_listar_auth_v1',{});
       if(error)throw error;
       aqCeAtribuciones=new Map((Array.isArray(data)?data:[]).map(a=>[Number(a.cliente_id),a]));
       aqCeAtribucionesDisponibles=true;
@@ -21667,8 +21774,8 @@ async function aqCeGuardarAsignacion(){
  if(!usuario&&!actual){showNotif('Selecciona un usuario para asignar','#c62828');return;}
  const btn=document.getElementById('aq-ce-modal-guardar');btn.disabled=true;
  try{
-   const {data,error}=await sb.rpc('aq_cliente_asignar_responsable',{
-     ...aqIncAuth(),p_cliente:aqCeAsignacionClienteId,p_usuario:usuario,p_nota:nota||null
+   const {data,error}=await sb.rpc('aq_cliente_asignar_responsable_auth_v1',{
+     p_cliente:aqCeAsignacionClienteId,p_usuario:usuario,p_nota:nota||null
    });
    if(error)throw error;
    if(usuario){aqCeAtribuciones.set(aqCeAsignacionClienteId,{

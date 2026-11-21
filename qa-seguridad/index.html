@@ -12566,9 +12566,7 @@ function syncFiltroGastos(val,tipo){
 async function delGasto(id){
   if(!confirm('¿Eliminar este gasto? Si tiene una salida de Caja vinculada y todavía no se cerró, se eliminarán ambos registros juntos.'))return;
   try{
-    const resp=await sb.rpc('aq_eliminar_gasto_seguro',{
-      p_token:localStorage.getItem('qa-aqb_token')||'',
-      p_uid:Number(CU?.id)||0,
+    const resp=await sb.rpc('aq_eliminar_gasto_auth_v2',{
       p_gasto_id:Number(id)
     });
     if(resp.error)throw resp.error;
@@ -13028,8 +13026,7 @@ async function generarReporte(){
   // Costo de ventas por LOTES: costo histórico capturado al vender; no vuelve a descontar la factura.
   let costosLote={};
   try{
-    const {data:aqCostos,error:aqCostErr}=await sb.rpc('aq_costos_lotes_reporte',{
-      p_token:localStorage.getItem('qa-aqb_token'),p_uid:Number(CU?.id),
+    const {data:aqCostos,error:aqCostErr}=await sb.rpc('aq_costos_lotes_auth_v1',{
       p_desde:desde||'2000-01-01',p_hasta:hasta||hoy()
     });
     if(aqCostErr)throw aqCostErr;
@@ -13052,8 +13049,7 @@ async function generarReporte(){
   const gananciaBruta=tv-costoTotal;
   let devengadosEspeciales=0;
   try{
-    const {data,error}=await sb.rpc('aq_total_incentivos_reporte',{
-      p_token:localStorage.getItem('qa-aqb_token'),p_uid:Number(CU?.id),
+    const {data,error}=await sb.rpc('aq_total_incentivos_auth_v1',{
       p_desde:desde||'2000-01-01',p_hasta:hasta||hoy()
     });
     if(error)throw error;
@@ -13075,8 +13071,8 @@ async function generarReporte(){
     let tipificados=new Map();
     if(ids.length){
       for(let i=0;i<ids.length;i+=500){
-        const{data:tipos,error:et}=await sb.rpc('aq_facturas_tipos_listar',{
-          p_token:localStorage.getItem('qa-aqb_token')||'',p_uid:Number(CU?.id)||0,p_factura_ids:ids.slice(i,i+500)
+        const{data:tipos,error:et}=await sb.rpc('aq_facturas_tipos_auth_v1',{
+          p_factura_ids:ids.slice(i,i+500)
         });
         if(et)throw et;
         (tipos||[]).forEach(x=>tipificados.set(Number(x.factura_id),x.tipo));
@@ -17664,8 +17660,7 @@ let aqLiqExclusionOK=false;
 async function aqLiqPrepararExclusion(ventasEmp,fecha,productos){
   aqLiqExclusionOK=false;aqLiqExclusionMonto=0;
   try{
-    const {data,error}=await sb.rpc('aq_items_incentivados',{
-      p_token:localStorage.getItem('qa-aqb_token')||'',p_uid:Number(CU?.id)||0,
+    const {data,error}=await sb.rpc('aq_items_incentivados_auth_v1',{
       p_desde:fecha,p_hasta:hoy()
     });
     if(error)throw error;
@@ -21034,7 +21029,6 @@ async function aqCrearClienteConCaptacion(datos){
 /* Nuevos módulos: guardan por RPC (token personalizado); sin tablas de comisiones expuestas directamente. */
 let aqIncCache={equipos:[],incentivos:[]};
 let aqIncMovimientos=[];
-function aqIncAuth(){return {p_token:localStorage.getItem('qa-aqb_token')||'',p_uid:Number(CU?.id)||0};}
 function aqIncNombreEmp(id){return D.empleados.find(e=>Number(e.id)===Number(id))?.nombre||'Empleado #'+id;}
 function aqIncNombreCli(id){return D.clientes.find(e=>Number(e.id)===Number(id))?.nombre||'Cliente #'+id;}
 function aqIncFmt(x){return fQ(Number(x)||0);}
@@ -21143,7 +21137,7 @@ async function aqIncInit(){
 async function aqIncRecargar(){
  const estado=document.getElementById('aq-inc-status');if(estado)estado.textContent='⏳ Consultando configuración…';
  try{
-  const {data,error}=await sb.rpc('aq_estado_incentivos',aqIncAuth());
+  const {data,error}=await sb.rpc('aq_estado_incentivos_auth_v1',{});
   if(error)throw error;
   aqIncCache=data||{equipos:[],incentivos:[]};
   aqIncPintar();
@@ -21208,7 +21202,7 @@ function aqIncRenderSugeridos(){
 async function aqCrearEquipo(){
  const nombre=document.getElementById('aq-equipo-nombre').value.trim();const a=Number(document.getElementById('aq-equipo-a').value);const b=Number(document.getElementById('aq-equipo-b').value);
  if(!nombre||!a||!b||a===b){showNotif('Pon nombre y dos empleados distintos','#c62828');return;}
- const {error}=await sb.rpc('aq_guardar_equipo',{...aqIncAuth(),p_nombre:nombre,p_empleado_a:a,p_empleado_b:b});
+ const {error}=await sb.rpc('aq_guardar_equipo_auth_v1',{p_nombre:nombre,p_empleado_a:a,p_empleado_b:b});
  if(error){showNotif(error.message,'#c62828');return;}
  document.getElementById('aq-equipo-nombre').value='';await aqIncRecargar();showNotif('Equipo creado ✅');
 }
@@ -21219,13 +21213,13 @@ async function aqGuardarIncentivo(){
  const confirmado=document.getElementById('aq-inc-confirmar').checked;
  if(!cliente||!producto||!captador||!Number.isFinite(importe)||importe<0||!confirmado){showNotif('Selecciona cliente, garrafón, captador y confirma la captación','#c62828');return;}
  const modalidad=reparto==='equipo'?'equipo':'individual';const beneficiario=modalidad==='individual'?Number(reparto.split(':')[1]):null;
- const {error}=await sb.rpc('aq_guardar_incentivo',{...aqIncAuth(),p_cliente:cliente,p_producto:producto,p_captador:captador,p_equipo:equipo,p_modalidad:modalidad,p_beneficiario:beneficiario,p_importe:importe,p_confirmado:true});
+ const {error}=await sb.rpc('aq_guardar_incentivo_auth_v1',{p_cliente:cliente,p_producto:producto,p_captador:captador,p_equipo:equipo,p_modalidad:modalidad,p_beneficiario:beneficiario,p_importe:importe,p_confirmado:true});
  if(error){showNotif(error.message,'#c62828');return;}
  document.getElementById('aq-inc-confirmar').checked=false;await aqIncRecargar();showNotif('Incentivo autorizado ✅');
 }
 async function aqFinalizarIncentivo(id){
  if(!confirm('¿Finalizar este incentivo? No modifica ventas anteriores.'))return;
- const {error}=await sb.rpc('aq_finalizar_incentivo',{...aqIncAuth(),p_incentivo:id});
+ const {error}=await sb.rpc('aq_finalizar_incentivo_auth_v1',{p_incentivo:id});
  if(error){showNotif(error.message,'#c62828');return;}
  await aqIncRecargar();showNotif('Incentivo finalizado');
 }
@@ -21235,7 +21229,7 @@ async function aqConsultarMovimientos(desde,hasta){
     let permisos=[];try{permisos=JSON.parse(CU?.permisos_custom||'null')||PERMS[CU?.rol]||[];}catch(e){}
     if(!permisos.includes('comisiones')&&!permisos.includes('rrhh'))return [];
   }
-  const {data,error}=await sb.rpc('aq_movimientos_incentivos',{...aqIncAuth(),p_desde:desde,p_hasta:hasta});
+  const {data,error}=await sb.rpc('aq_movimientos_incentivos_auth_v1',{p_desde:desde,p_hasta:hasta});
   if(error)throw error;
   return data||[];
  }catch(e){console.warn('No se pudieron consultar incentivos',e);return [];}
@@ -21285,9 +21279,12 @@ async function aqPagarIncentivo(empleadoId){
  const desde=document.getElementById('aq-inc-desde').value,hasta=document.getElementById('aq-inc-hasta').value;
  const nombre=aqIncNombreEmp(empleadoId);
  if(!confirm('¿Registrar liquidación de incentivos especiales a '+nombre+' del '+desde+' al '+hasta+'? Solo se liquidarán movimientos no pagados y cobrados.'))return;
- const {data,error}=await sb.rpc('aq_liquidar_incentivos',{...aqIncAuth(),p_empleado:Number(empleadoId),p_desde:desde,p_hasta:hasta,p_origen:document.getElementById('aq-inc-origen')?.value||'externo'});
+ const payload={p_empleado:Number(empleadoId),p_desde:desde,p_hasta:hasta,p_origen:document.getElementById('aq-inc-origen')?.value||'externo'};
+ const clave='liquidar-incentivos-'+CU.id+'-'+empleadoId;
+ const {data,error}=await sb.rpc('aq_liquidar_incentivos_auth_v2',{...payload,p_nonce:aqNonceOperacion(clave,payload)});
  if(error){showNotif(error.message,'#c62828');return;}
- showNotif('Incentivos liquidados: '+aqIncFmt(data));await aqReporteIncentivos();
+ aqConfirmarOperacion(clave);
+ showNotif('Incentivos liquidados: '+aqIncFmt(data.monto));await aqReporteIncentivos();
 }
 
 </script>
@@ -21313,7 +21310,7 @@ async function aqVerLotes(){
   box.innerHTML='<p class="tmuted">Consultando lotes…</p>';
   if(CU?.rol!=='jefe'){box.innerHTML='<p class="tmuted">Solo el jefe puede consultar los costos por lote.</p>';return;}
   try{
-    const {data,error}=await sb.rpc('aq_lotes_resumen',{p_token:localStorage.getItem('qa-aqb_token'),p_uid:Number(CU?.id)});
+    const {data,error}=await sb.rpc('aq_lotes_resumen_auth_v1',{});
     if(error)throw error;
     const filas=data||[];
     const prodId=Number(document.getElementById('aq-lotes-producto')?.value)||0;
@@ -21627,7 +21624,7 @@ async function aqCeCargarAtribuciones(){
   aqCePromesaAtribuciones=(async()=>{
     const mensaje=document.getElementById('aq-ce-asignaciones-estado');
     try{
-      const {data,error}=await sb.rpc('aq_clientes_atribucion_listar',aqIncAuth());
+      const {data,error}=await sb.rpc('aq_clientes_atribucion_listar_auth_v1',{});
       if(error)throw error;
       aqCeAtribuciones=new Map((Array.isArray(data)?data:[]).map(a=>[Number(a.cliente_id),a]));
       aqCeAtribucionesDisponibles=true;
@@ -21776,8 +21773,8 @@ async function aqCeGuardarAsignacion(){
  if(!usuario&&!actual){showNotif('Selecciona un usuario para asignar','#c62828');return;}
  const btn=document.getElementById('aq-ce-modal-guardar');btn.disabled=true;
  try{
-   const {data,error}=await sb.rpc('aq_cliente_asignar_responsable',{
-     ...aqIncAuth(),p_cliente:aqCeAsignacionClienteId,p_usuario:usuario,p_nota:nota||null
+   const {data,error}=await sb.rpc('aq_cliente_asignar_responsable_auth_v1',{
+     p_cliente:aqCeAsignacionClienteId,p_usuario:usuario,p_nota:nota||null
    });
    if(error)throw error;
    if(usuario){aqCeAtribuciones.set(aqCeAsignacionClienteId,{

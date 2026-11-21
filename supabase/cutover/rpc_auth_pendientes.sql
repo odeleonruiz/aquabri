@@ -73,3 +73,17 @@ grant execute on function public.aq_rrhh_pagar_retro_auth_v1(p_nonce text, p_emp
 grant execute on function public.aq_rrhh_quitar_ausencia_auth_v1(p_ausencia_id bigint) to authenticated;
 grant execute on function public.aq_rrhh_registrar_ausencia_auth_v1(p_empleado_id integer, p_fecha date, p_notas text) to authenticated;
 grant execute on function public.aq_vender_con_envases_auth_v3(p_nonce text, p_venta jsonb, p_items jsonb) to authenticated;
+grant execute on function public.aq_cliente_asignar_responsable_auth_v1(bigint,bigint,text) to authenticated;
+grant execute on function public.aq_clientes_atribucion_listar_auth_v1() to authenticated;
+grant execute on function public.aq_costos_lotes_auth_v1(date,date) to authenticated;
+grant execute on function public.aq_eliminar_gasto_auth_v2(integer) to authenticated;
+grant execute on function public.aq_estado_incentivos_auth_v1() to authenticated;
+grant execute on function public.aq_facturas_tipos_auth_v1(bigint[]) to authenticated;
+grant execute on function public.aq_finalizar_incentivo_auth_v1(bigint) to authenticated;
+grant execute on function public.aq_guardar_equipo_auth_v1(text,bigint,bigint) to authenticated;
+grant execute on function public.aq_guardar_incentivo_auth_v1(bigint,bigint,bigint,bigint,text,bigint,numeric,boolean) to authenticated;
+grant execute on function public.aq_items_incentivados_auth_v1(date,date) to authenticated;
+grant execute on function public.aq_liquidar_incentivos_auth_v2(text,bigint,date,date,text) to authenticated;
+grant execute on function public.aq_lotes_resumen_auth_v1() to authenticated;
+grant execute on function public.aq_movimientos_incentivos_auth_v1(date,date) to authenticated;
+grant execute on function public.aq_total_incentivos_auth_v1(date,date) to authenticated;

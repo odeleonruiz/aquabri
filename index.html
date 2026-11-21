@@ -14895,7 +14895,9 @@ function scrollToNuevaVenta(){
 let chatCanalActual='general';
 let chatParaId=null;
 let chatParaNombre='# General';
-let chatSuscripcion=null;
+let chatAdminVisible=false;
+let chatUltimaVista=null;
+let chatActualizando=false;
 let chatIntervalId=null;
 
 async function initChat(){
@@ -14907,12 +14909,15 @@ async function initChat(){
     renderChatAdmin();
   }
   
-  if(chatSuscripcion)chatSuscripcion.unsubscribe();
-  chatSuscripcion=sb.channel('chat-canal')
-    .on('postgres_changes',{event:'INSERT',schema:'public',table:'mensajes'},()=>{
-      cargarMensajes();
-      actualizarBadges();
-    }).subscribe();
+  // La sesión del principal se valida en las consultas HTTP del chat.
+  if(!chatIntervalId)chatIntervalId=setInterval(async()=>{
+    if(chatActualizando||document.hidden||!CU||!document.getElementById('page-chat')?.classList.contains('active'))return;
+    chatActualizando=true;
+    try{
+      if(chatAdminVisible)await verChatAdmin(chatParaId,chatParaNombre);
+      else await cargarMensajes();
+    }finally{chatActualizando=false;}
+  },5000);
   actualizarBadges();
 }
 
@@ -14943,6 +14948,8 @@ function chatVolverSidebar(){
 }
 
 function seleccionarCanal(tipo,paraId,nombre){
+  chatAdminVisible=false;
+  chatUltimaVista=null;
   chatCanalActual=tipo;chatParaId=paraId;chatParaNombre=nombre;
   
   document.querySelectorAll('.chat-item').forEach(el=>el.classList.remove('active'));
@@ -14960,7 +14967,8 @@ function seleccionarCanal(tipo,paraId,nombre){
 }
 
 async function cargarMensajes(){
-  let q=sb.from('mensajes').select('*').order('creado_en',{ascending:true}).limit(100);
+  const canal=chatCanalActual,usuario=chatParaId;
+  let q=sb.from('mensajes').select('*').order('creado_en',{ascending:false}).order('id',{ascending:false}).limit(100);
   if(chatCanalActual==='general'){
     q=q.eq('tipo','general');
   }else{
@@ -14972,7 +14980,12 @@ async function cargarMensajes(){
       q=q.eq('tipo','privado').or(`and(de_usuario_id.eq.${CU.id},para_usuario_id.eq.${chatParaId}),and(de_usuario_id.eq.${chatParaId},para_usuario_id.eq.${CU.id})`);
     }
   }
-  const{data:msgs}=await q;
+  const{data:msgs,error}=await q;
+  if(error||chatAdminVisible||canal!==chatCanalActual||usuario!==chatParaId)return;
+  const vista=JSON.stringify([canal,usuario,msgs]);
+  if(vista===chatUltimaVista)return;
+  chatUltimaVista=vista;
+  msgs?.reverse();
   if(msgs)msgs.forEach(m=>{const u=D.usuarios.find(x=>x.id===m.de_usuario_id);m.usuarios={nombre:u?.nombre||'?',foto:u?.foto||''};});
   const el=document.getElementById('chat-mensajes');
   if(!el)return;
@@ -14997,7 +15010,7 @@ async function cargarMensajes(){
       items.push(`<div class="msg-fecha-sep"><span>${label}</span></div>`);
     }
     const msgId=m.id;
-    const txt=m.editado?m.contenido+' <span style="font-size:10px;color:#9e9e9e">editado</span>':m.contenido;
+    const txt=m.editado?aqEsc(m.contenido)+' <span style="font-size:10px;color:#9e9e9e">editado</span>':aqEsc(m.contenido);
     const alineacion=esPropio?'flex-end':'flex-start';
     items.push(`<div style="display:flex;flex-direction:column;align-items:${alineacion}" data-msg-id="${msgId}" data-es-propio="${esPropio}" data-contenido="${encodeURIComponent(m.contenido||'')}">
       <div class="msg-burbuja ${esPropio?'msg-propio':'msg-otro'}" id="msg-${msgId}">
@@ -15085,18 +15098,24 @@ async function renderChatAdmin(){
 }
 
 async function verChatAdmin(uid,nombre){
+  chatAdminVisible=true;
   
   chatCanalActual='privado';
   chatParaId=uid;
   chatParaNombre=nombre;
   document.getElementById('chat-canal-nombre').textContent='👁 Chat de '+nombre+' (admin)';
   document.getElementById('chat-canal-desc').textContent='Vista de administrador';
-  const{data:msgs}=await sb.from('mensajes')
+  const{data:msgs,error}=await sb.from('mensajes')
     .select('*')
     .eq('tipo','privado')
     .or(`de_usuario_id.eq.${uid},para_usuario_id.eq.${uid}`)
-    .order('creado_en',{ascending:true})
+    .order('creado_en',{ascending:false}).order('id',{ascending:false})
     .limit(200);
+  if(error||!chatAdminVisible||chatParaId!==uid)return;
+  const vista=JSON.stringify(['admin',uid,msgs]);
+  if(vista===chatUltimaVista)return;
+  chatUltimaVista=vista;
+  msgs?.reverse();
   const el=document.getElementById('chat-mensajes');
   if(!el)return;
   if(!msgs||!msgs.length){el.innerHTML='<p class="tmuted" style="text-align:center;margin:auto;padding:20px">Sin mensajes privados</p>';return;}
@@ -15107,9 +15126,9 @@ async function verChatAdmin(uid,nombre){
     const hora=new Date(m.creado_en).toLocaleTimeString('es-GT',{hour:'2-digit',minute:'2-digit'});
     const fecha=new Date(m.creado_en).toLocaleDateString('es-GT',{day:'2-digit',month:'2-digit'});
     return`<div style="display:flex;flex-direction:column;align-items:${esEsteUser?'flex-start':'flex-end'};gap:2px">
-      <span style="font-size:10px;color:var(--gris);font-weight:600;margin-${esEsteUser?'left':'right'}:8px">${nombre2}</span>
+      <span style="font-size:10px;color:var(--gris);font-weight:600;margin-${esEsteUser?'left':'right'}:8px">${aqEsc(nombre2)}</span>
       <div style="max-width:75%;background:${esEsteUser?'#fff':'var(--azulc)'};padding:8px 12px;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.1);font-size:13px;line-height:1.4;word-break:break-word">
-        ${m.contenido}
+        ${aqEsc(m.contenido)}
       </div>
       <span style="font-size:10px;color:var(--gris);margin-${esEsteUser?'left':'right'}:8px">${fecha} ${hora}</span>
     </div>`;

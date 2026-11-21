@@ -17,6 +17,21 @@ begin
 end
 $transicion$;
 
+-- Reemplazar las políticas activadas en producción durante la transición de sesión.
+do $sesion24$
+declare
+    regla record;
+begin
+    for regla in
+        select tablename, policyname from pg_policies
+        where schemaname = 'public' and tablename in ('activos_cat', 'carga_items', 'cargas', 'categorias', 'comisiones', 'config', 'empleados', 'envases_bodega', 'factura_items', 'facturas_proveedores', 'gastos', 'insumos', 'mensajes', 'metas', 'metas_empleados', 'pagos', 'producto_insumos', 'productos', 'puntos_config', 'rutas', 'vales', 'vehiculos', 'venta_items', 'ventas')
+          and policyname in ('aq_activos_cat_lectura_auth', 'aq_carga_items_lectura_auth', 'aq_cargas_lectura_auth', 'aq_categorias_lectura_auth', 'aq_comisiones_lectura_auth', 'aq_config_lectura_auth', 'aq_empleados_lectura_auth', 'aq_envases_bodega_lectura_permiso', 'aq_factura_items_lectura_jefe', 'aq_factura_items_lectura_permiso', 'aq_facturas_lectura_jefe', 'aq_facturas_lectura_permiso', 'aq_gastos_lectura_jefe', 'aq_gastos_lectura_permiso', 'aq_insumos_lectura_autorizada', 'aq_meta_empleado_lectura_jefe', 'aq_metas_lectura_permiso', 'aq_pagos_rrhh_lectura_auth', 'aq_principal_delete', 'aq_principal_insert', 'aq_principal_select', 'aq_principal_update', 'aq_producto_insumos_lectura_auth', 'aq_productos_select_usuario_vinculado', 'aq_puntos_config_lectura_permiso', 'aq_rutas_select_auth_v1', 'aq_vales_rrhh_lectura_auth', 'aq_vehiculos_alta_jefe', 'aq_vehiculos_edicion_jefe', 'aq_vehiculos_lectura_auth', 'aq_venta_items_lectura_auth', 'aq_ventas_lectura_auth')
+    loop
+        execute format('drop policy %I on public.%I', regla.policyname, regla.tablename);
+    end loop;
+end
+$sesion24$;
+
 alter table public."activos_cat" enable row level security;
 revoke all on public."activos_cat" from public, anon, authenticated;
 drop policy if exists "acceso_total_activos_cat" on public."activos_cat";

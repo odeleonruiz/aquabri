@@ -293,14 +293,14 @@ create policy "aq_ruta_paradas_select_auth_v1" on public."ruta_paradas" as PERMI
    FROM rutas r
   WHERE ((r.id = ruta_paradas.ruta_id) AND ((( SELECT aquabri_private.rol_actual() AS rol_actual) = 'jefe'::text) OR (( SELECT aquabri_private.tiene_permiso_actual('mapa'::text) AS tiene_permiso_actual) AND (EXISTS ( SELECT 1
            FROM usuarios u
-          WHERE ((u.auth_uid = ( SELECT auth.uid() AS uid)) AND (u.empleado_id IS NOT NULL) AND (u.empleado_id = r.empleado_id)))))))))));
+          WHERE ((u.auth_uid = ( SELECT auth.uid() AS uid)) AND (coalesce(u.empleado_id, (select min(e.id) from public.empleados e where e.usuario_id=u.id having count(*)=1)) = r.empleado_id)))))))))));
 grant SELECT on public."ruta_paradas" to authenticated;
 alter table public."rutas" enable row level security;
 revoke all on public."rutas" from public, anon, authenticated;
 drop policy if exists "acceso_total_rutas" on public."rutas";
 create policy "aq_rutas_select_auth_v1" on public."rutas" as PERMISSIVE for SELECT to authenticated using (((( SELECT auth.uid() AS uid) IS NOT NULL) AND ((( SELECT aquabri_private.rol_actual() AS rol_actual) = 'jefe'::text) OR (( SELECT aquabri_private.tiene_permiso_actual('mapa'::text) AS tiene_permiso_actual) AND (EXISTS ( SELECT 1
    FROM usuarios u
-  WHERE ((u.auth_uid = ( SELECT auth.uid() AS uid)) AND (u.empleado_id IS NOT NULL) AND (u.empleado_id = rutas.empleado_id))))))));
+  WHERE ((u.auth_uid = ( SELECT auth.uid() AS uid)) AND (coalesce(u.empleado_id, (select min(e.id) from public.empleados e where e.usuario_id=u.id having count(*)=1)) = rutas.empleado_id))))))));
 grant SELECT on public."rutas" to authenticated;
 alter table public."rutas_personalizadas" enable row level security;
 revoke all on public."rutas_personalizadas" from public, anon, authenticated;

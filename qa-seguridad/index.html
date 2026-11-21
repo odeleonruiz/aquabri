@@ -5508,15 +5508,6 @@ async function cobrar(enviarWsp=false){
     document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
     return false;
   }
-  // Los pedidos programados requieren su propia RPC autenticada. No convertir
-  // reservas en ventas entregadas ni alterar stock/caja sin validación del servidor.
-  if(estado!=='Entregado'){
-    alert('El flujo de pedidos programados aún no está habilitado en esta versión de pruebas segura. Usa AQUABRI oficial para programarlos.');
-    document.getElementById('loading-screen').style.display='none';
-    window._cobrando=false;clearTimeout(_cobrarTimeout);
-    document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
-    return false;
-  }
   // Nombre libre si no hay cliente registrado
   const nombreLibre=(!cid&&document.getElementById('v-cli-input')?.value.trim())||null;
   const notasConNombre=nombreLibre?(nombreLibre+(notas?(' — '+notas):'')):notas;
@@ -5531,6 +5522,30 @@ async function cobrar(enviarWsp=false){
     bonif_cant:Number(item.bonifCant)||0,
     bonif_prod_id:item.bonifProdId||null
   }));
+  if(estado==='Pendiente'){
+    try{
+      const fecha=entVal==='programado'?document.getElementById('v-fecha-prog').value:fechaVenta;
+      if(!fecha)throw new Error('Selecciona la fecha de entrega');
+      const pedido={fecha,cliente_id:cid?Number(cid):null,notas:notasConNombre||'',desc_gral:dg,bonificaciones:bonifs};
+      const clave='pedido-carrito-'+CU.id;
+      const {data,error}=await sb.rpc('aq_crear_pedido_auth_v1',{
+        p_nonce:aqNonceOperacion(clave,{pedido,items:detalleVenta}),p_pedido:pedido,p_items:detalleVenta
+      });
+      if(error||!data?.ok||!data.id)throw error||new Error('Pedido sin confirmar');
+      aqConfirmarOperacion(clave);
+      clearCart();
+      document.getElementById('v-entrega').value='inmediata';onEntregaChange();
+      try{await loadLight();renderPedidosPendientesVentas();}
+      catch(e){showNotif('Pedido #'+data.id+' guardado. Actualiza el historial para verlo.');return true;}
+      showNotif('Pedido #'+data.id+' guardado para '+fecha);
+      return true;
+    }catch(e){showNotif('No se confirmó el pedido: '+e.message,'#c62828');return false;}
+    finally{
+      document.getElementById('loading-screen').style.display='none';
+      window._cobrando=false;clearTimeout(_cobrarTimeout);
+      document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
+    }
+  }
   const envasesLlevan=usuarioPuedeGestionarEnvases()?Number(document.getElementById('v-env-llevan')?.value||0):0;
   const envasesDevueltos=usuarioPuedeGestionarEnvases()?Number(document.getElementById('v-env-devuelven')?.value||0):0;
   if(!Number.isSafeInteger(envasesLlevan)||!Number.isSafeInteger(envasesDevueltos)||envasesLlevan<0||envasesDevueltos<0||envasesLlevan>100000||envasesDevueltos>100000){
@@ -12234,9 +12249,36 @@ function renderCargaItems(){
     </div>`).join('')+
     `</div>`;
 }
-async function saveCarga(){
-  showNotif('Crear cargas está bloqueado en pruebas hasta tener registro atómico de carga, inventario y devoluciones. No se guardó nada.','#c62828');
+async function registrarCargaInventario(recarga){
+  const items=recarga?_recargaItems:cargaItems;
+  if(!items.length){showNotif('Agrega productos','#c62828');return;}
+  const payload={
+    p_carga:recarga?_recargaCargaId:null,
+    p_vehiculo:recarga?null:Number(document.getElementById('carg-veh').value),
+    p_empleado:recarga?null:Number(document.getElementById('carg-emp').value),
+    p_fecha:recarga?null:document.getElementById('carg-fecha').value,
+    p_descripcion:recarga?null:document.getElementById('carg-desc').value,
+    p_items:items.map(i=>({producto_id:Number(i.pid),cantidad:Number(i.cant)}))
+  };
+  const clave=recarga?'recargar-'+_recargaCargaId:'crear-carga';
+  showLoad(true);
+  try{
+    const {data,error}=await sb.rpc('aq_guardar_carga_auth_v1',{...payload,p_nonce:aqNonceOperacion(clave,payload)});
+    if(error||!data?.id)throw error||new Error('Carga sin confirmar');
+    aqConfirmarOperacion(clave);
+    if(recarga){
+      document.getElementById('modal-recargar').style.display='none';
+      _recargaCargaId=null;_recargaItems=[];
+    }else{
+      cargaItems=[];renderCargaItems();document.getElementById('carg-desc').value='';
+    }
+    try{await loadAll();renderCargasTabla();await renderCargasLista();renderCargasProdBtns();}
+    catch(e){showNotif('Carga guardada. Actualiza el inventario para verla.');return;}
+    showNotif(recarga?'Recarga guardada':'Carga '+data.numero+' guardada');
+  }catch(e){showNotif('No se confirmó la carga: '+e.message,'#c62828');}
+  finally{showLoad(false);}
 }
+function saveCarga(){return registrarCargaInventario(false);}
 // Recargar: agregar más producto a una carga activa
 let _recargaCargaId=null;
 let _recargaItems=[];
@@ -12289,9 +12331,7 @@ function renderRecargaItems(){
     <span>${i.nombre}</span><span style="font-weight:700;color:var(--azul)">×${i.cant}</span>
   </div>`).join('');
 }
-async function guardarRecarga(){
-  showNotif('Recargar carga está bloqueado en pruebas hasta validar inventario atómico y devolución de sobrantes. No se guardó nada.','#c62828');
-}
+function guardarRecarga(){return registrarCargaInventario(true);}
 async function renderCargasLista(){
   const{data:cargas}=await sb.from('cargas').select('*,vehiculos(nombre),empleados(nombre),carga_items(nombre_producto,cantidad)').eq('estado','En Ruta').order('id',{ascending:true});
   const el=document.getElementById('cargas-resumen');if(!el)return;
@@ -12795,7 +12835,7 @@ async function aqCargarVendedoresReportes(){
   let usuarios=usuariosPrevios;
   let huboError=false;
   try{
-    const {data,error}=await sb.from('usuarios').select('id,nombre,usuario,rol,estado').order('nombre',{ascending:true});
+    const {data,error}=await sb.from('usuarios').select('id,nombre,usuario,rol,foto,permisos_custom,empleado_id,auth_uid').order('nombre',{ascending:true});
     if(error)throw error;
     if(Array.isArray(data)){
       usuarios=data;
@@ -16284,7 +16324,7 @@ async function posCobrar(conWhatsapp){
   // Sincronizar nombre libre del POS al desktop input
   if(posNombreLibre){const vCliInp=document.getElementById('v-cli-input');if(vCliInp)vCliInp.value=posNombreLibre;}
   document.getElementById('v-entrega').value=entrega;
-  if(document.getElementById('v-fecha-prog')&&fechaProg)document.getElementById('v-fecha-prog').value=fechaProg;
+  document.getElementById('v-fecha-prog').value=fechaProg||'';
   document.getElementById('v-descg').value=descg;
   document.getElementById('v-notas').value=notas;
   document.getElementById('v-pagado').value=pagado;
@@ -16304,6 +16344,7 @@ async function posCobrar(conWhatsapp){
   if(cobroConfirmado!==true)return; // Si hubo error, no vaciar el carrito móvil.
 
   // Limpiar POS después de cobrar
+  document.getElementById('pos-entrega').value='inmediata';posEntregaChange();
   posCart=[];
   posRenderGrid();
   posUpdateBar();

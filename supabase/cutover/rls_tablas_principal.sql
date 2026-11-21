@@ -110,6 +110,8 @@ create policy "aq_caja_lectura_auth" on public."caja" as permissive
 
 drop policy if exists "acceso_total_clientes" on public."clientes";
 drop policy if exists "lectura_publica_clientes" on public."clientes";
+drop policy if exists aq_clientes_sesion_negocio on public."clientes";
+drop policy if exists "aq_clientes_lectura_auth" on public."clientes";
 alter table public."clientes" enable row level security;
 revoke all privileges on table public."clientes" from public, anon, authenticated;
 grant select on table public."clientes" to authenticated;
@@ -194,6 +196,8 @@ create policy "aq_puntos_qr_lectura_autorizada_v1" on public."puntos_canjes_qr" 
 
 drop policy if exists "acceso_puntos_clientes" on public."puntos_clientes";
 drop policy if exists "lectura_publica_puntos" on public."puntos_clientes";
+drop policy if exists aq_puntos_clientes_sesion_negocio on public."puntos_clientes";
+drop policy if exists "aq_puntos_clientes_lectura_auth" on public."puntos_clientes";
 alter table public."puntos_clientes" enable row level security;
 revoke all privileges on table public."puntos_clientes" from public, anon, authenticated;
 grant select on table public."puntos_clientes" to authenticated;
@@ -203,6 +207,8 @@ create policy "aq_puntos_clientes_lectura_auth" on public."puntos_clientes" as p
 
 drop policy if exists "acceso_puntos_historial" on public."puntos_historial";
 drop policy if exists "lectura_publica_historial" on public."puntos_historial";
+drop policy if exists aq_puntos_historial_sesion_negocio on public."puntos_historial";
+drop policy if exists "aq_puntos_historial_lectura_autorizada_v1" on public."puntos_historial";
 alter table public."puntos_historial" enable row level security;
 revoke all privileges on table public."puntos_historial" from public, anon, authenticated;
 grant select on table public."puntos_historial" to authenticated;

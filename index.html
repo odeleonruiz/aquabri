@@ -5414,16 +5414,12 @@ async function cobrar(enviarWsp=false){
     const fechaVentaInput=aqAsegurarFechaVentaDeHoy();
     const saltarCaja=false; // No se salta la apertura, ni siquiera para ventas del Jefe.
     if(!saltarCaja){
-      const {data:estados,error:errorCaja}=await sb.from('caja')
-        .select('id,tipo').eq('fecha',hoy()).in('tipo',['apertura','cierre'])
-        .order('id',{ascending:false}).limit(1);
-      if(errorCaja)throw errorCaja;
-      const ultimo=estados?.[0]||null;
-      if(!ultimo||ultimo.tipo!=='apertura'){
+      const {estado}=await aqEstadoCajaFacturacion();
+      if(estado!=='apertura'){
         document.getElementById('loading-screen').style.display='none';
         window._cobrando=false;clearTimeout(_cobrarTimeout);
         document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
-        alert(ultimo?.tipo==='cierre'?'La Caja está cerrada. Abre una nueva caja desde el módulo Caja antes de vender.':'Debes abrir Caja antes de registrar una venta.');
+        alert(estado==='cierre'?'La Caja está cerrada. Abre una nueva caja desde el módulo Caja antes de vender.':'Debes abrir Caja antes de registrar una venta.');
         goPage('caja');
         return false;
       }
@@ -16404,18 +16400,6 @@ async function posCobrar(conWhatsapp){
   aqAsegurarFechaVentaDeHoy();
   const ahora2=Date.now();
   if(window._cobrando||(window._ultimoCobro&&ahora2-window._ultimoCobro<4000)){showNotif('⏳ Espera, procesando...','#e65100');return;}
-  const {data:controlCaja,error:errorEstadoCaja}=await sb.from('caja')
-    .select('id,tipo').eq('fecha',aqFechaVentaGT())
-    .in('tipo',['apertura','cierre']).order('id',{ascending:false}).limit(1);
-  if(errorEstadoCaja){
-    showNotif('No se pudo verificar la Caja. No se enviará la venta.','#c62828');
-    return;
-  }
-  if(controlCaja?.[0]?.tipo!=='apertura'){
-    showNotif('🔒 Debes tener una caja abierta hoy para vender','#c62828');
-    if(confirm('La Caja no está abierta hoy. ¿Ir al módulo Caja?'))goPage('caja');
-    return;
-  }
   // Construir la misma estructura que cobrar() pero usando posCart
   const cliId=parseInt(document.getElementById('pos-cli').value)||null;
   const posNombreLibre=(!cliId&&document.getElementById('pos-cli-input')?.value.trim())||null;
@@ -16985,18 +16969,21 @@ async function delLiquidacion(id){
 
 async function initCaja(){
   // Cargar apertura de hoy
-  const {data,error} = await sb.from('caja').select('*').eq('fecha', hoy()).order('id', {ascending:false});
-  if(error){
+  let estado;
+  try{
+    ({estado}=await aqEstadoCajaFacturacion());
+  }catch(error){
     console.error('No se pudo leer el estado de Caja:',error);
     showNotif('No se pudo comprobar el estado de Caja. No abras ni cierres hasta recuperar la conexión.','#c62828');
     return;
   }
-  const registros = data || [];
-  // La apertura y el cierre más recientes forman el estado actual: una reapertura
-  // válida posterior a un cierre debe mostrar Caja ABIERTA, no Caja cerrada.
-  const ultimoControl = registros.find(r=>r.tipo==='apertura'||r.tipo==='cierre')||null;
-  const apertura = ultimoControl?.tipo==='apertura'?ultimoControl:null;
-  const cierre = ultimoControl?.tipo==='cierre'?ultimoControl:null;
+  let detalle=null;
+  if(CU?.rol==='jefe'&&estado!=='sin_apertura'){
+    const {data,error}=await sb.from('caja').select('monto,created_at').eq('fecha',hoy()).eq('tipo',estado).order('id',{ascending:false}).limit(1);
+    if(!error)detalle=data?.[0];
+  }
+  const apertura=estado==='apertura'?(detalle||{}):null;
+  const cierre=estado==='cierre'?(detalle||{}):null;
   _cajaAbierta = apertura;
 
   const banner   = document.getElementById('caja-banner-header');
@@ -17012,16 +16999,16 @@ async function initCaja(){
     banner.style.background = 'linear-gradient(135deg,#b71c1c,#c62828)';
     document.getElementById('caja-banner-icon').textContent = '🔒';
     estadoEl.textContent = 'Caja Cerrada';
-    montoEl.textContent  = 'Q '+parseFloat(cierre.monto).toFixed(2);
-    fechaEl.textContent  = 'Cerrada a las '+new Date(cierre.created_at).toLocaleTimeString('es-GT',{hour:'2-digit',minute:'2-digit'});
+    montoEl.textContent  = cierre.monto!=null?'Q '+parseFloat(cierre.monto).toFixed(2):'';
+    fechaEl.textContent  = cierre.created_at?'Cerrada a las '+new Date(cierre.created_at).toLocaleTimeString('es-GT',{hour:'2-digit',minute:'2-digit'}):hoy();
     btnAbrir.style.display = 'flex'; btnAbrir.textContent = '🔓 Abrir Nueva Caja';
     btnCerrar.style.display = 'none';
   } else if(apertura){
     banner.style.background = 'linear-gradient(135deg,#1b5e20,#2e7d32)';
     document.getElementById('caja-banner-icon').textContent = '🔓';
     estadoEl.textContent = 'Caja Abierta';
-    montoEl.textContent  = 'Q '+parseFloat(apertura.monto).toFixed(2);
-    fechaEl.textContent  = 'Abierta a las '+new Date(apertura.created_at).toLocaleTimeString('es-GT',{hour:'2-digit',minute:'2-digit'});
+    montoEl.textContent  = apertura.monto!=null?'Q '+parseFloat(apertura.monto).toFixed(2):'';
+    fechaEl.textContent  = apertura.created_at?'Abierta a las '+new Date(apertura.created_at).toLocaleTimeString('es-GT',{hour:'2-digit',minute:'2-digit'}):hoy();
     btnAbrir.style.display  = 'none';
     btnCerrar.style.display = 'flex';
     resumen.style.display   = '';
@@ -17176,11 +17163,8 @@ async function abrirCaja(){
   const paraEmpId=document.getElementById('caja-apertura-para')?.value||'';
   aqCajaAperturaGuardando=true;
   try{
-    const {data:ultimos,error:lecturaError}=await sb.from('caja')
-      .select('id,tipo').eq('fecha',hoy()).in('tipo',['apertura','cierre'])
-      .order('id',{ascending:false}).limit(1);
-    if(lecturaError)throw lecturaError;
-    if(ultimos?.[0]?.tipo==='apertura'){
+    const {estado}=await aqEstadoCajaFacturacion();
+    if(estado==='apertura'){
       showNotif('La Caja ya está abierta. Actualiza el historial antes de continuar.','#e65100');
       await initCaja();return;
     }
@@ -21129,20 +21113,15 @@ html[data-aq-theme="dark"] .aq-caja-pendiente p{color:#f5e4cf!important}
 
 <script id="aq-caja-obligatoria-reportes-v8">
 // Operaciones diarias consultan el estado compartido en Supabase, no el localStorage.
+async function aqEstadoCajaFacturacion(){
+  const {data,error}=await sb.rpc('aq_estado_caja_facturacion_v1');
+  if(error)throw error;
+  if(!data||!['apertura','cierre','sin_apertura'].includes(data.estado))throw Error('Estado de caja desconocido');
+  return data;
+}
 async function aqBuscarCajaPendienteAnterior(){
-  const fechaActual=aqFechaVentaGT();
-  const {data:aperturas,error:eA}=await sb.from('caja')
-    .select('id,fecha,monto,created_at,usuario_id').eq('tipo','apertura')
-    .lt('fecha',fechaActual).order('fecha',{ascending:false}).order('id',{ascending:false}).limit(1);
-  if(eA)throw eA;
-  const ultima=aperturas?.[0];
-  if(!ultima)return null;
-  // Si la última operación apertura/cierre de esa fecha es una apertura, falta cierre.
-  const {data:ultMov,error:eM}=await sb.from('caja')
-    .select('id,tipo').eq('fecha',ultima.fecha).in('tipo',['apertura','cierre'])
-    .order('id',{ascending:false}).limit(1);
-  if(eM)throw eM;
-  return ultMov?.[0]?.tipo==='apertura'?ultima:null;
+  const {pendiente}=await aqEstadoCajaFacturacion();
+  return pendiente?{fecha:pendiente}:null;
 }
 async function aqBloquearNuevoDiaPorCierre(){
   try{
@@ -21217,10 +21196,7 @@ async function aqActualizarCierreReportes(){
       btn.textContent='🔒 Ir a cerrar caja pendiente';
       return;
     }
-    const {data,error}=await sb.from('caja').select('tipo').eq('fecha',hoy())
-      .in('tipo',['apertura','cierre']).order('id',{ascending:false}).limit(1);
-    if(error)throw error;
-    const estado=data?.[0]?.tipo;
+    const {estado}=await aqEstadoCajaFacturacion();
     text.textContent=estado==='apertura'?'La caja de hoy está abierta. Puedes cerrarla al cuadrar los reportes.':
       estado==='cierre'?'La caja de hoy ya está cerrada.':'Aún no hay una caja abierta hoy.';
     btn.textContent=estado==='apertura'?'🔒 Ir a Caja para cerrar':'🏦 Ver Caja';

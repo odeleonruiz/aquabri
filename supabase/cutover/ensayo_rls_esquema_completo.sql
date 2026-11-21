@@ -76,6 +76,9 @@ alter table public."aq_ventas_integrales_operacion" enable row level security;
 revoke all on public."aq_ventas_integrales_operacion" from public, anon, authenticated;
 alter table public."aq_ventas_operacion" enable row level security;
 revoke all on public."aq_ventas_operacion" from public, anon, authenticated;
+drop policy if exists "aq_ausencias_rrhh_lectura_auth" on public."ausencias";
+drop policy if exists "aq_ausencias_sesion_jefe" on public."ausencias";
+drop policy if exists "aq_ausencias_sesion_propia" on public."ausencias";
 alter table public."ausencias" enable row level security;
 revoke all on public."ausencias" from public, anon, authenticated;
 create policy "aq_ausencias_rrhh_lectura_auth" on public."ausencias" as PERMISSIVE for SELECT to authenticated using (((( SELECT aquabri_private.rol_actual() AS rol_actual) = 'jefe'::text) OR (EXISTS ( SELECT 1
@@ -224,6 +227,8 @@ create policy "aq_pagos_rrhh_lectura_auth" on public."pagos" as PERMISSIVE for S
    FROM empleados e
   WHERE ((e.id = pagos.empleado_id) AND (e.usuario_id = ( SELECT aquabri_private.usuario_id_actual() AS usuario_id_actual)))))));
 grant SELECT on public."pagos" to authenticated;
+drop policy if exists "aq_pagos_comision_consulta_jefe_v1" on public."pagos_comisiones";
+drop policy if exists "aq_comisiones_sesion_jefe" on public."pagos_comisiones";
 alter table public."pagos_comisiones" enable row level security;
 revoke all on public."pagos_comisiones" from public, anon, authenticated;
 create policy "aq_pagos_comision_consulta_jefe_v1" on public."pagos_comisiones" as PERMISSIVE for SELECT to authenticated using (((( SELECT auth.uid() AS uid) IS NOT NULL) AND (( SELECT aquabri_private.rol_actual() AS rol_actual) = 'jefe'::text)));
@@ -314,6 +319,11 @@ revoke all on public."ubicaciones" from public, anon, authenticated;
 alter table public."usuarios" enable row level security;
 revoke all on public."usuarios" from public, anon, authenticated;
 drop policy if exists "acceso_total_usuarios" on public."usuarios";
+drop policy if exists "aq_usuarios_perfil_auth" on public."usuarios";
+drop policy if exists "aq_directorio_sesion" on public."usuarios";
+drop policy if exists "aq_usuarios_alta_jefe" on public."usuarios";
+drop policy if exists "aq_usuarios_edicion_jefe" on public."usuarios";
+drop policy if exists "aq_usuarios_baja_jefe" on public."usuarios";
 create policy "aq_usuarios_perfil_auth" on public."usuarios" as PERMISSIVE for SELECT to authenticated using (((auth_uid = ( SELECT auth.uid() AS uid)) OR (( SELECT aquabri_private.rol_actual() AS rol_actual) = 'jefe'::text)));
 grant SELECT ("id") on public."usuarios" to authenticated;
 grant SELECT ("nombre") on public."usuarios" to authenticated;

@@ -89,6 +89,9 @@ create policy "aq_activos_prestamos_lectura_auth" on public."activos_prestamos" 
     for select to authenticated
     using (((( SELECT aquabri_private.rol_actual() AS rol_actual) = 'jefe'::text) OR ( SELECT aquabri_private.tiene_permiso_actual('activos'::text) AS tiene_permiso_actual)));
 
+drop policy if exists "aq_ausencias_rrhh_lectura_auth" on public."ausencias";
+drop policy if exists "aq_ausencias_sesion_jefe" on public."ausencias";
+drop policy if exists "aq_ausencias_sesion_propia" on public."ausencias";
 alter table public."ausencias" enable row level security;
 revoke all privileges on table public."ausencias" from public, anon, authenticated;
 grant select on table public."ausencias" to authenticated;
@@ -173,6 +176,8 @@ create policy "aq_liquidaciones_lectura_auth" on public."liquidaciones" as permi
    FROM public.empleados e
   WHERE ((e.id = liquidaciones.empleado_id) AND (e.usuario_id = ( SELECT aquabri_private.usuario_id_actual() AS usuario_id_actual))))) OR (usuario_id = ( SELECT aquabri_private.usuario_id_actual() AS usuario_id_actual))));
 
+drop policy if exists "aq_pagos_comision_consulta_jefe_v1" on public."pagos_comisiones";
+drop policy if exists "aq_comisiones_sesion_jefe" on public."pagos_comisiones";
 alter table public."pagos_comisiones" enable row level security;
 revoke all privileges on table public."pagos_comisiones" from public, anon, authenticated;
 grant select on table public."pagos_comisiones" to authenticated;

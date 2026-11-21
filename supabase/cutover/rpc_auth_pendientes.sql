@@ -87,3 +87,4 @@ grant execute on function public.aq_liquidar_incentivos_auth_v2(text,bigint,date
 grant execute on function public.aq_lotes_resumen_auth_v1() to authenticated;
 grant execute on function public.aq_movimientos_incentivos_auth_v1(date,date) to authenticated;
 grant execute on function public.aq_total_incentivos_auth_v1(date,date) to authenticated;
+grant execute on function public.aq_guardar_producto_auth_v1(jsonb,jsonb,integer) to authenticated;

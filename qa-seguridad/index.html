@@ -11266,15 +11266,16 @@ async function saveProd(){
   const nom=document.getElementById('pn').value.trim();if(!nom){showNotif('Nombre requerido','#c62828');return;}
   const bonifProdVal=document.getElementById('pbp-sel').value;
   const obj={nombre:nom,cat:document.getElementById('pcat').value,precio:parseFloat(document.getElementById('pp').value)||0,costo:parseFloat(document.getElementById('pco').value)||0,stock:parseInt(document.getElementById('pst').value)||0,minstock:parseInt(document.getElementById('pmin').value)||10,retornable:document.getElementById('pret').value,oferta_precio:parseFloat(document.getElementById('pop').value)||0,oferta_desc:document.getElementById('pod').value,bonif_desc:document.getElementById('pbd').value,bonif_prod:bonifProdVal||null,bonif_cant:parseInt(document.getElementById('pbc').value)||0,uds_paquete:parseInt(document.getElementById('puds')?.value)||1};
-  const id=document.getElementById('pid').value;let pid=id?parseInt(id):null;
-  if(id){
-    const {error}=await sb.from('productos').update(obj).eq('id',parseInt(id));
-    if(error){showNotif('No se guardó el producto: '+error.message,'#c62828');return;}
-  }else{const{data:np}=await sb.from('productos').insert(obj).select().single();pid=np.id;}
-  await aqGuardarFotoProducto(pid);
-  await sb.from('producto_insumos').delete().eq('producto_id',pid);
-  for(const l of prodLigados)await sb.from('producto_insumos').insert({producto_id:pid,insumo_id:l.insumo_id,cant:l.cant});
-  await loadAll();clearProdForm();renderProds();fillVSelects();fillPbpSel();showNotif('Producto guardado ✅');
+  const id=document.getElementById('pid').value;
+  const insumos=prodLigados.map(({insumo_id,cant})=>({insumo_id,cant}));
+  let producto;
+  try{
+    producto=await aqModuloRpc('aq_guardar_producto_auth_v1',{p_producto:obj,p_insumos:insumos,p_id:id?Number(id):null});
+  }catch(error){showNotif('No se guardó el producto: '+error.message,'#c62828');return;}
+  document.getElementById('pid').value=producto.id;
+  const fotoGuardada=await aqGuardarFotoProducto(producto.id);
+  await loadAll();renderProds();fillVSelects();fillPbpSel();
+  if(fotoGuardada){clearProdForm();showNotif('Producto guardado ✅');}
 }
 
 function renderProds(){

@@ -5508,15 +5508,6 @@ async function cobrar(enviarWsp=false){
     document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
     return false;
   }
-  // Los pedidos programados requieren su propia RPC autenticada. No convertir
-  // reservas en ventas entregadas ni alterar stock/caja sin validación del servidor.
-  if(estado!=='Entregado'){
-    alert('El flujo de pedidos programados aún no está habilitado en esta versión de pruebas segura. Usa AQUABRI oficial para programarlos.');
-    document.getElementById('loading-screen').style.display='none';
-    window._cobrando=false;clearTimeout(_cobrarTimeout);
-    document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
-    return false;
-  }
   // Nombre libre si no hay cliente registrado
   const nombreLibre=(!cid&&document.getElementById('v-cli-input')?.value.trim())||null;
   const notasConNombre=nombreLibre?(nombreLibre+(notas?(' — '+notas):'')):notas;
@@ -5531,6 +5522,30 @@ async function cobrar(enviarWsp=false){
     bonif_cant:Number(item.bonifCant)||0,
     bonif_prod_id:item.bonifProdId||null
   }));
+  if(estado==='Pendiente'){
+    try{
+      const fecha=entVal==='programado'?document.getElementById('v-fecha-prog').value:fechaVenta;
+      if(!fecha)throw new Error('Selecciona la fecha de entrega');
+      const pedido={fecha,cliente_id:cid?Number(cid):null,notas:notasConNombre||'',desc_gral:dg,bonificaciones:bonifs};
+      const clave='pedido-carrito-'+CU.id;
+      const {data,error}=await sb.rpc('aq_crear_pedido_auth_v1',{
+        p_nonce:aqNonceOperacion(clave,{pedido,items:detalleVenta}),p_pedido:pedido,p_items:detalleVenta
+      });
+      if(error||!data?.ok||!data.id)throw error||new Error('Pedido sin confirmar');
+      aqConfirmarOperacion(clave);
+      clearCart();
+      document.getElementById('v-entrega').value='inmediata';onEntregaChange();
+      try{await loadLight();renderPedidosPendientesVentas();}
+      catch(e){showNotif('Pedido #'+data.id+' guardado. Actualiza el historial para verlo.');return true;}
+      showNotif('Pedido #'+data.id+' guardado para '+fecha);
+      return true;
+    }catch(e){showNotif('No se confirmó el pedido: '+e.message,'#c62828');return false;}
+    finally{
+      document.getElementById('loading-screen').style.display='none';
+      window._cobrando=false;clearTimeout(_cobrarTimeout);
+      document.querySelectorAll('[onclick*="cobrar"]').forEach(b=>{b.disabled=false;b.style.opacity='';b.style.pointerEvents='';});
+    }
+  }
   const envasesLlevan=usuarioPuedeGestionarEnvases()?Number(document.getElementById('v-env-llevan')?.value||0):0;
   const envasesDevueltos=usuarioPuedeGestionarEnvases()?Number(document.getElementById('v-env-devuelven')?.value||0):0;
   if(!Number.isSafeInteger(envasesLlevan)||!Number.isSafeInteger(envasesDevueltos)||envasesLlevan<0||envasesDevueltos<0||envasesLlevan>100000||envasesDevueltos>100000){
@@ -16309,7 +16324,7 @@ async function posCobrar(conWhatsapp){
   // Sincronizar nombre libre del POS al desktop input
   if(posNombreLibre){const vCliInp=document.getElementById('v-cli-input');if(vCliInp)vCliInp.value=posNombreLibre;}
   document.getElementById('v-entrega').value=entrega;
-  if(document.getElementById('v-fecha-prog')&&fechaProg)document.getElementById('v-fecha-prog').value=fechaProg;
+  document.getElementById('v-fecha-prog').value=fechaProg||'';
   document.getElementById('v-descg').value=descg;
   document.getElementById('v-notas').value=notas;
   document.getElementById('v-pagado').value=pagado;
@@ -16329,6 +16344,7 @@ async function posCobrar(conWhatsapp){
   if(cobroConfirmado!==true)return; // Si hubo error, no vaciar el carrito móvil.
 
   // Limpiar POS después de cobrar
+  document.getElementById('pos-entrega').value='inmediata';posEntregaChange();
   posCart=[];
   posRenderGrid();
   posUpdateBar();

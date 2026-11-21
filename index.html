@@ -5825,8 +5825,22 @@ async function cambiarTipoDoc(tipo,el){
   if(documento)aqPrecalentarPNGComprobante(documento);
 }
 
+async function aqPrepararQrPuntos(venta){
+  if(!venta?.id||!venta.cliente_id||typeof qrcode!=='function')return '';
+  try{
+    const {data,error}=await sb.rpc('aq_enlace_puntos_comprobante_sesion_v1',{p_venta_id:Number(venta.id)});
+    if(error||!/^[0-9a-f]{64}$/.test(data||''))return '';
+    const enlace=new URL('https://odeleonruiz.github.io/aquabri/puntos.html');
+    enlace.hash='codigo='+data;
+    const qr=qrcode(0,'M');
+    qr.addData(enlace.href);
+    qr.make();
+    return qr.createDataURL(4,16);
+  }catch{return '';}
+}
+
 async function mostrarTicket(venta,items,dg,total,pagado,cid,entrega,esCredito,bonifs){
-  venta._aqPagoComprobante=await aqVerificarPagoComprobante(venta,total);
+  [venta._aqPagoComprobante,venta._aqQrPuntos]=await Promise.all([aqVerificarPagoComprobante(venta,total),aqPrepararQrPuntos(venta)]);
   docActual={venta,items,dg,total,pagado,cid,entrega,esCredito,bonifs};
   tipoDocActual='comprobante';
   document.querySelectorAll('#modal-ticket .tab').forEach(t=>t.classList.remove('active'));
@@ -6017,6 +6031,13 @@ function renderComprobante(venta,items,dg,total,pagado,cid,entrega,esCredito,bon
       </div>`;
     })()}
 
+    ${venta._aqQrPuntos?`<div style="margin:0 20px 12px;padding:7px 10px;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;background:#f5f8fc;color:#183153;border:1px solid #d6dee8;border-radius:10px">
+      <img src="${venta._aqQrPuntos}" alt="QR para consultar tus puntos" width="114" height="114" style="display:block;flex:none;width:114px;height:114px;object-fit:contain;background:#fff;border-radius:4px;image-rendering:pixelated">
+      <div style="flex:0 1 130px">
+        <div style="font-size:13px;font-weight:800">Consulta tus puntos</div>
+        <div style="font-size:11px;color:#5d7188;margin-top:3px">Escanea con tu cámara.</div>
+      </div>
+    </div>`:''}
     <div style="padding:14px 28px;background:#fafcff;border-top:1px solid ${colorBorde};display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;color:${colorTexto}">
       <div style="font-size:11px;color:${colorSuave}">${c.nombre||'Aquabri'}${c.telefono?` · ${c.telefono}`:''}</div>
       <div style="font-size:12px;font-weight:900;color:${colorPrimario}">¡Gracias por su preferencia!</div>
@@ -7126,7 +7147,7 @@ async function abrirComprobanteVenta(vid, enviarWsp=false){
   const pagado=parseFloat(venta.pagado||0);
   const cid=venta.cliente_id;
   const esCredito=(venta.estado==='Pendiente'||venta.estado==='Crédito')&&pagado<total;
-  venta._aqPagoComprobante=await aqVerificarPagoComprobante(venta,total);
+  [venta._aqPagoComprobante,venta._aqQrPuntos]=await Promise.all([aqVerificarPagoComprobante(venta,total),aqPrepararQrPuntos(venta)]);
   docActual={venta,items,dg,total,pagado,cid,entrega:venta.entrega||'',esCredito,bonifs:venta.bonificaciones||''};
   tipoDocActual='comprobante';
   document.querySelectorAll('#modal-ticket .tab').forEach(t=>t.classList.remove('active'));
@@ -15395,11 +15416,24 @@ async function renderPuntos(){
           <button class="btn bp bsm" onclick="canjearPuntos(${p.cliente_id},${saldo})">🎁 Canjear</button>
           <button class="btn bsm" style="background:#546e7a;color:#fff" onclick="verHistorialPuntos(${p.cliente_id})">📋 Historial</button>
           <button class="btn bsm" style="background:#00897b;color:#fff" onclick="comprobantePuntos(${p.cliente_id})">🎟 Comprobante</button>
+          ${CU?.rol==='jefe'?`<button class="btn bi bsm" onclick="aqGestionarEnlacePuntos(${p.cliente_id})">Generar enlace privado</button><button class="btn bsm" onclick="aqGestionarEnlacePuntos(${p.cliente_id},true)">Revocar enlace</button>`:''}
           ${CU&&SOLO_JEFE.includes(CU.rol)?`<button class="btn bsm" style="background:#6a1b9a;color:#fff" onclick="editarPuntos(${p.cliente_id},${saldo},${parseFloat(p.puntos_totales||0)},${parseFloat(p.puntos_canjeados||0)})">✏️ Editar</button><button class="btn bd bsm" onclick="eliminarClientePuntos(${p.cliente_id},'${(cli?.nombre||'').replace(/'/g,'')}')">🗑</button>`:''}
         </div>
       </div>
     </div>`;
   }).join('');
+}
+
+async function aqGestionarEnlacePuntos(clienteId, revocar=false){
+  const aviso=revocar?'¿Revocar el enlace privado de este cliente?':'¿Generar un enlace privado? Cualquier enlace anterior dejará de funcionar.';
+  if(!confirm(aviso))return;
+  const {data,error}=await sb.rpc('aq_enlace_puntos_gestionar_sesion_v1',{p_cliente_id:clienteId,p_revocar:revocar});
+  if(error){showNotif('No se pudo guardar el enlace privado.','#c62828');return;}
+  if(revocar){showNotif('Enlace revocado.');return;}
+  if(!/^[0-9a-f]{64}$/.test(data||'')){showNotif('No se recibió un enlace válido.','#c62828');return;}
+  const enlace=new URL('https://odeleonruiz.github.io/aquabri/puntos.html');
+  enlace.hash='codigo='+data;
+  prompt('Copia y comparte este enlace solo con el cliente:',enlace.href);
 }
 
 async function editarPuntos(clienteId, saldo, totalActual, canjeadosActual){
@@ -22093,5 +22127,6 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 </script>
 <script src="./js/aquabri-comprobante-png-fiel-20261112.js?v=20261113-firsttap7"></script>
+<script src="vendor/qrcode-generator-1.4.4.js"></script>
 </body>
 </html>

@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>Mis Puntos · Aquabri</title>
@@ -92,7 +94,7 @@
 <script>
 const SURL='https://odwccqqvxpsggggehjtt.supabase.co';
 const SKEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kd2NjcXF2eHBzZ2dnZ2VoanR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1ODQxNTgsImV4cCI6MjA5MDE2MDE1OH0.4RulBc7xRiqfy5mAK9yxpj49fr7OloTp0-wZ9pZ0LJA';
-const sb=supabase.createClient(SURL,SKEY);
+
 
 function fGT(d){
   try{
@@ -116,45 +118,20 @@ function animarNumero(el,destino,duracion=1200){
 }
 
 async function init(){
-  const params=new URLSearchParams(window.location.search);
-  const cid=params.get('cid');
+  const codigo=new URLSearchParams(window.location.hash.slice(1)).get('codigo');
   const el=document.getElementById('contenido');
-
-  if(!cid){
-    el.innerHTML=`<div class="err-card"><div class="ic">⚠️</div><h3>Enlace inválido</h3><p>Falta el identificador del cliente. Escanea el código QR de tu última compra.</p></div>`;
-    return;
-  }
+  const enlaceInvalido=()=>{el.innerHTML='<div class="err-card"><h3>Solicita un enlace nuevo</h3><p>Pídeselo a tu vendedor de AQUABRI o escanea el QR de tu próximo comprobante. Tus puntos se conservan.</p></div>';};
+  if(!/^[0-9a-f]{64}$/.test(codigo||'')){enlaceInvalido();return;}
+  const textoSeguro=valor=>String(valor??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 
   try{
-    const[{data:config},{data:cliente},{data:ptos},{data:historial}]=await Promise.all([
-      sb.from('config').select('*').eq('id',1).single(),
-      sb.from('clientes').select('id,nombre,telefono').eq('id',cid).single(),
-      sb.from('puntos_clientes').select('*').eq('cliente_id',cid).single(),
-      sb.from('puntos_historial').select('*').eq('cliente_id',cid).order('id',{ascending:false}).limit(30),
-    ]);
-
-    if(!cliente){
-      el.innerHTML=`<div class="err-card"><div class="ic">🔍</div><h3>Cliente no encontrado</h3><p>No pudimos encontrar tu información. Contacta a tu vendedor.</p></div>`;
-      return;
-    }
-
-    // Logo
-    if(config?.logo){
-      const img=document.getElementById('logo-img');
-      const fb=document.getElementById('logo-fallback');
-      img.src=config.logo;
-      img.style.display='block';
-      fb.style.display='none';
-    }
-
-    // Nombre del programa
-    let nombrePrograma='Club Aquabri';
-    let pct=5;
-    try{
-      const{data:pc}=await sb.from('puntos_config').select('nombre_programa,porcentaje').single();
-      if(pc?.nombre_programa)nombrePrograma=pc.nombre_programa;
-      pct=parseFloat(pc?.porcentaje||5);
-    }catch(e){}
+    const sb=supabase.createClient(SURL,SKEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
+    const {data,error}=await sb.rpc('aq_enlace_puntos_consultar_v1',{p_codigo:codigo});
+    if(error)throw error;
+    if(!data){enlaceInvalido();return;}
+    const {cliente,ptos,historial,programa}=data;
+    const nombrePrograma=programa?.nombre_programa||'Club Aquabri';
+    const pct=Number(programa?.porcentaje??5);
 
     document.getElementById('programa-nombre').textContent=nombrePrograma;
     document.title='Mis Puntos · '+nombrePrograma;
@@ -171,7 +148,7 @@ async function init(){
         const fecha=h.created_at?fGT(h.created_at):(h.fecha?fGT(h.fecha):'');
         return `<div class="hist-item" style="animation-delay:${.05*i}s">
           <div class="hist-left">
-            <div class="hist-desc">${h.descripcion||(h.tipo==='canje'?'🎁 Canje de puntos':'🛒 Compra')}</div>
+            <div class="hist-desc">${(h.tipo==='canje'?'🎁 Canje de puntos':'🛒 Compra')}</div>
             <div class="hist-fecha">${fecha}</div>
           </div>
           <div class="hist-pts ${esPositivo?'pos':'neg'}">${esPositivo?'+':''}${parseFloat(h.puntos).toFixed(2)} pts</div>
@@ -183,8 +160,7 @@ async function init(){
 
     el.innerHTML=`
       <div class="card" style="text-align:center;padding-bottom:10px">
-        <div class="cliente-nombre">👋 Hola, ${cliente.nombre}</div>
-        ${cliente.telefono?`<div class="cliente-tel">📞 ${cliente.telefono}</div>`:''}
+        <div class="cliente-nombre">👋 Hola, ${textoSeguro(cliente.nombre)}</div>
       </div>
       <div class="saldo-card">
         <div class="lbl"><span class="star">⭐</span> Saldo disponible</div>
@@ -214,7 +190,7 @@ async function init(){
       setTimeout(()=>{fill.style.width=pctVisual+'%';},250);
     }
   }catch(e){
-    console.error(e);
+
     el.innerHTML=`<div class="err-card"><div class="ic">⚠️</div><h3>Error al cargar</h3><p>No pudimos obtener tu información en este momento. Intenta de nuevo más tarde.</p></div>`;
   }
 }

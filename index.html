@@ -261,6 +261,40 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
   #aq-rrhh-historial .aq-pagos-mes-actions .btn{font-size:11px;padding:8px 3px}
 }
 </style>
+
+<style id="aq-diseno-ingreso">
+#login-screen{background:radial-gradient(ellipse at 20% 16%,#daedee,transparent 56%),#f1f5f4;padding:clamp(14px,4vw,64px);overflow:auto;color:#102f3a;font-family:'DM Sans',system-ui,sans-serif}
+#login-screen.show{display:flex}
+.aq-ingreso,.aq-ingreso *{box-sizing:border-box}
+.aq-ingreso{margin:auto;display:grid;grid-template-columns:1fr 1.06fr;width:min(100%,960px);min-height:528px;background:#fff;border-radius:24px;box-shadow:0 26px 80px -35px #123f4f55;overflow:hidden}
+.aq-marca{position:relative;isolation:isolate;display:flex;flex-direction:column;justify-content:space-between;gap:36px;padding:42px;color:#fff;background:#083b4d url('assets/ondas-aquabri.webp') center/cover}
+.aq-marca:before{content:'';position:absolute;z-index:-1;inset:40% 0 0;background:linear-gradient(transparent,#062d3e9c)}
+.aq-sello{display:flex;align-items:center;gap:13px;font-size:12px;font-weight:650;letter-spacing:.14em;text-transform:uppercase}
+.aq-gota{display:inline-block;width:22px;height:22px;margin:0 4px 0 1px;border:2px solid #95ebee;border-radius:2px 65% 65% 65%;transform:rotate(45deg)}
+.aq-logo{width:34px;height:34px;object-fit:contain}
+.aq-firma{font-size:clamp(38px,5.5vw,70px);line-height:1;font-weight:760;letter-spacing:-.065em;overflow-wrap:anywhere}
+.aq-acceso{display:grid;align-items:center;padding:clamp(28px,5vw,70px);background:white;color:#123640}
+.aq-form-wrap{width:100%;max-width:390px;margin:auto}
+.aq-sistema{margin:0 0 10px;color:#126e72;font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.14em}
+.aq-acceso h1{margin:0 0 32px;font-size:clamp(31px,3.4vw,43px);font-weight:700;line-height:1.08;letter-spacing:-.055em;color:#103744}
+.aq-acceso label{display:block;margin:20px 0 8px;font-weight:600;font-size:14px}
+.aq-acceso input{display:block;width:100%;height:50px;border:1px solid #afc3c6;border-radius:9px;padding:0 14px;background:#fbfdfd;color:#123640;font:inherit;font-size:16px}
+.aq-acceso input::placeholder{color:#637980}
+.aq-ingreso :focus-visible{outline:3px solid #258eaa;outline-offset:3px}
+.aq-clave{position:relative}
+.aq-clave input{padding-right:50px}
+.aq-ver{position:absolute;right:3px;top:3px;width:44px;height:44px;background:transparent;border:0;border-radius:8px;display:grid;place-items:center;cursor:pointer;color:#48656d}
+.aq-ver span{position:relative;width:17px;height:17px;border:1.7px solid currentColor;border-radius:75% 12%;transform:rotate(45deg)}
+.aq-ver span:before{content:'';position:absolute;inset:4px;background:currentColor;border-radius:50%}
+.aq-ver[aria-pressed=true] span:after{content:'';position:absolute;left:6px;top:-5px;height:24px;border-left:2px solid currentColor;box-shadow:1px 0 white}
+#login-screen .btn-login{height:50px;margin:26px 0 0;display:flex;align-items:center;justify-content:space-between;padding:0 19px;background:#075865;color:#fff;border-radius:9px;font-size:16px;letter-spacing:.01em}
+#login-screen .btn-login:hover{background:#064955}
+#login-screen .btn-login:disabled{opacity:.65}
+.btn-login span{font-size:23px;line-height:1}
+#login-screen .lerr{min-height:0;margin:0;color:#a32735;font-size:13px}
+#login-screen .lerr:not(:empty){margin-top:12px}
+@media(max-width:680px){#login-screen{padding:16px}.aq-ingreso{grid-template-columns:1fr;min-height:0;max-width:445px;border-radius:19px}.aq-marca{min-height:143px;gap:20px;padding:21px 26px;background-position:center 68%}.aq-firma{font-size:43px}.aq-sello{font-size:10px}.aq-gota{width:16px;height:16px}.aq-acceso{padding:28px 25px 32px}.aq-acceso h1{margin-bottom:23px}}
+</style>
 </head>
 <body>
 
@@ -270,16 +304,33 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
 </div>
 
 <div id="login-screen">
-  <div class="lcard">
-    <img id="ll-img" class="logo-login" src="" style="display:none">
-    <div id="ll-fb" class="logo-fb">💧</div>
-    <h2 id="ll-nombre">Sistema de Ventas</h2>
-    <p>Ingresa tus credenciales</p>
-    <input type="text" id="lu" placeholder="Usuario o celular" aria-label="Usuario o celular" autocomplete="username" autocapitalize="off">
-    <input type="password" id="lp" placeholder="Contraseña" autocomplete="current-password">
-    <button class="btn-login" onclick="doLogin()">Ingresar</button>
-    <div class="lerr" id="lerr"></div>
-  </div>
+  <main class="aq-ingreso">
+    <aside class="aq-marca">
+      <div class="aq-sello">
+        <img id="ll-img" class="aq-logo" alt="" style="display:none">
+        <span id="ll-fb" class="aq-gota" aria-hidden="true"></span>
+        <span>Purificadora</span>
+      </div>
+      <div class="aq-firma" id="ll-nombre">AQUABRI</div>
+    </aside>
+    <section class="aq-acceso" aria-labelledby="aq-titulo-acceso">
+      <div class="aq-form-wrap">
+        <p class="aq-sistema">Sistema de ventas</p>
+        <h1 id="aq-titulo-acceso">Iniciar sesión</h1>
+        <form onsubmit="event.preventDefault();doLogin()">
+          <label for="lu">Usuario o celular</label>
+          <input type="text" id="lu" placeholder="Tu usuario o número de celular" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+          <label for="lp">Contraseña</label>
+          <div class="aq-clave">
+            <input type="password" id="lp" placeholder="Tu contraseña" autocomplete="current-password" required>
+            <button type="button" class="aq-ver" aria-label="Mostrar contraseña" aria-controls="lp" aria-pressed="false" onclick="aqVerClave(this)"><span aria-hidden="true"></span></button>
+          </div>
+          <button type="submit" class="btn-login">Ingresar <span aria-hidden="true">→</span></button>
+          <div class="lerr" id="lerr" role="alert"></div>
+        </form>
+      </div>
+    </section>
+  </main>
 </div>
 
 <div id="app">
@@ -3611,7 +3662,13 @@ async function doLogin(){
     boton.disabled=false;
   }
 }
-document.getElementById('lp').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+function aqVerClave(boton){
+  const campo=document.getElementById('lp');
+  const visible=campo.type==='password';
+  campo.type=visible?'text':'password';
+  boton.setAttribute('aria-pressed',String(visible));
+  boton.setAttribute('aria-label',visible?'Ocultar contraseña':'Mostrar contraseña');
+}
 async function doLogout(){await clearSession();CU=null;window.location.reload();}
 
 function startApp(){

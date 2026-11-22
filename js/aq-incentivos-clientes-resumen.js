@@ -182,7 +182,9 @@
     const historial = g.configuraciones.length > 1
       ? '<details class="aq-inc-cli-detalle"><summary>Historial de autorizaciones (' + g.configuraciones.length + ')</summary>' +
         g.configuraciones.map(inc => '<div class="aq-inc-cli-config">#' + Number(inc.id) + ' · ' + esc(inc.activo ? 'Activo' : 'Finalizado') +
-          ' · ' + esc(textoRegla(inc)) + ' · ' + moneda(cent(inc.monto_unitario)) +
+          ' · ' + esc(textoRegla(inc)) +
+          (inc.reactivacion_origen_id ? ' · ♻️ Reactivado del #' + Number(inc.reactivacion_origen_id) : '') +
+          ' · ' + moneda(cent(inc.monto_unitario)) +
           ' por garrafón · desde ' + esc(inc.desde || '-') + (inc.hasta ? ' hasta ' + esc(inc.hasta) : '') + '</div>').join('') + '</details>' : '';
     const empleados = detalles.length
       ? '<details class="aq-inc-cli-detalle"><summary>Desglose por empleado (' + detalles.length + ')</summary><div class="tbl-wrap"><table><thead><tr><th>Empleado</th><th>Unidades beneficiadas</th><th>Generado</th><th>Pagado</th><th>Pendiente</th><th>Retenido crédito</th></tr></thead><tbody>' +
@@ -193,7 +195,7 @@
         total.movimientos.slice().sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).slice(0, 100).map(m => '<tr><td>' + esc(m.fecha) + '</td><td>#' + Number(m.ventaId) + '</td><td>' + esc(nombreEmp(m.empleadoId)) + '</td><td>' + m.unidades + '</td><td>' + moneda(cent(m.precio)) + '</td><td>' + moneda(m.monto) + '</td><td>' + esc(m.estado) + '</td></tr>').join('') +
         '</tbody></table></div>' + (total.movimientos.length > 100 ? '<p>Se muestran los últimos 100 movimientos. Acota las fechas para ver más.</p>' : '') + '</details>' : '';
     return '<div class="aq-inc-cli-fila"><div class="aq-inc-cli-cabecera"><div><strong>' + esc(g.nombre) + '</strong> <span class="aq-inc-cli-estado">' + estado + '</span>' +
-      '<small>Captado por ' + esc(nombreEmp(actual.captador_empleado_id)) + ' · ' + esc(textoRegla(actual)) + ' · Tarifa vigente ' + moneda(cent(actual.monto_unitario)) + '/garrafón</small></div>' +
+      '<small>Captado por ' + esc(nombreEmp(actual.captador_empleado_id)) + ' · ' + esc(textoRegla(actual)) + ' · ' + (activa ? 'Tarifa vigente ' : 'Última tarifa ') + moneda(cent(actual.monto_unitario)) + '/garrafón</small></div>' +
       '<div>' + bot + '</div></div>' +
       '<div class="aq-inc-cli-numeros"><span>Garrafones válidos<b>' + total.unidades + '</b></span><span>Generado<b>' + moneda(total.total) + '</b></span><span>Pagado<b>' + moneda(total.pagado) + '</b></span><span>Pendiente liquidable<b>' + moneda(total.pendiente) + '</b></span><span>Retenido crédito<b>' + moneda(total.credito) + '</b></span></div>' +
       empleados + ventas + historial + '</div>';

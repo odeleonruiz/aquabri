@@ -305,6 +305,78 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
 #login-screen .btn-login:hover{background:linear-gradient(110deg,#064963,#006975)}
 @media(max-width:680px){#login-screen{padding:12px}.aq-ingreso{grid-template-columns:1fr;min-height:0;max-width:445px;border-radius:19px}.aq-marca{height:clamp(146px,24vh,198px);padding:6px 10px 18px}.aq-mascota{width:auto;height:100%;max-height:165px;max-width:90%;object-fit:contain}.aq-firma{width:25%;left:12px;bottom:8px}.aq-acceso{padding:25px 22px 40px}.aq-acceso h1{margin-bottom:24px}}
 @media(prefers-reduced-motion:reduce){.aq-mascota,.aq-marca:before{animation:none}.aq-curioso{transition:none}}
+
+/* AQUABRI — refinamiento visual de ingreso 2026-11-22; identidad original intacta. */
+#login-screen{
+  background:
+    radial-gradient(circle at 8% 12%,rgba(255,255,255,.72) 0 4%,transparent 4.2%),
+    radial-gradient(circle at 88% 79%,rgba(255,255,255,.45) 0 6%,transparent 6.2%),
+    radial-gradient(ellipse at 3% 91%,#46cbdd 0,transparent 47%),
+    radial-gradient(ellipse at 96% 0%,#bcffef 0,transparent 42%),
+    linear-gradient(125deg,#a1e9ea 0%,#e4fbfb 53%,#94d5f6 100%);
+}
+.aq-ingreso{
+  border:1px solid rgba(255,255,255,.87);
+  box-shadow:0 34px 90px -34px rgba(0,57,84,.39),0 8px 22px rgba(4,69,100,.1);
+}
+.aq-marca{
+  background:
+    radial-gradient(circle at 51% 42%,rgba(107,245,240,.3),transparent 48%),
+    radial-gradient(ellipse at 12% 92%,rgba(4,202,224,.38),transparent 53%),
+    linear-gradient(145deg,rgba(1,38,72,.35),rgba(0,126,163,.11) 55%,rgba(0,88,127,.33)),
+    url('assets/ondas-aquabri.webp') center/cover,#055b76;
+}
+.aq-marca:after{
+  content:'';position:absolute;z-index:0;pointer-events:none;
+  inset:13% 5% 18%;border:1px solid rgba(225,255,255,.25);
+  border-radius:49% 51% 42% 58%/56% 39% 61% 44%;
+  box-shadow:0 0 0 22px rgba(222,255,255,.045),0 0 0 55px rgba(222,255,255,.035);
+  animation:aq-ondas-suaves 8s ease-in-out infinite alternate;
+}
+.aq-mascota{position:relative;z-index:1;filter:drop-shadow(0 16px 16px rgba(0,23,56,.21))}
+.aq-firma{z-index:2;filter:drop-shadow(0 2px 7px rgba(0,33,48,.22))}
+@keyframes aq-ondas-suaves{to{transform:scale(1.055) rotate(3deg);opacity:.65}}
+.aq-acceso{
+  background:radial-gradient(circle at 95% 9%,rgba(122,238,238,.23),transparent 40%),linear-gradient(153deg,#fff 40%,#eafaff);
+}
+.aq-sistema{
+  display:inline-flex;align-items:center;min-height:27px;padding:5px 11px;
+  border:1px solid #b5eef0;border-radius:99px;background:#e8fbfa;color:#087a86;
+  letter-spacing:.11em;
+}
+.aq-acceso h1{color:#083e53}
+.aq-acceso label{color:#174d61}
+.aq-acceso input{
+  border-color:#a9cdd5;background:#fff;
+  box-shadow:0 2px 0 rgba(0,107,135,.035);
+  transition:border-color .2s,box-shadow .2s,background .2s;
+}
+.aq-acceso input:focus{
+  border-color:#009cbb;box-shadow:0 0 0 4px rgba(0,176,200,.12);background:#fff;
+}
+.aq-curioso{right:8px;filter:drop-shadow(0 9px 8px rgba(11,61,81,.19))}
+.aq-usuario.aq-colibri-visible .aq-curioso{opacity:1;transform:translateY(0) scale(1)}
+#login-screen .btn-login{
+  background:linear-gradient(110deg,#04758c,#008da3);
+  box-shadow:0 10px 24px rgba(0,119,150,.19);
+  transition:transform .18s,box-shadow .18s,background .18s;
+}
+#login-screen .btn-login:hover{
+  background:linear-gradient(110deg,#065e79,#007d95);
+  box-shadow:0 13px 27px rgba(0,111,141,.27);
+  transform:translateY(-1px);
+}
+#login-screen .btn-login:active{transform:translateY(1px)}
+@media(max-width:680px){
+  #login-screen{background:linear-gradient(135deg,#9ce8ef,#e5fbf9 60%,#b4e4f9)}
+  .aq-marca:after{inset:0 23% 5%;box-shadow:0 0 0 16px rgba(222,255,255,.045)}
+  .aq-acceso{background:linear-gradient(150deg,#fff 35%,#ecfbff)}
+  .aq-sistema{font-size:10px}
+}
+@media(prefers-reduced-motion:reduce){
+  .aq-marca:after{animation:none}
+  #login-screen .btn-login{transition:none}
+}
 </style>
 </head>
 <body>
@@ -328,11 +400,11 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
           <label for="lu">Usuario o celular</label>
           <div class="aq-usuario">
             <img class="aq-curioso" src="assets/colibri-curioso.webp" alt="" aria-hidden="true">
-            <input type="text" id="lu" placeholder="Tu usuario o número de celular" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+            <input type="text" id="lu" onfocus="aqDespertarColibri()" placeholder="Tu usuario o número de celular" autocomplete="username" autocapitalize="off" spellcheck="false" required>
           </div>
           <label for="lp">Contraseña</label>
           <div class="aq-clave">
-            <input type="password" id="lp" placeholder="Tu contraseña" autocomplete="current-password" required>
+            <input type="password" id="lp" onfocus="aqDespertarColibri()" placeholder="Tu contraseña" autocomplete="current-password" required>
             <button type="button" class="aq-ver" aria-label="Mostrar contraseña" aria-controls="lp" aria-pressed="false" onclick="aqVerClave(this)"><span aria-hidden="true"></span></button>
           </div>
           <button type="submit" class="btn-login">Ingresar <span aria-hidden="true">→</span></button>
@@ -3642,6 +3714,11 @@ async function aqIngresarConCelular(telefono,clave){
     await acceso.auth.signOut({scope:'local'}).catch(()=>{});
     return {data:{ok:false,error:'No se pudo abrir la cuenta de AQUABRI. Puedes ingresar con tu usuario.'}};
   }
+}
+
+function aqDespertarColibri(){
+  // Una vez que aparece al enfocar usuario o contraseña, permanece a la vista.
+  document.querySelector('#login-screen .aq-usuario')?.classList.add('aq-colibri-visible');
 }
 
 async function doLogin(){

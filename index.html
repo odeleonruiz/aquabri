@@ -611,6 +611,106 @@ html[data-aq-theme="dark"] #app :is(.card,.kpi-card,.modal) {border-radius:17px}
 #app .sb-btn:hover .aq-nav-icon{opacity:1;transform:translateY(-1px)}
 @media(prefers-reduced-motion:reduce){#app .sb-btn .aq-nav-icon{transition:none}}
 </style>
+
+<!-- AQUABRI SIDEBAR BRAND/ACCOUNT DESIGN · 2026-11-22 -->
+<style id="aq-sb-header-pro-v1">
+/* Cabecera de marca con espacio para el logotipo personalizado de Configuración. */
+#app .sb-head{padding:14px 12px 14px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.12)}
+#app .sb-logo.aq-brand{display:flex;flex-direction:column;align-items:stretch;gap:8px;min-width:0}
+#app .aq-brand-art{
+  width:100%;height:96px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;position:relative;
+  padding:7px 9px;border-radius:15px;
+  border:1px solid rgba(207,237,255,.19);
+  background:radial-gradient(ellipse at 53% 35%,rgba(93,170,253,.20),transparent 75%),
+             linear-gradient(140deg,rgba(255,255,255,.10),rgba(255,255,255,.035));
+  box-shadow:0 8px 19px rgba(0,22,63,.11);
+}
+#app .aq-brand-art #sb-li{
+  width:100%;height:100%;max-width:100%;max-height:100%;
+  object-fit:contain;border-radius:0;background:none;
+}
+#app .aq-brand-art #sb-lfb{
+  width:100%;height:100%;padding:0;border-radius:0;background:transparent;
+  display:flex;align-items:center;justify-content:center;
+}
+#app .aq-brand-art #sb-lfb img{
+  display:block;width:100%;height:100%;max-width:100%;max-height:100%;
+  object-fit:contain;border:0;border-radius:0;
+}
+#app .aq-brand-identity{
+  display:flex;align-items:baseline;justify-content:space-between;
+  gap:5px;min-width:0;padding:0 4px;
+}
+#app #sb-nombre-emp{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;color:#fff;font-size:18px;font-weight:800;
+  letter-spacing:-.02em;line-height:1.3;
+}
+#app .aq-brand-caption{
+  flex-shrink:0;font-size:9px;font-weight:750;letter-spacing:.16em;
+  color:#b2d7fb;
+}
+/* Tarjeta del usuario; respeta las fotos cargadas en el sistema. */
+#app .sb-user.aq-account-card{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:7px;min-width:0;margin-top:14px;
+  padding:10px 9px;border-radius:13px;
+  border:1px solid rgba(185,220,255,.18);
+  background:linear-gradient(120deg,rgba(255,255,255,.105),rgba(255,255,255,.045));
+  box-shadow:0 4px 14px rgba(0,30,70,.08);
+  color:#fff;
+}
+#app .sb-uinfo.aq-account-info{display:flex;align-items:center;gap:9px;min-width:0;flex:1}
+#app .aq-account-avatar{
+  display:grid;place-items:center;position:relative;
+  width:39px;height:39px;flex:0 0 39px;
+  border:1px solid rgba(200,229,255,.25);border-radius:12px;
+  background:linear-gradient(150deg,#387ab6,#23578c);
+  box-shadow:0 2px 8px rgba(0,28,65,.14);
+  overflow:hidden;
+}
+#app .aq-account-avatar #sb-uimg{
+  width:100%;height:100%;border-radius:10px;
+  object-fit:cover;
+}
+#app .aq-account-avatar #sb-ufb{
+  position:relative;display:flex;justify-content:center;align-items:center;
+  width:100%;height:100%;border:0;border-radius:0;
+  background:transparent;color:transparent;font-size:0;
+}
+/* Silueta de perfil en lugar de la antigua letra dentro de un círculo. */
+#app #sb-ufb:before{
+  content:"";position:absolute;top:7px;left:calc(50% - 5.5px);
+  width:11px;height:11px;border-radius:50%;background:#e9f4ff;
+}
+#app #sb-ufb:after{
+  content:"";position:absolute;bottom:5px;left:calc(50% - 11px);
+  width:22px;height:12px;border-radius:12px 12px 5px 5px;background:#e9f4ff;
+}
+#app .aq-account-meta{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+#app #sb-unom{
+  display:block;max-width:100%;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;
+  font-size:12px;line-height:1.2;font-weight:750;color:#fff;
+}
+#app .aq-account-status{display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:10px;line-height:1.1;color:#c1daf5}
+#app .aq-account-dot{width:6px;height:6px;background:#8febc0;border-radius:50%;box-shadow:0 0 0 2px rgba(106,220,166,.12)}
+#app .aq-account-card .btn-salir{
+  flex-shrink:0;padding:6px 9px;border-radius:9px;
+  color:#eaf4ff;background:rgba(255,255,255,.13);
+  font-size:10px;font-weight:650;
+}
+#app .aq-account-card .btn-salir:hover{background:rgba(255,255,255,.24)}
+#app .aq-account-card .btn-salir:focus-visible{outline:2px solid #fff;outline-offset:2px}
+@media(max-width:768px){
+  #app .sb-head{padding:13px 12px}
+  #app .aq-brand-art{height:90px}
+  #app .sb-user.aq-account-card{margin-top:12px}
+}
+@media(prefers-reduced-motion:reduce){#app .aq-account-card .btn-salir{transition:none}}
+</style>
 </head>
 <body>
 
@@ -652,18 +752,30 @@ html[data-aq-theme="dark"] #app :is(.card,.kpi-card,.modal) {border-radius:17px}
   <div id="sb-overlay" onclick="closeSB()"></div>
   <div id="sidebar">
     <div class="sb-head">
-      <div class="sb-logo">
-        <img id="sb-li" src="" style="display:none">
-        <div id="sb-lfb" class="lfb">💧</div>
-        <span id="sb-nombre-emp">Aquabri</span>
-      </div>
-      <div class="sb-user">
-        <div class="sb-uinfo">
-          <img id="sb-uimg" class="sb-avatar" src="" style="display:none">
-          <div id="sb-ufb" class="sb-avatar-fb">J</div>
-          <span id="sb-unom">Jefe</span>
+      <div class="sb-logo aq-brand">
+        <div class="aq-brand-art">
+          <img id="sb-li" src="" alt="Logotipo del negocio" style="display:none">
+          <div id="sb-lfb" class="lfb">
+            <img src="assets/colibri-marca.webp" alt="Aquabri y colibrí" loading="eager">
+          </div>
         </div>
-        <button class="btn-salir" onclick="doLogout()">Salir</button>
+        <div class="aq-brand-identity">
+          <span id="sb-nombre-emp">Aquabri</span>
+          <span class="aq-brand-caption">SYSTEM</span>
+        </div>
+      </div>
+      <div class="sb-user aq-account-card">
+        <div class="sb-uinfo aq-account-info">
+          <div class="aq-account-avatar">
+            <img id="sb-uimg" class="sb-avatar" src="" alt="Foto del usuario" style="display:none">
+            <div id="sb-ufb" class="sb-avatar-fb" aria-hidden="true">J</div>
+          </div>
+          <div class="aq-account-meta">
+            <span id="sb-unom">Jefe</span>
+            <span class="aq-account-status"><span class="aq-account-dot" aria-hidden="true"></span>Sesión activa</span>
+          </div>
+        </div>
+        <button class="btn-salir" type="button" onclick="doLogout()" aria-label="Cerrar sesión">Salir</button>
       </div>
     </div>
     <nav class="sb-nav">

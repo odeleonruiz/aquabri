@@ -1,0 +1,39 @@
+name: Aquabri Windows Installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'assets/colibri-marca.webp'
+      - '.github/workflows/windows-installer.yml'
+permissions:
+  contents: read
+jobs:
+  installer:
+    name: Crear instalador .exe
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Descargar proyecto
+        uses: actions/checkout@v4
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar dependencias
+        run: npm install --no-audit --no-fund
+      - name: Construir instalador de Windows
+        run: npm run dist:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Guardar instalador
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aquabri-System-Windows-Installer
+          path: desktop/dist/*.exe
+          if-no-files-found: error
+          retention-days: 30

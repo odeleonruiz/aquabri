@@ -1,0 +1,55 @@
+{
+  "name": "aquabri-system-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aquabri System para Windows",
+  "main": "main.js",
+  "author": "Aquabri",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "prepare:icon": "node make-icon.js",
+    "dist:win": "npm run prepare:icon && electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "26.0.12",
+    "sharp": "0.33.5",
+    "png-to-ico": "2.1.8"
+  },
+  "build": {
+    "appId": "com.aquabri.system",
+    "productName": "Aquabri System",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "build/icon.ico"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Aquabri-System-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Aquabri System",
+      "perMachine": false,
+      "runAfterFinish": true
+    },
+    "asar": true
+  }
+}

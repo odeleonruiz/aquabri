@@ -176,7 +176,9 @@
       : 'Individual: ' + nombreEmp(inc.beneficiario_empleado_id);
     const detalles = [...total.empleados.values()].sort((a, b) => a.id - b.id);
     const estado = activa ? '✅ Activo' : '⏹ Finalizado';
-    const bot = g.activas.map(inc => '<button class="btn bd bsm" type="button" onclick="aqFinalizarIncentivo(' + Number(inc.id) + ')">Finalizar #' + Number(inc.id) + '</button>').join(' ');
+    const bot = activa
+      ? g.activas.map(inc => '<button class="btn bd bsm" type="button" onclick="aqFinalizarIncentivo(' + Number(inc.id) + ')">Finalizar #' + Number(inc.id) + '</button>').join(' ')
+      : '<button class="btn bp bsm" type="button" onclick="aqReactivarIncentivo(' + Number(actual.id) + ')">♻️ Reactivar incentivo</button>';
     const historial = g.configuraciones.length > 1
       ? '<details class="aq-inc-cli-detalle"><summary>Historial de autorizaciones (' + g.configuraciones.length + ')</summary>' +
         g.configuraciones.map(inc => '<div class="aq-inc-cli-config">#' + Number(inc.id) + ' · ' + esc(inc.activo ? 'Activo' : 'Finalizado') +

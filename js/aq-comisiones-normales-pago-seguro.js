@@ -89,7 +89,7 @@
     const origen=id('pc-origen-seguro')?.value;
     const p_notas=String(id('pc-notas')?.value||'').trim();
     const fechaElegida=id('pc-fecha')?.value;
-    if(!mes || !Number.isFinite(p_monto) || p_monto<=0 || Math.round(p_monto*100)!==p_monto*100 ||
+    if(!mes || !Number.isFinite(p_monto) || p_monto<=0 || Math.abs(p_monto*100-Math.round(p_monto*100))>0.000001 ||
       p_notas.length>250 || fechaElegida!==fecha()) {
       showNotif('Revisa el mes, monto de comisión y fecha actual.','#c62828');return;
     }

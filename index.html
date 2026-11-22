@@ -394,6 +394,109 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
   .aq-marca:before,.aq-marca:after{animation:none}
   #login-screen .btn-login{transition:none}
 }
+
+/* AQB login glass v2 2026-11-22 — sólo presentación, preserva branding y autenticación */
+#login-screen .aq-ingreso{
+  border:1px solid rgba(255,255,255,.53);
+  border-radius:32px;
+  background:rgba(255,255,255,.16);
+  box-shadow:0 30px 78px rgba(3,57,87,.22),0 5px 20px rgba(2,62,91,.08);
+  -webkit-backdrop-filter:blur(7px);
+  backdrop-filter:blur(7px);
+}
+#login-screen .aq-acceso{
+  background:linear-gradient(160deg,rgba(255,255,255,.97) 2%,rgba(245,253,255,.94) 68%,rgba(224,247,255,.91));
+  border-left:1px solid rgba(255,255,255,.72);
+}
+#login-screen .aq-form-wrap{padding:8px 2px}
+#login-screen .aq-acceso input{
+  height:52px;border-radius:14px;background:rgba(255,255,255,.95);
+  box-shadow:0 3px 12px rgba(2,90,124,.055);
+}
+#login-screen .aq-acceso input:focus{
+  border-color:#00a8c8;background:#fff;
+  box-shadow:0 0 0 4px rgba(0,176,200,.13);
+}
+#login-screen .aq-ver{border-radius:11px}
+#login-screen .btn-login{
+  min-height:52px;border-radius:14px;
+  box-shadow:0 12px 25px rgba(0,113,147,.18);
+}
+@media(min-width:681px){
+  #login-screen .aq-ingreso{max-width:960px}
+  #login-screen .aq-marca{border-radius:30px 0 0 30px}
+}
+@media(max-width:680px){
+  #login-screen{
+    padding:clamp(12px,3.8vw,22px);
+    align-items:flex-start;
+    min-height:100dvh;
+  }
+  #login-screen .aq-ingreso{
+    width:min(100%,440px);
+    min-height:auto;
+    margin:auto;
+    display:flex;
+    flex-direction:column;
+    gap:0;
+    border:0;
+    overflow:visible;
+    border-radius:0;
+    background:transparent;
+    box-shadow:none;
+    -webkit-backdrop-filter:none;
+    backdrop-filter:none;
+  }
+  #login-screen .aq-marca{
+    flex:0 0 auto;
+    width:100%;
+    height:clamp(185px,29vh,246px);
+    border-radius:29px 29px 24px 24px;
+    overflow:hidden;
+    padding:8px 14px 26px;
+    box-shadow:0 18px 36px rgba(0,65,100,.17);
+  }
+  #login-screen .aq-mascota{
+    width:auto;height:100%;max-height:202px;max-width:94%;
+    object-fit:contain;
+  }
+  #login-screen .aq-firma{
+    width:29%;max-width:130px;
+    left:14px;bottom:11px;
+  }
+  #login-screen .aq-acceso{
+    z-index:2;
+    width:calc(100% - 12px);
+    margin:-13px auto 0;
+    padding:clamp(25px,6vw,32px) clamp(20px,5.6vw,28px) 29px;
+    border:1px solid rgba(255,255,255,.94);
+    border-radius:26px;
+    background:linear-gradient(155deg,rgba(255,255,255,.985),rgba(241,251,255,.965));
+    box-shadow:0 16px 42px rgba(5,67,103,.14),0 3px 9px rgba(8,104,143,.05);
+    -webkit-backdrop-filter:blur(10px);
+    backdrop-filter:blur(10px);
+    overflow:visible;
+  }
+  #login-screen .aq-acceso:before,#login-screen .aq-acceso:after{display:none}
+  #login-screen .aq-form-wrap{max-width:100%;padding:0}
+  #login-screen .aq-acceso h1{
+    font-size:clamp(28px,7.3vw,34px);
+    margin:0 0 19px;
+    letter-spacing:-.045em;
+  }
+  #login-screen .aq-sistema{margin-bottom:11px}
+  #login-screen .aq-acceso label{margin:16px 0 7px;font-size:13px}
+  #login-screen .aq-acceso input{height:50px;font-size:16px;border-radius:13px}
+  #login-screen .btn-login{height:51px;margin-top:22px;border-radius:13px}
+  #login-screen .aq-curioso{width:min(26%,92px);right:6px}
+}
+@media(max-width:360px){
+  #login-screen .aq-marca{height:177px;border-radius:24px}
+  #login-screen .aq-acceso{padding:23px 18px 25px;border-radius:23px}
+}
+@media(prefers-reduced-motion:reduce){
+  #login-screen .aq-ingreso,#login-screen .aq-acceso{scroll-behavior:auto}
+}
 </style>
 </head>
 <body>

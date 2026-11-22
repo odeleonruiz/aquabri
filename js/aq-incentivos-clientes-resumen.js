@@ -92,7 +92,7 @@
 
   async function leerMovimientos(desde, hasta) {
     if (desde > hasta) throw new Error('El período inicial es posterior al período final.');
-    if (!window.sb) throw new Error('No se ha conectado a la base de datos.');
+    if (typeof sb === 'undefined' || !sb) throw new Error('No se ha conectado a la base de datos.');
     const { data, error } = await sb.rpc('aq_movimientos_incentivos', { ...aqIncAuth(), p_desde: desde, p_hasta: hasta });
     if (error) throw error;
     if (!Array.isArray(data)) throw new Error('El servidor no devolvió una lista de movimientos.');
@@ -205,7 +205,7 @@
   async function cargar(forzar) {
     prepararVista();
     const lista = $('aq-inc-lista');
-    if (!lista || !window.CU || CU.rol !== 'jefe') return;
+    if (!lista || typeof CU === 'undefined' || !CU || CU.rol !== 'jefe') return;
     const { desde, hasta } = periodo();
     const rango = desde + '|' + hasta;
     if (!forzar && datos && rangoCargado === rango) { pintar(); return; }

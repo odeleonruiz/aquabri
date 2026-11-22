@@ -319,20 +319,37 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
   border:1px solid rgba(255,255,255,.87);
   box-shadow:0 34px 90px -34px rgba(0,57,84,.39),0 8px 22px rgba(4,69,100,.1);
 }
+/* Panel premium limpio: resalta la mascota sin fondos de rayas ni óvalos. */
 .aq-marca{
   background:
-    radial-gradient(circle at 51% 42%,rgba(107,245,240,.3),transparent 48%),
-    radial-gradient(ellipse at 12% 92%,rgba(4,202,224,.38),transparent 53%),
-    linear-gradient(145deg,rgba(1,38,72,.35),rgba(0,126,163,.11) 55%,rgba(0,88,127,.33)),
-    url('assets/ondas-aquabri.webp') center/cover,#055b76;
+    radial-gradient(ellipse 68% 64% at 53% 43%,rgba(77,218,237,.40) 0%,rgba(31,170,201,.19) 54%,transparent 84%),
+    radial-gradient(ellipse 54% 40% at 7% 89%,rgba(4,209,227,.25) 0%,transparent 85%),
+    radial-gradient(ellipse 54% 47% at 100% 8%,rgba(41,208,233,.21) 0%,transparent 80%),
+    linear-gradient(148deg,#032845 0%,#064c70 39%,#087c9c 68%,#054363 100%);
+}
+.aq-marca:before{
+  content:'';position:absolute;z-index:0;pointer-events:none;inset:0;
+  background:
+    radial-gradient(circle at 14% 19%,rgba(227,255,255,.48) 0 2px,transparent 3px),
+    radial-gradient(circle at 88% 18%,rgba(217,255,255,.34) 0 3px,transparent 4px),
+    radial-gradient(circle at 83% 77%,rgba(206,255,255,.44) 0 2px,transparent 3px),
+    radial-gradient(circle at 17% 75%,rgba(218,255,255,.34) 0 2px,transparent 3px),
+    radial-gradient(circle at 73% 10%,rgba(221,255,255,.17) 0 6px,transparent 7px),
+    radial-gradient(ellipse 50% 46% at 48% 44%,rgba(150,255,252,.12) 4%,transparent 75%);
+  opacity:.83;animation:aq-brillo-agua 7s ease-in-out infinite alternate;
 }
 .aq-marca:after{
   content:'';position:absolute;z-index:0;pointer-events:none;
-  inset:13% 5% 18%;border:1px solid rgba(225,255,255,.25);
-  border-radius:49% 51% 42% 58%/56% 39% 61% 44%;
-  box-shadow:0 0 0 22px rgba(222,255,255,.045),0 0 0 55px rgba(222,255,255,.035);
-  animation:aq-ondas-suaves 8s ease-in-out infinite alternate;
+  left:-24%;right:-18%;bottom:-54%;height:85%;
+  border:1px solid rgba(148,251,255,.24);border-radius:50%;
+  box-shadow:0 -19px 38px rgba(65,236,244,.09),0 -2px 0 rgba(172,255,255,.14),0 -40px 100px rgba(19,170,225,.10);
+  background:radial-gradient(ellipse at 50% 0,rgba(102,244,245,.11),transparent 73%);
+  transform:rotate(-8deg);
+  animation:aq-mar-sutil 9s ease-in-out infinite alternate;
 }
+@keyframes aq-brillo-agua{to{opacity:1;transform:translateY(-5px)}}
+@keyframes aq-mar-sutil{to{transform:translateY(8px) rotate(-5deg)}}
+
 .aq-mascota{position:relative;z-index:1;filter:drop-shadow(0 16px 16px rgba(0,23,56,.21))}
 .aq-firma{z-index:2;filter:drop-shadow(0 2px 7px rgba(0,33,48,.22))}
 @keyframes aq-ondas-suaves{to{transform:scale(1.055) rotate(3deg);opacity:.65}}
@@ -369,12 +386,12 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
 #login-screen .btn-login:active{transform:translateY(1px)}
 @media(max-width:680px){
   #login-screen{background:linear-gradient(135deg,#9ce8ef,#e5fbf9 60%,#b4e4f9)}
-  .aq-marca:after{inset:0 23% 5%;box-shadow:0 0 0 16px rgba(222,255,255,.045)}
+  .aq-marca:after{left:-20%;right:-25%;bottom:-54%;height:85%;box-shadow:0 -19px 38px rgba(65,236,244,.09)}
   .aq-acceso{background:linear-gradient(150deg,#fff 35%,#ecfbff)}
   .aq-sistema{font-size:10px}
 }
 @media(prefers-reduced-motion:reduce){
-  .aq-marca:after{animation:none}
+  .aq-marca:before,.aq-marca:after{animation:none}
   #login-screen .btn-login{transition:none}
 }
 </style>

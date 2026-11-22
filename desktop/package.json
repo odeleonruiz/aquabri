@@ -1,6 +1,6 @@
 {
   "name": "aquabri-system-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Aquabri System para Windows",
   "main": "main.js",
@@ -48,7 +48,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Aquabri System",
       "perMachine": false,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "asar": true
   }

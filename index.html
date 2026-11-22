@@ -498,106 +498,109 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
   #login-screen .aq-ingreso,#login-screen .aq-acceso{scroll-behavior:auto}
 }
 </style>
-<!-- AQUABRI · ESTILO INTERIOR V3 · 2026-11-22 -->
+<!-- AQUABRI · MEJORAS VISUALES INTERIORES CON AZUL ORIGINAL · 2026-11-22 -->
 <style id="aq-interior-marca-v3">
-/* Refinamiento de identidad visual: 100% CSS, aislado a #app.
-   Sin cambios en estructura, acciones, permisos, carrito ni login. */
-html:not([data-aq-theme="dark"]) #app{
-  --azul:#086c87;--azul2:#078ba6;--azul3:#26b3ca;
-  --azulc:#e8f8fc;--azulm:#c8e7f0;--fondo:#eff8fb;
-  --texto:#12475a;--texto2:#274959;--gris:#617d8a;--borde:#c5dce4;
-  --sombra:0 8px 24px rgba(7,86,116,.075);--radio:16px;
+/* Refinamiento visual ÚNICAMENTE: sin cambios funcionales ni de disposición.
+   Conserva los azules originales (#1565c0, #42a5f5, #0d3b6e). */
+html:not([data-aq-theme="dark"]) #app {
+  --sombra:0 7px 23px rgba(21,101,192,.085);
+  --radio:16px;
 }
-html:not([data-aq-theme="dark"]) #app #main-wrap{
-  background:linear-gradient(135deg,#edf8fb 0%,#f8fcfe 47%,#eaf6fa 100%);
+/* La barra y el menú conservan exactamente sus colores originales. */
+#app #sidebar {
+  background:#0d3b6e;
+  box-shadow:5px 0 20px rgba(13,59,110,.1);
 }
-html:not([data-aq-theme="dark"]) #app #main-wrap > main{
-  background:
-    radial-gradient(ellipse 55% 38% at 94% 0%,rgba(68,197,220,.11),transparent 75%),
-    radial-gradient(ellipse 55% 42% at 0% 90%,rgba(63,170,206,.075),transparent 80%);
+#app .sb-head {border-bottom:1px solid rgba(255,255,255,.14)}
+#app .sb-logo .lfb {border-radius:10px}
+#app .sb-btn {
+  border-radius:0 10px 10px 0;
+  transition:background-color .16s ease,box-shadow .16s ease;
 }
-#app #sidebar{
-  background:linear-gradient(165deg,#05354f 0%,#075574 58%,#086884 100%);
-  border-right:1px solid rgba(175,246,251,.15);
-  box-shadow:7px 0 24px rgba(2,55,83,.09);
+#app .sb-btn:hover {background:rgba(255,255,255,.09)}
+#app .sb-btn.active {
+  background:rgba(255,255,255,.13);
+  border-left-color:#42a5f5;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.035);
 }
-#app .sb-head{
-  background:linear-gradient(135deg,rgba(255,255,255,.065),rgba(24,207,231,.035));
-  border-bottom-color:rgba(209,255,255,.16);
+#app .btn-salir {border-radius:8px}
+#app .topbar {
+  background:#1565c0;
+  box-shadow:0 3px 13px rgba(13,59,110,.15);
 }
-#app .sb-gt{color:rgba(212,241,247,.65);letter-spacing:1px}
-#app .sb-logo .lfb{border-radius:11px;background:rgba(152,233,242,.14)}
-#app .sb-btn{
-  border-radius:0 11px 11px 0;
-  transition:background-color .18s,color .18s,box-shadow .18s;
+#app .tb-toggle {border-radius:9px}
+#app .tb-toggle:hover {background:rgba(255,255,255,.12)}
+html:not([data-aq-theme="dark"]) #app #main-wrap {
+  background:#e8f4fd;
 }
-#app .sb-btn:hover{background:rgba(188,245,255,.1);color:white}
-#app .sb-btn.active{
-  background:linear-gradient(90deg,rgba(49,211,232,.26),rgba(50,177,206,.08));
-  border-left-color:#59e7ee;color:#fff;
-  box-shadow:inset 0 0 0 1px rgba(192,255,255,.04);
+html:not([data-aq-theme="dark"]) #app #main-wrap > main {
+  background:radial-gradient(ellipse 65% 40% at 95% 0%,rgba(66,165,245,.075),transparent 80%);
 }
-#app .btn-salir{border-radius:9px}
-#app .topbar{
-  background:linear-gradient(108deg,#07506b,#087b97 67%,#0a90a8);
-  border-bottom:1px solid rgba(226,255,255,.24);
-  box-shadow:0 3px 14px rgba(3,76,103,.14);
-}
-#app .tb-toggle{border-radius:10px}
-#app .tb-toggle:hover{background:rgba(255,255,255,.13)}
-#app .wb{
-  border-radius:17px;border:1px solid rgba(196,255,255,.22);
-  background:radial-gradient(ellipse at 89% 9%,rgba(152,253,248,.24),transparent 52%),
-             linear-gradient(113deg,#07516c 0%,#087f9f 65%,#10a1b9 100%);
-  box-shadow:0 10px 25px rgba(4,110,141,.14);
-}
-#app .kpi-card{
+/* Tarjetas con relieve sutil, sin cambiarlas de tamaño ni de lugar. */
+html:not([data-aq-theme="dark"]) #app .card {
+  border:1px solid rgba(187,213,236,.7);
   border-radius:17px;
-  border-top:1px solid #dff3f8;
-  border-right:1px solid #dff3f8;
-  border-bottom:1px solid #dff3f8;
-  background:linear-gradient(150deg,#fff 48%,#f0fbff 100%);
-  box-shadow:0 8px 22px rgba(4,91,121,.077);
+  background:var(--card);
+  box-shadow:0 8px 26px rgba(19,92,172,.075);
 }
-#app .kpi-val{letter-spacing:-.02em}
-#app .card{
+html:not([data-aq-theme="dark"]) #app .kpi-card {
   border-radius:17px;
-  border:1px solid rgba(203,232,240,.78);
-  box-shadow:0 8px 25px rgba(7,85,116,.074);
+  border-top:1px solid #e2edf9;
+  border-right:1px solid #e2edf9;
+  border-bottom:1px solid #e2edf9;
+  background:linear-gradient(145deg,#fff 56%,#f7fbff 100%);
+  box-shadow:0 8px 22px rgba(25,101,186,.075);
 }
-#app .sec-title,#app .card-title{letter-spacing:-.015em}
-#app .tab{border-radius:999px}
-#app .tab:not(.active){background:rgba(255,255,255,.92)}
-#app .tab.active,#app .tab:hover{
-  background:linear-gradient(110deg,#076c87,#0894aa);
-  box-shadow:0 3px 12px rgba(7,115,147,.11);
+#app .kpi-val {letter-spacing:-.02em}
+html:not([data-aq-theme="dark"]) #app .wb {
+  border-radius:17px;
+  border:1px solid rgba(255,255,255,.25);
+  background:linear-gradient(115deg,#1565c0 0%,#1976d2 58%,#42a5f5 100%);
+  box-shadow:0 10px 26px rgba(21,101,192,.16);
 }
-#app .btn{border-radius:10px}
-#app .bp{background:linear-gradient(110deg,#076d88,#0a91ac)}
-#app .bp:hover{background:linear-gradient(110deg,#075d78,#087d96)}
-#app .tbl-wrap{border-radius:13px;border-color:var(--azulm)}
-#app thead tr{background:linear-gradient(95deg,#07647f,#0992aa)}
-#app tbody tr:hover{background:var(--azulc)}
-#app :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),select,textarea){border-radius:10px}
-#app :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),select,textarea):focus{
-  border-color:#17a4be;box-shadow:0 0 0 3px rgba(39,184,210,.1);
+#app .sec-title,#app .card-title {letter-spacing:-.01em}
+html:not([data-aq-theme="dark"]) #app .tab {
+  border-radius:999px;
+  box-shadow:0 2px 6px rgba(21,101,192,.035);
 }
-#app .modal{
-  border-radius:19px;
-  box-shadow:0 25px 65px rgba(2,48,75,.18);
+html:not([data-aq-theme="dark"]) #app .tab.active,
+html:not([data-aq-theme="dark"]) #app .tab:hover {
+  background:#1565c0;
+  border-color:#1565c0;
+  box-shadow:0 3px 10px rgba(21,101,192,.15);
 }
-#app .modal-ov{background:rgba(1,38,61,.52)}
-#app .ms{border-radius:11px}
-#app .notif{border-radius:12px}
-@media(max-width:768px){
-  #app .card,#app .kpi-card,#app .wb{border-radius:15px}
-  #app .modal{border-radius:17px}
-  #app .sb-btn{border-radius:0 10px 10px 0}
+#app .btn {
+  border-radius:10px;
+  transition:background-color .18s,box-shadow .18s;
 }
-@media(prefers-reduced-motion:reduce){#app .sb-btn{transition:none}}
-/* El modo oscuro mantiene su paleta y legibilidad original. */
-html[data-aq-theme="dark"] #app :is(.card,.kpi-card,.modal){border-radius:17px}
-html[data-aq-theme="dark"] #app .sb-btn.active{border-left-color:#62dce9}
+html:not([data-aq-theme="dark"]) #app .bp {background:#1565c0}
+html:not([data-aq-theme="dark"]) #app .bp:hover {
+  background:#1976d2;
+  box-shadow:0 3px 10px rgba(21,101,192,.14);
+}
+#app .tbl-wrap {border-radius:12px}
+html:not([data-aq-theme="dark"]) #app thead tr {background:#1565c0}
+html:not([data-aq-theme="dark"]) #app tbody tr:hover {background:#e3f2fd}
+#app :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),select,textarea) {
+  border-radius:10px;
+}
+html:not([data-aq-theme="dark"]) #app :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),select,textarea):focus {
+  border-color:#1976d2;
+  box-shadow:0 0 0 3px rgba(66,165,245,.11);
+}
+#app .modal {border-radius:19px;box-shadow:0 25px 65px rgba(13,59,110,.17)}
+#app .ms {border-radius:11px}
+#app .notif {border-radius:11px}
+@media(max-width:768px) {
+  #app .card,#app .kpi-card,#app .wb {border-radius:15px}
+  #app .modal {border-radius:17px}
+  #app .sb-btn {border-radius:0 9px 9px 0}
+}
+@media(prefers-reduced-motion:reduce) {
+  #app .sb-btn,#app .btn {transition:none}
+}
+/* En modo oscuro no se sustituyen colores; solo se mantienen acabados suaves. */
+html[data-aq-theme="dark"] #app :is(.card,.kpi-card,.modal) {border-radius:17px}
 </style>
 </head>
 <body>

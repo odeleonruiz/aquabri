@@ -12,9 +12,16 @@
   const cent = n => Math.round(Number(n || 0) * 100);
   const nombreCli = id => typeof aqIncNombreCli === 'function' ? aqIncNombreCli(id) : 'Cliente #' + id;
   const nombreEmp = id => typeof aqIncNombreEmp === 'function' ? aqIncNombreEmp(id) : 'Empleado #' + id;
+  const fechaActual = () => typeof hoy === 'function' ? hoy() : new Date().toISOString().slice(0, 10);
+  const primerDiaMes = () => fechaActual().slice(0, 7) + '-01';
+  // No hay incentivos del año 2000; consultar desde la primera autorización real.
+  const primeraAutorizacion = () => {
+    const fechas = (aqIncCache.incentivos || []).map(i => String(i.desde || '')).filter(f => /^\d{4}-\d{2}-\d{2}$/.test(f) && f <= fechaActual()).sort();
+    return fechas[0] || primerDiaMes();
+  };
   const periodo = () => ({
-    desde: $('aq-inc-cli-desde')?.value || '2000-01-01',
-    hasta: $('aq-inc-cli-hasta')?.value || (typeof hoy === 'function' ? hoy() : new Date().toISOString().slice(0, 10))
+    desde: $('aq-inc-cli-desde')?.value || primeraAutorizacion(),
+    hasta: $('aq-inc-cli-hasta')?.value || fechaActual()
   });
 
   function ponerEstilos() {
@@ -58,16 +65,29 @@
     barra.className = 'aq-inc-cli-panel';
     barra.innerHTML = '<b>Clientes con incentivo — resumen sin duplicados</b>' +
       '<div class="aq-inc-cli-controles">' +
-      '<label>Desde<input id="aq-inc-cli-desde" type="date" value="2000-01-01"></label>' +
+      '<label>Desde<input id="aq-inc-cli-desde" type="date"></label>' +
       '<label>Hasta<input id="aq-inc-cli-hasta" type="date"></label>' +
       '<label>Buscar cliente<input id="aq-inc-cli-buscar" type="search" placeholder="Nombre del cliente"></label>' +
       '<label>Estado<select id="aq-inc-cli-estado"><option value="todos">Todos</option><option value="activo">Con incentivo activo</option><option value="cerrado">Solo finalizados</option></select></label>' +
-      '<button type="button" class="btn bp bsm" id="aq-inc-cli-actualizar">↻ Consultar ventas</button></div>' +
+      '<button type="button" class="btn bp bsm" id="aq-inc-cli-actualizar">↻ Consultar ventas</button>' +
+      '<button type="button" class="btn bsm" id="aq-inc-cli-mes">Este mes</button>' +
+      '<button type="button" class="btn bsm" id="aq-inc-cli-historico">Todo el historial</button></div>' +
       '<div id="aq-inc-cli-totales" class="aq-inc-cli-totales" aria-live="polite"></div>' +
       '<p class="aq-inc-cli-ayuda">El incentivo se genera únicamente en ventas autorizadas de garrafones a Q9 o más, registradas por el empleado o equipo beneficiario. En equipo se reparte 50/50. Los créditos no cobrados quedan retenidos; las ventas canceladas no se contabilizan. El historial finalizado se conserva, sin repetir clientes.</p>';
     lista.parentNode.insertBefore(barra, lista);
-    $('aq-inc-cli-hasta').value = typeof hoy === 'function' ? hoy() : new Date().toISOString().slice(0, 10);
+    $('aq-inc-cli-desde').value = primeraAutorizacion();
+    $('aq-inc-cli-hasta').value = fechaActual();
     $('aq-inc-cli-actualizar').addEventListener('click', () => cargar(true));
+    $('aq-inc-cli-mes').addEventListener('click', () => {
+      $('aq-inc-cli-desde').value = primerDiaMes();
+      $('aq-inc-cli-hasta').value = fechaActual();
+      cargar(true);
+    });
+    $('aq-inc-cli-historico').addEventListener('click', () => {
+      $('aq-inc-cli-desde').value = primeraAutorizacion();
+      $('aq-inc-cli-hasta').value = fechaActual();
+      cargar(true);
+    });
     $('aq-inc-cli-desde').addEventListener('change', () => cargar(true));
     $('aq-inc-cli-hasta').addEventListener('change', () => cargar(true));
     $('aq-inc-cli-buscar').addEventListener('input', pintar);

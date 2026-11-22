@@ -275,7 +275,7 @@ html[data-aq-theme="dark"] #rep-creditos-por-usuario .aq-cred-importe{color:#ffb
     <div id="ll-fb" class="logo-fb">💧</div>
     <h2 id="ll-nombre">Sistema de Ventas</h2>
     <p>Ingresa tus credenciales</p>
-    <input type="text" id="lu" placeholder="Usuario" autocomplete="username">
+    <input type="text" id="lu" placeholder="Usuario o celular" aria-label="Usuario o celular" autocomplete="username" autocapitalize="off">
     <input type="password" id="lp" placeholder="Contraseña" autocomplete="current-password">
     <button class="btn-login" onclick="doLogin()">Ingresar</button>
     <div class="lerr" id="lerr"></div>
@@ -3557,26 +3557,58 @@ async function init(){
   }
 }
 
+function aqTelefonoDeIngreso(valor){
+  const numero=valor.replace(/[\s()-]/g,'');
+  const guatemala=numero.match(/^(?:\+?502)?(\d{8})$/);
+  return guatemala?'+502'+guatemala[1]:null;
+}
+
+async function aqIngresarConCelular(telefono,clave){
+  // El cliente de acceso mantiene la credencial Auth en memoria. El cliente del
+  // negocio usa la sesión con la que ya funcionan caja, ventas e inventario.
+  const acceso=supabase.createClient(SURL,SKEY,{auth:{
+    storageKey:'aqb-acceso-telefono',persistSession:false,autoRefreshToken:false,detectSessionInUrl:false
+  }});
+  const {error}=await acceso.auth.signInWithPassword({phone:telefono,password:clave});
+  if(error){
+    return {data:{ok:false,error:error.status===429?'Demasiados intentos. Intenta más tarde.':'No se pudo ingresar con ese celular y contraseña.'}};
+  }
+  try{
+    const resultado=await acceso.rpc('aq_iniciar_sesion_celular_v1');
+    if(resultado.error||!resultado.data?.token)throw Error('perfil');
+    return resultado;
+  }catch(e){
+    await acceso.auth.signOut({scope:'local'}).catch(()=>{});
+    return {data:{ok:false,error:'No se pudo abrir la cuenta de AQUABRI. Puedes ingresar con tu usuario.'}};
+  }
+}
+
 async function doLogin(){
   const u=document.getElementById('lu').value.trim();
-  const p=document.getElementById('lp').value;
+  const campoClave=document.getElementById('lp');
+  const p=campoClave.value;
   const errorBox=document.getElementById('lerr');
+  const boton=document.querySelector('#login-screen .btn-login');
+  if(boton.disabled)return;
   errorBox.textContent='';
-  if(!u||!p){errorBox.textContent='Ingresa tu usuario y contraseña';return;}
+  if(!u||!p){errorBox.textContent='Ingresa tu usuario o celular y tu contraseña.';return;}
+  boton.disabled=true;
   try{
-    const {data,error}=await sb.rpc('aq_login_usuario_seguro_v1',{p_usuario:u,p_password:p});
-    document.getElementById('lp').value='';
-    if(error||!data?.ok||!data.token){
+    const telefono=aqTelefonoDeIngreso(u);
+    const {data,error}=telefono?await aqIngresarConCelular(telefono,p)
+      :await sb.rpc('aq_login_usuario_seguro_v1',{p_usuario:u,p_password:p});
+    if(error||!data?.ok||!data.token||!data.usuario?.id){
       errorBox.textContent=data?.error||'Usuario o contraseña incorrectos';
       return;
     }
     localStorage.setItem('aqb_token',data.token);
-    localStorage.setItem('aqb_uid',String(data.usuario?.id||''));
-    // Reconstruir el cliente Supabase con la nueva cabecera segura.
+    localStorage.setItem('aqb_uid',String(data.usuario.id));
     window.location.reload();
   }catch(e){
-    document.getElementById('lp').value='';
     errorBox.textContent='No se pudo iniciar sesión. Revisa la conexión.';
+  }finally{
+    campoClave.value='';
+    boton.disabled=false;
   }
 }
 document.getElementById('lp').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});

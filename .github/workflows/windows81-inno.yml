@@ -1,0 +1,52 @@
+name: Aquabri Windows 8.1 Instalador Alternativo
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows81-inno.yml'
+      - 'desktop/win81-installer.iss'
+permissions:
+  contents: read
+jobs:
+  installer:
+    name: Crear .exe con Inno Setup
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Descargar proyecto
+        uses: actions/checkout@v4
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Configurar compilacion para Windows 8.1
+        run: node prepare-win81-build.mjs
+      - name: Instalar dependencias de la aplicacion
+        run: npm install --no-audit --no-fund
+      - name: Preparar imagen de la carita
+        run: npm run prepare:icon
+      - name: Crear programa de Windows 8.1
+        run: npx electron-builder --win dir --ia32 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Instalar Inno Setup en el compilador
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+      - name: Generar instalador exe
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "win81-installer.iss"
+      - name: Publicar instalador
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aquabri-System-Windows81-Instalado-1.0.3
+          path: desktop/dist/Aquabri-System-Win81-Instalador-1.0.3.exe
+          if-no-files-found: error
+          retention-days: 30

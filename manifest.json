@@ -9,13 +9,13 @@
   "theme_color": "#1565c0",
   "icons": [
     {
-      "src": "./aquabri-iphone-icon.png?v=20261122-brand2",
-      "sizes": "120x120",
+      "src": "./aquabri-original-iphone.png?v=20261122-original3",
+      "sizes": "96x96",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./assets/aquabri-app-icon.svg?v=20261122-brand2",
+      "src": "./assets/aquabri-favicon-original.svg?v=20261122-original3",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"

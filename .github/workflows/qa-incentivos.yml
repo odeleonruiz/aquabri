@@ -6,6 +6,7 @@ on:
     paths:
       - 'index.html'
       - 'js/aq-incentivos-clientes-resumen.js'
+      - 'js/aq-incentivos-pagos-seguros.js'
       - 'tests/incentivos-clientes.test.cjs'
       - '.github/workflows/qa-incentivos.yml'
 permissions:
@@ -20,4 +21,5 @@ jobs:
         with:
           node-version: '22'
       - run: node --check js/aq-incentivos-clientes-resumen.js
+      - run: node --check js/aq-incentivos-pagos-seguros.js
       - run: node tests/incentivos-clientes.test.cjs

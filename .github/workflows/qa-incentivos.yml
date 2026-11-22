@@ -1,0 +1,23 @@
+name: Verificacion de incentivos Aquabri
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'js/aq-incentivos-clientes-resumen.js'
+      - 'tests/incentivos-clientes.test.cjs'
+      - '.github/workflows/qa-incentivos.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    name: Verificar totales por cliente
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check js/aq-incentivos-clientes-resumen.js
+      - run: node tests/incentivos-clientes.test.cjs

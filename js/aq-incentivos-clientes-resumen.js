@@ -234,7 +234,7 @@
       '<div class="aq-inc-cli-grupo-interior">' +
       contenido(activos,'No hay clientes activos que coincidan con estos filtros.') + '</div></details>' +
       '<details id="aq-inc-grupo-finalizados" class="aq-inc-cli-grupo" ' + (abiertosFinalizados ? 'open' : '') + '>' +
-      '<summary>📁 Incentivos finalizados (' + finalizados.length + ') <small>— historial conservado</small></summary>' +
+      '<summary>📁 Clientes sin incentivo activo (' + finalizados.length + ') <small>— las autorizaciones anteriores están en cada historial</small></summary>' +
       '<div class="aq-inc-cli-grupo-interior">' +
       contenido(finalizados,'No hay incentivos finalizados para estos filtros.') + '</div></details>';
     if (datos.repetidos.length) {

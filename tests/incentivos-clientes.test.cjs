@@ -15,7 +15,7 @@ nodes.set('aq-inc-lista',el('aq-inc-lista', {parentNode:{
     nodes.set(bar.id,bar);
     for(const [id, value] of [
       ['aq-inc-cli-desde','2000-01-01'],['aq-inc-cli-hasta',''],
-      ['aq-inc-cli-buscar',''],['aq-inc-cli-estado','todos'],
+      ['aq-inc-cli-buscar',''],['aq-inc-cli-estado','todos'],['aq-inc-cli-mes',''],['aq-inc-cli-historico',''],
       ['aq-inc-cli-actualizar',''],['aq-inc-cli-totales','']]) nodes.set(id,el(id,{value}));
   }}}));
 const document = {

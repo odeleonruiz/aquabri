@@ -52,6 +52,18 @@
     return ultimo;
   }
 
+  // Aviso visible al elegir un cliente de la lista o de las sugerencias.
+  for (const fn of ['aqIncSeleccionarCliente','aqIncSeleccionarListaClientes']) {
+    if (typeof window[fn] !== 'function') continue;
+    const anteriorSeleccionar = window[fn];
+    window[fn] = function () {
+      const resultado = anteriorSeleccionar.apply(this, arguments);
+      const previo = revisarSeleccion();
+      if (previo) showNotif('Este cliente ya fue agregado a incentivos. No se puede duplicar.', '#c62828');
+      return resultado;
+    };
+  }
+
   if (typeof window.aqIncMostrarCaptacion === 'function') {
     const anterior = window.aqIncMostrarCaptacion;
     window.aqIncMostrarCaptacion = function () {

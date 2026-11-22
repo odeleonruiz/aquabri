@@ -11,13 +11,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" id="meta-app-title" content="Aquabri">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" id="meta-app-title" content="AquabriSystem">
 <meta name="theme-color" content="#1565c0">
 <meta name="mobile-web-app-capable" content="yes">
-<link rel="manifest" href="./manifest.json">
-<link rel="apple-touch-icon" id="apple-icon" href="./icon-192.png">
-<link rel="icon" id="favicon-icon" href="./icon-192.png">
+<link rel="manifest" href="./manifest.json?v=20261122-brand2">
+<link rel="apple-touch-icon" id="apple-icon" sizes="120x120" href="./aquabri-iphone-icon.png?v=20261122-brand2">
+<link rel="icon" id="favicon-icon" href="./aquabri-iphone-icon.png?v=20261122-brand2">
 <title id="page-title">Aquabri</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- Google Maps se carga dinámicamente al abrir el mapa -->
@@ -711,6 +711,35 @@ html[data-aq-theme="dark"] #app :is(.card,.kpi-card,.modal) {border-radius:17px}
 }
 @media(prefers-reduced-motion:reduce){#app .aq-account-card .btn-salir{transition:none}}
 </style>
+
+<!-- AquabriSystem · barra móvil con mascota y títulos sin emojis -->
+<style id="aq-ios-header-brand-v1">
+#app .topbar{gap:8px;padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right));height:54px;min-height:54px}
+#app .aq-topbrand{display:flex;align-items:center;gap:7px;flex:none;min-width:0;white-space:nowrap}
+#app .aq-topbrand-face{position:relative;display:block;flex:0 0 36px;width:36px;height:36px;overflow:hidden;border-radius:11px;background:linear-gradient(145deg,#267edf,#0b4b99);border:1px solid rgba(255,255,255,.28);box-shadow:0 2px 8px rgba(0,27,75,.16)}
+#app .aq-topbrand-face img{position:absolute;width:53px;max-width:none;height:auto;left:-7px;top:1px;display:block;filter:drop-shadow(0 1px 2px rgba(0,25,60,.1))}
+#app .aq-topbrand-name{font-size:13px;line-height:1;font-weight:800;letter-spacing:-.035em;color:#fff}
+#app .aq-topbrand-name span{font-weight:650;color:#d8efff}
+#app .aq-topbar-rule{flex:0 0 1px;height:19px;background:rgba(225,247,255,.25)}
+#app .tb-title{font-size:12px;font-weight:700;color:#eff9ff;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:550px){
+  #app .topbar{gap:6px}
+  #app .aq-topbrand-face{width:34px;height:34px;flex-basis:34px;border-radius:10px}
+  #app .aq-topbrand-name{font-size:12px}
+  #app .tb-title{font-size:11px}
+  #app #tb-user{display:none}
+  #app #aq-theme-toggle{width:31px;height:31px;min-width:31px;display:grid;place-items:center;padding:0;overflow:hidden;font-size:0;line-height:0;border-radius:9px}
+  #app #aq-theme-toggle::after{content:"◐";font-size:18px;line-height:1;color:#fff}
+}
+@media(max-width:360px){
+  #app .topbar{gap:4px;padding-left:7px;padding-right:7px}
+  #app .aq-topbrand-name{font-size:11px}
+  #app .aq-topbrand-face{width:30px;height:30px;flex-basis:30px}
+  #app .aq-topbrand-face img{width:47px;left:-7px;top:1px}
+  #app .tb-title{font-size:10px}
+}
+@media(prefers-reduced-motion:reduce){#app .aq-topbrand-face img{animation:none}}
+</style>
 </head>
 <body>
 
@@ -828,6 +857,11 @@ html[data-aq-theme="dark"] #app :is(.card,.kpi-card,.modal) {border-radius:17px}
   <div id="main-wrap">
     <div class="topbar">
       <button class="tb-toggle" onclick="toggleSB()">☰</button>
+      <div class="aq-topbrand" aria-label="AquabriSystem">
+        <span class="aq-topbrand-face" aria-hidden="true"><img src="assets/colibri-curioso.webp" alt="" draggable="false"></span>
+        <span class="aq-topbrand-name">Aquabri<span>System</span></span>
+      </div>
+      <span class="aq-topbar-rule" aria-hidden="true"></span>
       <div class="tb-title" id="tb-title">Inicio</div>
        <button type="button" id="aq-theme-toggle" onclick="aqToggleTema()" aria-label="Cambiar tema claro u oscuro" title="Modo oscuro o claro">🌙 Oscuro</button>
       <span id="tb-user" style="font-size:11px;color:rgba(255,255,255,.8)"></span>
@@ -4196,7 +4230,7 @@ function applyConfig(){
   document.getElementById('sb-nombre-emp').textContent=nom;
   
   const metaTitle=document.getElementById('meta-app-title');
-  if(metaTitle)metaTitle.content=nom;
+  if(metaTitle)metaTitle.content='AquabriSystem';
   if(c.logo){
     const logo=document.getElementById('sb-li');logo.src=c.logo;logo.style.display='';
     document.getElementById('sb-lfb').style.display='none';
@@ -4209,7 +4243,7 @@ function applyConfig(){
 function updateFavicon(src){
   if(!src)return;
   document.getElementById('favicon-icon').href=src;
-  document.getElementById('apple-icon').href=src;
+  // El ícono de iPhone mantiene la mascota institucional, independiente del logo configurable.
 }
 function loadConfigForm(){const c=D.cfg;document.getElementById('cfgn').value=c.nombre||'';document.getElementById('cfgs').value=c.slogan||'';document.getElementById('cfgt').value=c.telefono||'';document.getElementById('cfgd').value=c.direccion||'';if(document.getElementById('cfgdiapago'))document.getElementById('cfgdiapago').value=c.dia_pago!=null?String(c.dia_pago):'';if(c.logo){document.getElementById('cfg-logo-prev').src=c.logo;document.getElementById('cfg-logo-prev').style.display='block';document.getElementById('cfg-logo-ph').style.display='none';}updateCfgPreview();}
 function handleLogoUpload(input){const file=input.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{D.cfg.logo=e.target.result;document.getElementById('cfg-logo-prev').src=e.target.result;document.getElementById('cfg-logo-prev').style.display='block';document.getElementById('cfg-logo-ph').style.display='none';updateCfgPreview();};r.readAsDataURL(file);}
@@ -4224,7 +4258,7 @@ window.addEventListener('resize',()=>{if(window.innerWidth>768){document.getElem
 
 function applyPerms(){const customP=CU?.permisos_custom?JSON.parse(CU.permisos_custom):null;let allowed=customP||(PERMS[CU?.rol]||['inicio']);// Si tiene custom pero le falta 'cargas' y tiene 'vehiculos', agregarlo automáticamente
 if(customP&&allowed.includes('vehiculos')&&!allowed.includes('cargas')){allowed=[...allowed,'cargas'];}if(CU&&CU.rol==='jefe'&&!allowed.includes('clientes-empleado')){allowed=[...allowed,'clientes-empleado'];}if(CU&&['vendedor','vendedor_editor'].includes(CU.rol)){allowed=allowed.filter(p=>p!=='reportes');}if(!customP&&CU?.id)_permisosCustom[CU.id]=allowed;document.querySelectorAll('.sb-btn[data-page]').forEach(b=>{b.style.display=allowed.includes(b.dataset.page)?'':'none';});actualizarVisibilidadEnvasesVenta();}
-const PT={'caja':'🏦 Caja','inicio':'🏠 Inicio','chat':'💬 Chat','puntos':'⭐ Puntos','ahorro':'💰 Ahorro','ventas':'🛒 Ventas','clientes':'👥 Clientes','creditos':'💳 Créditos','mapa':'🗺 Mapa','inventario':'📦 Inventario','envases':'🧴 Envases','activos':'🖥 Activos','facturas':'🧾 Facturas','vehiculos':'🚚 Vehículos','cargas':'📦 Cargas','gastos':'💸 Gastos','metas':'🎯 Metas','reportes':'📊 Reportes','rrhh':'👷 RRHH','comisiones':'💰 Comisiones','clientes-empleado':'👤 Clientes por empleado','usuarios':'👤 Usuarios','config':'⚙️ Configuración'};
+const PT={"caja":"Caja","inicio":"Inicio","chat":"Chat","puntos":"Puntos","ahorro":"Ahorro","ventas":"Ventas","clientes":"Clientes","creditos":"Créditos / Deudas","mapa":"Mapa de Rutas","inventario":"Inventario","envases":"Envases","activos":"Activos / Exhibidores","facturas":"Facturas Proveedores","vehiculos":"Vehículos","cargas":"Cargas","gastos":"Gastos","metas":"Metas","reportes":"Reportes","rrhh":"RRHH","comisiones":"Comisiones","clientes-empleado":"Clientes por empleado","usuarios":"Usuarios","config":"Configuración"};
 
 async function goPage(p){
   const allowed=PERMS[CU?.rol]||['inicio'];

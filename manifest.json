@@ -13,6 +13,12 @@
       "sizes": "120x120",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "./assets/aquabri-app-icon.svg?v=20261122-brand2",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }

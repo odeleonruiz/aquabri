@@ -8,9 +8,11 @@ on:
       - 'js/aq-incentivos-clientes-resumen.js'
       - 'js/aq-incentivos-pagos-seguros.js'
       - 'js/aq-incentivos-anti-duplicados.js'
+      - 'js/aq-incentivos-reactivacion.js'
       - 'js/aq-comisiones-normales-pago-seguro.js'
       - 'tests/incentivos-clientes.test.cjs'
       - 'tests/incentivos-anti-duplicados.test.cjs'
+      - 'tests/incentivos-reactivacion.test.cjs'
       - '.github/workflows/qa-incentivos.yml'
 permissions:
   contents: read
@@ -27,5 +29,7 @@ jobs:
       - run: node --check js/aq-incentivos-pagos-seguros.js
       - run: node --check js/aq-incentivos-anti-duplicados.js
       - run: node tests/incentivos-anti-duplicados.test.cjs
+      - run: node --check js/aq-incentivos-reactivacion.js
+      - run: node tests/incentivos-reactivacion.test.cjs
       - run: node --check js/aq-comisiones-normales-pago-seguro.js
       - run: node tests/incentivos-clientes.test.cjs

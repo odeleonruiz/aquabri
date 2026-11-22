@@ -51,6 +51,11 @@
       'html[data-aq-theme="dark"] .aq-inc-cli-panel,html[data-aq-theme="dark"] .aq-inc-cli-controles input,html[data-aq-theme="dark"] .aq-inc-cli-controles select{background:#1e344b!important;color:#e3f3ff!important;border-color:#42617f!important}' +
       'html[data-aq-theme="dark"] .aq-inc-cli-fila{color:#e3f3ff;border-color:#42617f}' +
       'html[data-aq-theme="dark"] .aq-inc-cli-cabecera small,html[data-aq-theme="dark"] .aq-inc-cli-ayuda{color:#b7cfe1}' +
+      '.aq-inc-cli-grupo{border:1px solid var(--borde,#b5c6d6);border-radius:10px;margin:12px 0;overflow:hidden}' +
+      '.aq-inc-cli-grupo>summary{list-style:auto;cursor:pointer;padding:14px 16px;background:var(--fondo,#eef6fd);font-weight:700;font-size:13px;color:var(--texto,#16344e)}' +
+      '.aq-inc-cli-grupo>summary small{font-weight:400;font-size:11px;color:var(--gris,#586f82)}' +
+      '.aq-inc-cli-grupo-interior{padding:5px 13px}' +
+      'html[data-aq-theme="dark"] .aq-inc-cli-grupo>summary{background:#1e344b;color:#e3f3ff}' +
       '@media(max-width:720px){.aq-inc-cli-controles label{min-width:110px}.aq-inc-cli-controles input[type=search]{width:100%}.aq-inc-cli-fila{padding:12px 3px}}';
     document.head.appendChild(style);
   }
@@ -215,8 +220,23 @@
     totales.innerHTML = '<span>Clientes <b>' + grupos.length + '</b></span><span>Garrafones válidos <b>' + suma.unidades + '</b></span>' +
       '<span>Generado <b>' + moneda(suma.total) + '</b></span><span>Pagado <b>' + moneda(suma.pagado) + '</b></span>' +
       '<span>Pendiente liquidable <b>' + moneda(suma.pendiente) + '</b></span><span>Crédito sin cobrar <b>' + moneda(suma.credito) + '</b></span>';
-    lista.innerHTML = grupos.length ? grupos.map(g => tarjeta(g, datos.resumen.get(g.id))).join('')
-      : '<p class="tmuted">No se encontraron clientes con incentivo para estos filtros.</p>';
+    const activos = grupos.filter(g => g.activas.length > 0);
+    const finalizados = grupos.filter(g => g.activas.length === 0);
+    const buscar = Boolean(filtro);
+    const abiertosActivos = Boolean(lista.querySelector?.('#aq-inc-grupo-activos')?.open) || buscar;
+    const abiertosFinalizados = Boolean(lista.querySelector?.('#aq-inc-grupo-finalizados')?.open) || (buscar && finalizados.length > 0);
+    const contenido = (arr, mensaje) => arr.length
+      ? arr.map(g => tarjeta(g, datos.resumen.get(g.id))).join('')
+      : '<p class="tmuted" style="padding:10px">' + mensaje + '</p>';
+    lista.innerHTML =
+      '<details id="aq-inc-grupo-activos" class="aq-inc-cli-grupo" ' + (abiertosActivos ? 'open' : '') + '>' +
+      '<summary>✅ Clientes con incentivo activo (' + activos.length + ') <small>— clic para desplegar / ocultar</small></summary>' +
+      '<div class="aq-inc-cli-grupo-interior">' +
+      contenido(activos,'No hay clientes activos que coincidan con estos filtros.') + '</div></details>' +
+      '<details id="aq-inc-grupo-finalizados" class="aq-inc-cli-grupo" ' + (abiertosFinalizados ? 'open' : '') + '>' +
+      '<summary>📁 Incentivos finalizados (' + finalizados.length + ') <small>— historial conservado</small></summary>' +
+      '<div class="aq-inc-cli-grupo-interior">' +
+      contenido(finalizados,'No hay incentivos finalizados para estos filtros.') + '</div></details>';
     if (datos.repetidos.length) {
       totales.innerHTML += '<span>⚠️ ' + datos.repetidos.length + ' movimiento(s) duplicado(s) detectado(s); se omitieron del total mostrado. Revisar contabilidad antes de pagar.</span>';
     }

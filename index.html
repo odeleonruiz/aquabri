@@ -22235,19 +22235,19 @@ html[data-aq-theme="dark"] .aq-inc-noresults{color:#c9dceb}
 @media(max-width:768px){.aq-inc-sugerencias:not([hidden]){max-height:225px}.aq-inc-sugerencia{padding:12px}}
 </style>
 <script id="aq-precios-habituales-cliente-v1">
-/* Precio habitual por cliente: sugerencia basada en la última venta NO promocional del garrafón.
+/* Precio habitual por cliente: sugerencia basada en la última venta NO promocional de cada producto.
    No cambia el precio de Inventario, no crea permisos ni altera los incentivos. */
 (function(){
  const estado={clienteId:0,precios:new Map(),promesa:null,revision:0,error:false};
  const cache=new Map();
- function esGarrafon(p){return !!p && /garraf[oó]n/i.test(String(p.nombre||'')) && !/envase\s+vac[ií]o/i.test(String(p.nombre||''));}
+ function esProducto(p){return !!p && Number.isSafeInteger(Number(p.id)) && Number(p.id)>0;}
  function clienteSeleccionado(destino){
    const id=Number(document.getElementById(destino==='pos'?'pos-cli':'v-cli')?.value||0);
    return Number.isSafeInteger(id)&&id>0?id:0;
  }
  function precio(prod,destino){
    const normal=Number(prod?.precio)||0;
-   if(!esGarrafon(prod))return normal;
+   if(!esProducto(prod))return normal;
    const id=clienteSeleccionado(destino);
    if(!id||id!==estado.clienteId)return normal;
    const acordado=estado.precios.get(Number(prod.id));
@@ -22263,9 +22263,9 @@ html[data-aq-theme="dark"] .aq-inc-noresults{color:#c9dceb}
    el.hidden=!mensaje;
  }
  function refrescarAvisos(){
-   const p=(D.prods||[]).filter(esGarrafon);
+   const p=(D.prods||[]).filter(esProducto);
    const conPrecio=p.map(pr=>({pr,valor:estado.precios.get(Number(pr.id))})).filter(x=>Number.isFinite(x.valor)&&x.valor>0);
-   const texto=conPrecio.length===1?'💧 Precio habitual para este cliente: '+fQ(conPrecio[0].valor):conPrecio.length>1?'💧 Precios habituales: '+conPrecio.map(x=>x.pr.nombre+' '+fQ(x.valor)).join(' · '):'';
+   const texto=conPrecio.length===1?'Precio habitual: '+conPrecio[0].pr.nombre+' '+fQ(conPrecio[0].valor):conPrecio.length>1?'Precios habituales: '+conPrecio.map(x=>x.pr.nombre+' '+fQ(x.valor)).join(' · '):'';
    ['pos','venta'].forEach(d=>{const destino=d==='venta'?'venta':'pos';
      if(clienteSeleccionado(destino)===estado.clienteId){aviso(destino,texto);}else aviso(destino,'');
    });
@@ -22278,26 +22278,31 @@ html[data-aq-theme="dark"] .aq-inc-noresults{color:#c9dceb}
    estado.clienteId=cid;estado.precios=new Map();estado.promesa=null;estado.error=false;
    refrescarAvisos();
    if(!cid){refrescarAvisos();return;}
-   if(cache.has(cid)){
-     estado.precios=new Map(cache.get(cid));refrescarAvisos();return;
-   }
+   
    const promesa=(async()=>{
      try{
        // Lectura acotada: evita descargar todo el historial de un cliente.
-       const {data,error}=await sb.from('ventas')
-         .select('id,venta_items(producto_id,precio,descuento)')
-         .eq('cliente_id',cid).neq('estado','Cancelada')
-         .order('id',{ascending:false}).limit(50);
-       if(error)throw error;
        const encontrados=new Map();
-       const garrafones=new Set((D.prods||[]).filter(esGarrafon).map(p=>Number(p.id)));
-       for(const venta of data||[]){
+       const productos=new Set((D.prods||[]).filter(esProducto).map(p=>Number(p.id)));
+       let antes=null;
+       while(productos.size && encontrados.size<productos.size){
+       if(revision!==estado.revision)return;
+       let q=sb.from('ventas').select('id,venta_items(producto_id,precio,descuento)')
+         .eq('cliente_id',cid).neq('estado','Cancelada').order('id',{ascending:false}).limit(100);
+       if(antes!==null)q=q.lt('id',antes);
+       const {data,error}=await q;
+       if(error)throw error;
+       if(!data?.length)break;
+       for(const venta of data){
          for(const item of venta.venta_items||[]){
            const pid=Number(item.producto_id), monto=Number(item.precio),rebaja=Number(item.descuento||0);
            // No convertir precios especiales temporales de oferta en un precio habitual.
-           if(!garrafones.has(pid)||encontrados.has(pid)||!Number.isFinite(monto)||monto<=0||Math.abs(rebaja)>0.0001)continue;
+           if(!productos.has(pid)||encontrados.has(pid)||!Number.isFinite(monto)||monto<=0||Math.abs(rebaja)>0.0001)continue;
            encontrados.set(pid,Math.round(monto*100)/100);
          }
+       }
+       if(data.length<100)break;
+       antes=data[data.length-1].id;
        }
        cache.set(cid,new Map(encontrados));
        if(revision===estado.revision){estado.precios=encontrados;refrescarAvisos();}
@@ -22310,7 +22315,7 @@ html[data-aq-theme="dark"] .aq-inc-noresults{color:#c9dceb}
    await promesa;
  }
  async function esperar(prod,destino){
-   if(!esGarrafon(prod))return true;
+   if(!esProducto(prod))return true;
    const id=clienteSeleccionado(destino);
    if(!id)return true;
    if(estado.clienteId!==id)consultar(id,destino);
@@ -22318,7 +22323,7 @@ html[data-aq-theme="dark"] .aq-inc-noresults{color:#c9dceb}
    if(promesa){
      const resultado=await Promise.race([promesa.then(()=>true),new Promise(r=>setTimeout(()=>r(false),6000))]);
      if(!resultado){
-       return confirm('El precio habitual de este cliente tarda en cargar. ¿Agregar el garrafón al precio de Inventario? Puedes revisarlo antes de cobrar.');
+       return confirm('El precio habitual de este cliente tarda en cargar. ¿Agregar el producto al precio de Inventario? Puedes revisarlo antes de cobrar.');
      }
    }
    if(estado.error){
@@ -22331,7 +22336,7 @@ html[data-aq-theme="dark"] .aq-inc-noresults{color:#c9dceb}
    const mapa=cache.get(cid)||new Map();
    for(const item of items||[]){
      const prod=(D.prods||[]).find(p=>Number(p.id)===Number(item.pid));
-     if(!esGarrafon(prod)||Number(item.desc||0)>0||!Number.isFinite(Number(item.precio))||Number(item.precio)<=0)continue;
+     if(!esProducto(prod)||Math.abs(Number(item.desc||0))>0.0001||item.promoGrupo||!Number.isFinite(Number(item.precio))||Number(item.precio)<=0)continue;
      mapa.set(Number(prod.id),Math.round(Number(item.precio)*100)/100);
    }
    cache.set(cid,mapa);

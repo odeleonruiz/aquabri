@@ -1272,6 +1272,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     <div class="gf" style="grid-template-columns:minmax(0,1fr);gap:8px">
       <div class="fg" style="position:relative"><label>Cliente</label><input type="hidden" id="pos-cli" value=""><input id="pos-cli-input" type="text" placeholder="👤 Mostrador" autocomplete="off" style="font-size:12px;padding:7px 10px;border:1.5px solid var(--borde);border-radius:7px;width:100%;outline:none" oninput="const hv=document.getElementById('pos-cli');if(hv&&this.value!==this.dataset.lastSel)hv.value='';if(!this.value.trim()){const da=document.getElementById('pos-deuda-aviso');if(da)da.style.display='none';const ma=document.getElementById('pos-mapa-aviso');if(ma)ma.style.display='none';const bn=document.getElementById('pos-cli-nuevo-btn');if(bn)bn.style.display='none';}buscarClienteVenta('pos',this.value);actualizarBtnNuevoCliPos()" onfocus="buscarClienteVenta('pos',this.value)" onblur="setTimeout(()=>{const d=document.getElementById('pos-cli-dd');if(d)d.style.display='none';if(!this.value.trim()){const da=document.getElementById('pos-deuda-aviso');if(da)da.style.display='none';const ma=document.getElementById('pos-mapa-aviso');if(ma)ma.style.display='none';const bn=document.getElementById('pos-cli-nuevo-btn');if(bn)bn.style.display='none';const hv=document.getElementById('pos-cli');if(hv)hv.value='';}},150)"><div id="pos-cli-dd" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:600;background:#fff;border:1.5px solid var(--azulm);border-radius:0 0 9px 9px;box-shadow:0 6px 20px rgba(0,0,0,.15);max-height:200px;overflow-y:auto"></div>
         <div id="pos-cli-nuevo-btn" style="display:none;margin-top:5px"></div>
+<button type="button" id="pos-sin-compra-btn" onclick="aqVisitaSinCompraVenta('pos')" style="display:none;margin-top:8px;width:100%;background:#b45309;color:#fff;border:0;border-radius:9px;padding:10px;font-weight:800;cursor:pointer">✓ Visitado sin compra</button>
       </div>
       <div class="fg" style="display:none"><label>Entrega</label>
         <select id="pos-entrega" onchange="posEntregaChange()" style="font-size:12px">
@@ -1443,6 +1444,7 @@ document.addEventListener('DOMContentLoaded',()=>{
             onblur="setTimeout(()=>{const d=document.getElementById('v-cli-dd');if(d)d.style.display='none';if(!this.value.trim()){const da=document.getElementById('v-deuda-aviso');if(da)da.style.display='none';const ma=document.getElementById('v-mapa-aviso');if(ma)ma.style.display='none';const bn=document.getElementById('v-cli-nuevo-btn');if(bn)bn.style.display='none';const hv=document.getElementById('v-cli');if(hv)hv.value='';}},150)">
           <div id="v-cli-dd" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:600;background:#fff;border:1.5px solid var(--azulm);border-radius:0 0 9px 9px;box-shadow:0 6px 20px rgba(0,0,0,.15);max-height:220px;overflow-y:auto"></div>
           <div id="v-cli-nuevo-btn" style="display:none;margin-top:5px"></div>
+<button type="button" id="v-sin-compra-btn" onclick="aqVisitaSinCompraVenta('v')" style="display:none;margin-top:8px;width:100%;background:#b45309;color:#fff;border:0;border-radius:9px;padding:10px;font-weight:800;cursor:pointer">✓ Visitado sin compra</button>
         </div>
         <div class="fg" style="display:none">
           <label>Tipo de entrega</label>
@@ -8839,15 +8841,47 @@ function navegarA(lat,lng,nombre){
   showNotif(`🗺 Abriendo Google Maps → ${nombre||'Cliente'}`);
 }
 
+let aqVisitaVentaOcupada=false;
+function aqActualizarBotonSinCompra(){
+  for(const p of ['pos','v']){
+    const b=document.getElementById(p+'-sin-compra-btn');
+    const cid=Number(document.getElementById(p+'-cli')?.value);
+    if(b){b.style.display=cid>0?'':'none';b.disabled=aqVisitaVentaOcupada;}
+  }
+}
+async function aqVisitaSinCompraVenta(p){
+  if(aqVisitaVentaOcupada)return;
+  const cid=Number(document.getElementById(p+'-cli')?.value);
+  if(!cid||!CU?.id)return;
+  if((p==='pos'?posCart:cart).length){showNotif('Vacía los productos antes de marcar sin compra','#e65100');return;}
+  aqVisitaVentaOcupada=true;aqActualizarBotonSinCompra();
+  try{
+    const ok=await marcarVisitadoDirecto(cid,true);
+    if(ok===false)return;
+    if(Number(document.getElementById(p+'-cli')?.value)===cid){
+      selClienteVenta(p,'','Mostrador');
+      for(const suf of ['deuda-aviso','mapa-aviso','cli-nuevo-btn']){
+        const el=document.getElementById(p+'-'+suf);if(el)el.style.display='none';
+      }
+    }
+    await actualizarPanelRutaVentas();
+    renderRutas();
+  }catch(e){console.error(e);showNotif('No se pudo completar la visita. Revisa la conexión.','#c62828');}
+  finally{aqVisitaVentaOcupada=false;aqActualizarBotonSinCompra();}
+}
+document.addEventListener('DOMContentLoaded',()=>{aqActualizarBotonSinCompra();setInterval(aqActualizarBotonSinCompra,350);});
 async function marcarVisitadoDirecto(cid,sinCompra=false){
+  const notasVisitaRegistro=sinCompra?'Sin compra':'Marcado desde mapa';
+  const {error:visitaError}=await sb.from('visitas').insert({cliente_id:cid,fecha:hoy(),usuario_id:CU?.id||null,notas:notasVisitaRegistro});
+  if(visitaError){showNotif('No se pudo guardar la visita','#c62828');return false;}
   estadosParadas[cid]='visitado';
   actualizarColorMarker(cid);
   if(!window._visitasHoy)window._visitasHoy={};
   window._visitasHoy[cid]=hoy();
   if(!window._todasVisitas)window._todasVisitas=[];
   window._todasVisitas.push({cliente_id:cid,fecha:hoy()});
-  const notasVisita=sinCompra?'Sin compra':'Marcado desde mapa';
-  await sb.from('visitas').insert({cliente_id:cid,fecha:hoy(),usuario_id:CU?.id||null,notas:notasVisita});
+
+
   // buscar en TODAS las rutas de hoy, no solo la activa
   const{data:paradasCliente}=await sb.from('ruta_paradas')
     .select('id,ruta_id,rutas(fecha)')
@@ -8862,7 +8896,8 @@ async function marcarVisitadoDirecto(cid,sinCompra=false){
   if(pm)pm.estado='Visitado';
   if(navRutaActiva){actualizarNavPanel();renderRutas();actualizarPanelRutaVentas();}
   if(_rutaInteligente&&_rutaInteligente.length>0)setTimeout(()=>mostrarLotePorVisitar(0),400);
-  showNotif(sinCompra?'📍 Visita sin compra guardada ✅':'✅ Visita guardada');
+  showNotif(sinCompra?'✓ Visita registrada':'✅ Visita guardada');
+  return true;
 }
 
 async function iniciarNavegacionRuta(rid){

@@ -11309,21 +11309,37 @@ async function aqAbrirEditarRuta(rid){
   let dlg=document.getElementById('aq-editar-ruta');
   if(!dlg){
     dlg=document.createElement('dialog');dlg.id='aq-editar-ruta';
-    dlg.style.cssText='width:min(94vw,600px);max-height:85vh;overflow:auto;border:1px solid #90a4ae;border-radius:12px;padding:16px;background:var(--card,#fff);color:var(--text,#263238)';
+    const style=document.createElement('style');style.textContent=`
+#aq-editar-ruta{position:fixed!important;inset:0!important;margin:auto!important;transform:none!important;box-sizing:border-box;width:min(720px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:calc(100dvh - 40px);height:fit-content;overflow:auto;padding:0;border:1px solid var(--borde,#dbe3ef);border-radius:20px;background:var(--card,#fff);color:var(--texto,#263238);box-shadow:0 24px 90px #0005}
+#aq-editar-ruta::backdrop{background:rgba(12,25,45,.65);backdrop-filter:blur(3px)}
+#aq-editar-ruta .aq-er-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 24px;background:#1565c0;color:white;position:sticky;top:0;z-index:2}
+#aq-editar-ruta .aq-er-head h3{margin:0;color:white;font-size:19px}
+#aq-editar-ruta .aq-er-close{background:#ffffff25;color:white;border:0;border-radius:10px;width:38px;height:38px;font-size:23px;cursor:pointer;flex-shrink:0}
+#aq-editar-ruta .aq-er-body{padding:18px 24px 22px}
+#aq-editar-ruta .aq-er-summary{margin:0 0 15px;padding:12px 14px;border-radius:10px;background:var(--fondo,#edf4fb);font-weight:700}
+#aq-editar-ruta .aq-er-list{border:1px solid var(--borde,#dbe3ef);border-radius:12px;padding:0 12px;overflow:auto;overscroll-behavior:contain}
+#aq-editar-ruta .aq-er-list>div{min-height:44px;border-bottom:1px solid var(--borde,#dbe3ef)!important}
+#aq-editar-ruta .aq-er-list .btn{font-size:12px;min-height:32px;padding:6px 12px;white-space:nowrap}
+#aq-editar-ruta input{box-sizing:border-box;background:var(--card,#fff);color:var(--texto,#263238);border:1px solid var(--borde,#dbe3ef);border-radius:10px;min-height:44px;font-size:14px}
+@media(max-width:560px){#aq-editar-ruta{width:calc(100vw - 20px);max-width:calc(100vw - 20px);max-height:calc(100dvh - 24px);border-radius:14px}#aq-editar-ruta .aq-er-head{padding:14px}#aq-editar-ruta .aq-er-body{padding:12px}#aq-editar-ruta .aq-er-head h3{font-size:16px}}
+`;document.head.appendChild(style);
     document.body.appendChild(dlg);
   }
   const {data:r,error}=await sb.from('rutas').select('id,nombre,fecha,estado,ruta_paradas(id,cliente_id,orden,estado,clientes(nombre))').eq('id',rid).single();
   if(error||!r||!['Pendiente','En Ruta'].includes(r.estado)){showNotif('Ruta no editable o sin acceso','#c62828');return;}
   dlg.replaceChildren();
   const make=(tag,txt,parent=dlg)=>{const e=document.createElement(tag);e.textContent=txt;parent.appendChild(e);return e;};
-  make('h3','Editar ruta: '+r.nombre);
-  const close=make('button','Cerrar');close.className='btn bsm';close.onclick=()=>dlg.close();
+  const head=make('header','');head.className='aq-er-head';
+  const title=make('h3','Editar ruta: '+r.nombre,head);title.id='aq-er-title';dlg.setAttribute('aria-labelledby',title.id);
+  const close=make('button','×',head);close.className='aq-er-close';close.setAttribute('aria-label','Cerrar');close.onclick=()=>dlg.close();
+  const body=make('div','');body.className='aq-er-body';
   const paradas=(r.ruta_paradas||[]).sort((a,b)=>a.orden-b.orden);
-  make('p',paradas.length+' paradas · '+paradas.filter(p=>p.estado==='Visitado').length+' visitadas');
-  const existing=make('div','');existing.style.cssText='max-height:180px;overflow:auto;margin:8px 0';
+  make('p',paradas.length+' paradas · '+paradas.filter(p=>p.estado==='Visitado').length+' visitadas',body).className='aq-er-summary';
+  make('h4','Clientes de la ruta',body);
+  const existing=make('div','',body);existing.className='aq-er-list';existing.style.cssText='max-height:min(180px,22dvh);margin:8px 0 18px';
   const {data:ventasHoy,error:ventasErr}=await sb.from('ventas').select('cliente_id').eq('fecha',r.fecha).neq('estado','Cancelada');
   const compraron=new Set((ventasHoy||[]).map(v=>Number(v.cliente_id)));
-  if(ventasErr)make('p','Aviso: no se pudo comprobar compras del día.');
+  if(ventasErr)make('p','Aviso: no se pudo comprobar compras del día.',body);
   const ids=new Set(paradas.map(p=>Number(p.cliente_id)));
   const pending=paradas.filter(p=>p.estado==='Pendiente');
   async function cambiar(accion,p,otro){
@@ -11356,9 +11372,9 @@ async function aqAbrirEditarRuta(rid){
       const rm=make('button','Quitar',row);rm.className='btn bd bsm';rm.onclick=()=>{if(confirm('¿Quitar esta parada pendiente?'))cambiar('quitar',p);};
     }
   });
-  make('h4','Agregar clientes');
-  const search=make('input','');search.placeholder='Buscar por nombre o sector';search.style.cssText='width:100%;padding:9px;margin:6px 0';
-  const list=make('div','');list.style.cssText='max-height:280px;overflow:auto';
+  make('h4','Agregar clientes',body);
+  const search=make('input','',body);search.placeholder='Buscar por nombre o sector';search.style.cssText='width:100%;padding:9px;margin:6px 0';
+  const list=make('div','',body);list.className='aq-er-list';list.style.cssText='max-height:min(280px,30dvh)';
   function render(){
     list.replaceChildren();
     const q=normalizar(search.value);

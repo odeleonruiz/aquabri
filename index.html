@@ -11339,18 +11339,21 @@ async function aqAbrirEditarRuta(rid){
   const existing=make('div','',body);existing.className='aq-er-list';existing.style.cssText='max-height:min(180px,22dvh);margin:8px 0 18px';
   const {data:ventasHoy,error:ventasErr}=await sb.from('ventas').select('cliente_id').eq('fecha',r.fecha).neq('estado','Cancelada');
   const compraron=new Set((ventasHoy||[]).map(v=>Number(v.cliente_id)));
-  if(ventasErr)make('p','Aviso: no se pudo comprobar compras del día.',body);
+  if(ventasErr)make('p','No se pudo comprobar compras del día. Agregar clientes está bloqueado hasta volver a abrir la ventana.',body);
   const ids=new Set(paradas.map(p=>Number(p.cliente_id)));
   const pending=paradas.filter(p=>p.estado==='Pendiente');
   async function cambiar(accion,p,otro){
     if(aqEditarRutaOcupado)return;
     aqEditarRutaOcupado=true;
     try{
-      const {data:fresh,error:e}=await sb.from('rutas').select('estado,ruta_paradas(id,orden,estado,cliente_id)').eq('id',rid).single();
+      const {data:fresh,error:e}=await sb.from('rutas').select('estado,fecha,ruta_paradas(id,orden,estado,cliente_id)').eq('id',rid).single();
       if(e||!fresh||!['Pendiente','En Ruta'].includes(fresh.estado))throw new Error('La ruta cambió o ya finalizó');
       const actual=fresh.ruta_paradas||[];
       if(accion==='agregar'){
         if(actual.some(x=>Number(x.cliente_id)===Number(p.id)))throw new Error('Este cliente ya está en la ruta');
+        const {data:compra,error:compraErr}=await sb.from('ventas').select('id').eq('cliente_id',p.id).eq('fecha',fresh.fecha).neq('estado','Cancelada').limit(1);
+        if(compraErr)throw new Error('No se pudo verificar si el cliente ya compró');
+        if(compra?.length){showNotif('Este cliente ya compró ese día','#2e7d32');await aqAbrirEditarRuta(rid);return;}
         const res=await sb.from('ruta_paradas').insert({ruta_id:rid,cliente_id:p.id,orden:Math.max(0,...actual.map(x=>Number(x.orden)||0))+1,estado:'Pendiente'}).select('id').single();
         if(res.error||!res.data)throw res.error||new Error('No se guardó la parada');
       }else if(accion==='quitar'){
@@ -11381,8 +11384,14 @@ async function aqAbrirEditarRuta(rid){
     const options=(D.clientes||[]).filter(c=>!c.archivado_en&&!ids.has(Number(c.id))&&(!q||normalizar(c.nombre+' '+(c.ruta||'')).includes(q)));
     options.slice(0,100).forEach(c=>{
       const row=make('div','',list);row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid #ddd';
-      const label=make('span',c.nombre+' — '+(c.ruta||'Sin sector')+(compraron.has(Number(c.id))?' · Ya compró ese día':''),row);label.style.flex='1';
-      const add=make('button','+ Agregar',row);add.className='btn bs bsm';add.onclick=()=>{if(compraron.has(Number(c.id))&&!confirm('Este cliente ya tiene una venta ese día. ¿Agregar de todas formas?'))return;cambiar('agregar',c);};
+      const comprado=compraron.has(Number(c.id));
+      const label=make('span',c.nombre+' — '+(c.ruta||'Sin sector'),row);label.style.flex='1';
+      if(comprado){
+        const check=make('span','✓ Ya compró',row);check.style.cssText='background:#e8f5e9;color:#1b5e20;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:700;white-space:nowrap';
+        label.style.color='var(--verde,#2e7d32)';
+      }else{
+        const add=make('button','+ Agregar',row);add.className='btn bs bsm';add.disabled=!!ventasErr;add.onclick=()=>cambiar('agregar',c);
+      }
     });
     if(!options.length)make('p','No hay clientes disponibles.',list);
     if(options.length>100)make('p','Escribe un nombre o sector para ver más resultados.',list);

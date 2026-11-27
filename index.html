@@ -5678,6 +5678,8 @@ async function seguirRutaComoJefe(rid){
       ...(visitasHoy||[]).map(v=>v.cliente_id),
       ...(ventasHoy||[]).map(v=>v.cliente_id),
     ]);
+    // Sincronizar nuevas paradas y quitar las eliminadas sin reiniciar la ruta.
+    navParadas=paradas.slice().sort((a,b)=>a.orden-b.orden);
     // Actualizar navParadas con estado fresco
     paradas.forEach(p=>{
       const local=navParadas.find(x=>x.id===p.id);
@@ -8875,7 +8877,8 @@ async function iniciarNavegacionRuta(rid){
   if(_autoRefreshInterval)clearInterval(_autoRefreshInterval);
   _autoRefreshInterval=setInterval(async()=>{
     if(document.hidden||!navRutaActiva)return;
-    const{data:paradas}=await sb.from('ruta_paradas').select('id,estado,cliente_id').eq('ruta_id',navRutaActiva.id);
+    const{data:paradas}=await sb.from('ruta_paradas').select('id,orden,estado,cliente_id,clientes(id,nombre,lat,lng,direccion,telefono)').eq('ruta_id',navRutaActiva.id);
+    if(paradas&&(paradas.length!==navParadas.length||paradas.some(p=>!navParadas.some(x=>x.id===p.id)))){await refrescarRutaDesdeSupabase();return;}
     if(!paradas)return;
     let cambios=0;
     paradas.forEach(p=>{
@@ -11293,11 +11296,84 @@ async function renderRutas(){
         ${SOLO_JEFE.includes(CU?.rol)?`<button class="btn bsm" style="background:#1565c0;color:#fff" onclick="seguirRutaComoJefe(${r.id})">👁 Seguir</button>`:''}
         <button class="btn bsm" style="background:#6a1b9a;color:#fff" onclick="reutilizarRuta(${r.id},'${(r.nombre||'').replace(/'/g,"\\'")}')">🔄 Reutilizar</button>
         <button class="btn bt bsm" onclick="verRutaEnMapa(${r.id})">🗺 Ver</button>
+        ${SOLO_JEFE.includes(CU?.rol)&&['Pendiente','En Ruta'].includes(r.estado)?`<button class="btn bsm" style="background:#b45309;color:#fff" onclick="aqAbrirEditarRuta(${r.id})">✏ Editar ruta</button>`:''}
         ${!completada?`<button class="btn bt bsm" onclick="finalizarRuta(${r.id})">✅ Fin</button>`:''}
         <button class="btn bd bsm" onclick="delRuta(${r.id})">🗑</button>
       </div></div>`;
   }).join('')||'<p class="tmuted">Sin rutas creadas</p>';
 }
+
+let aqEditarRutaOcupado=false;
+async function aqAbrirEditarRuta(rid){
+  if(!SOLO_JEFE.includes(CU?.rol))return;
+  let dlg=document.getElementById('aq-editar-ruta');
+  if(!dlg){
+    dlg=document.createElement('dialog');dlg.id='aq-editar-ruta';
+    dlg.style.cssText='width:min(94vw,600px);max-height:85vh;overflow:auto;border:1px solid #90a4ae;border-radius:12px;padding:16px;background:var(--card,#fff);color:var(--text,#263238)';
+    document.body.appendChild(dlg);
+  }
+  const {data:r,error}=await sb.from('rutas').select('id,nombre,fecha,estado,ruta_paradas(id,cliente_id,orden,estado,clientes(nombre))').eq('id',rid).single();
+  if(error||!r||!['Pendiente','En Ruta'].includes(r.estado)){showNotif('Ruta no editable o sin acceso','#c62828');return;}
+  dlg.replaceChildren();
+  const make=(tag,txt,parent=dlg)=>{const e=document.createElement(tag);e.textContent=txt;parent.appendChild(e);return e;};
+  make('h3','Editar ruta: '+r.nombre);
+  const close=make('button','Cerrar');close.className='btn bsm';close.onclick=()=>dlg.close();
+  const paradas=(r.ruta_paradas||[]).sort((a,b)=>a.orden-b.orden);
+  make('p',paradas.length+' paradas · '+paradas.filter(p=>p.estado==='Visitado').length+' visitadas');
+  const existing=make('div','');existing.style.cssText='max-height:180px;overflow:auto;margin:8px 0';
+  const {data:ventasHoy,error:ventasErr}=await sb.from('ventas').select('cliente_id').eq('fecha',r.fecha).neq('estado','Cancelada');
+  const compraron=new Set((ventasHoy||[]).map(v=>Number(v.cliente_id)));
+  if(ventasErr)make('p','Aviso: no se pudo comprobar compras del día.');
+  const ids=new Set(paradas.map(p=>Number(p.cliente_id)));
+  const pending=paradas.filter(p=>p.estado==='Pendiente');
+  async function cambiar(accion,p,otro){
+    if(aqEditarRutaOcupado)return;
+    aqEditarRutaOcupado=true;
+    try{
+      const {data:fresh,error:e}=await sb.from('rutas').select('estado,ruta_paradas(id,orden,estado,cliente_id)').eq('id',rid).single();
+      if(e||!fresh||!['Pendiente','En Ruta'].includes(fresh.estado))throw new Error('La ruta cambió o ya finalizó');
+      const actual=fresh.ruta_paradas||[];
+      if(accion==='agregar'){
+        if(actual.some(x=>Number(x.cliente_id)===Number(p.id)))throw new Error('Este cliente ya está en la ruta');
+        const res=await sb.from('ruta_paradas').insert({ruta_id:rid,cliente_id:p.id,orden:Math.max(0,...actual.map(x=>Number(x.orden)||0))+1,estado:'Pendiente'}).select('id').single();
+        if(res.error||!res.data)throw res.error||new Error('No se guardó la parada');
+      }else if(accion==='quitar'){
+        if(actual.length<=1)throw new Error('La ruta debe conservar al menos una parada');
+        const res=await sb.from('ruta_paradas').delete().eq('ruta_id',rid).eq('id',p.id).eq('estado','Pendiente').select('id');
+        if(res.error||!res.data?.length)throw res.error||new Error('La parada ya no está pendiente');
+      }
+      showNotif('Ruta actualizada ✅');
+      if(navRutaActiva?.id===rid)await refrescarRutaDesdeSupabase();
+      await renderRutas();
+      await aqAbrirEditarRuta(rid);
+    }catch(err){showNotif('No se pudo editar: '+(err.message||err),'#c62828');}
+    finally{aqEditarRutaOcupado=false;}
+  }
+  paradas.forEach((p,i)=>{
+    const row=make('div','',existing);row.style.cssText='display:flex;align-items:center;gap:8px;padding:5px;border-bottom:1px solid #ddd';
+    const name=make('span',(i+1)+'. '+(p.clientes?.nombre||'Cliente')+(p.estado==='Visitado'?' ✓ Visitado':''),row);name.style.flex='1';
+    if(p.estado==='Pendiente'){
+      const rm=make('button','Quitar',row);rm.className='btn bd bsm';rm.onclick=()=>{if(confirm('¿Quitar esta parada pendiente?'))cambiar('quitar',p);};
+    }
+  });
+  make('h4','Agregar clientes');
+  const search=make('input','');search.placeholder='Buscar por nombre o sector';search.style.cssText='width:100%;padding:9px;margin:6px 0';
+  const list=make('div','');list.style.cssText='max-height:280px;overflow:auto';
+  function render(){
+    list.replaceChildren();
+    const q=normalizar(search.value);
+    const options=(D.clientes||[]).filter(c=>!c.archivado_en&&!ids.has(Number(c.id))&&(!q||normalizar(c.nombre+' '+(c.ruta||'')).includes(q)));
+    options.slice(0,100).forEach(c=>{
+      const row=make('div','',list);row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid #ddd';
+      const label=make('span',c.nombre+' — '+(c.ruta||'Sin sector')+(compraron.has(Number(c.id))?' · Ya compró ese día':''),row);label.style.flex='1';
+      const add=make('button','+ Agregar',row);add.className='btn bs bsm';add.onclick=()=>{if(compraron.has(Number(c.id))&&!confirm('Este cliente ya tiene una venta ese día. ¿Agregar de todas formas?'))return;cambiar('agregar',c);};
+    });
+    if(!options.length)make('p','No hay clientes disponibles.',list);
+    if(options.length>100)make('p','Escribe un nombre o sector para ver más resultados.',list);
+  }
+  search.oninput=render;render();if(!dlg.open)dlg.showModal();
+}
+
 async function verRutaEnMapa(rid){
   const{data:ruta}=await sb.from('rutas').select('*,ruta_paradas(orden,estado,cliente_id,clientes(id,nombre,lat,lng,direccion))').eq('id',rid).single();
   if(!ruta)return;

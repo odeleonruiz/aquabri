@@ -912,6 +912,7 @@ html[data-aq-theme="light"] #page-rrhh #rrhh-pagos > .card:first-child button[on
       <button class="tb-toggle" onclick="toggleSB()">☰</button>
       <div class="tb-title" id="tb-title">Inicio</div>
        <button type="button" id="aq-theme-toggle" onclick="aqToggleTema()" aria-label="Cambiar tema claro u oscuro" title="Modo oscuro o claro">🌙 Oscuro</button>
+      <button type="button" id="aq-asistencia-abrir" hidden>Asistencia</button>
       <span id="tb-user" style="font-size:11px;color:rgba(255,255,255,.8)"></span>
       <button onclick="togglePanelNotif()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 8px;position:relative;font-size:20px;touch-action:manipulation">
         🔔
@@ -4258,6 +4259,7 @@ function startApp(){
       if(document.getElementById('page-ventas')?.classList.contains('active'))actualizarPanelRutaVentas();
     }
   },120000); // cada 2 minutos
+  window.aqIniciarAsistencia?.();
   document.getElementById('app').classList.add('show');
   document.getElementById('sb-unom').textContent=CU.nombre;
   document.getElementById('tb-user').textContent=CU.nombre;
@@ -22870,5 +22872,39 @@ document.addEventListener('DOMContentLoaded',()=>{
 <script src="./js/aq-incentivos-anti-duplicados.js?v=20261122-1"></script>
 <script src="./js/aq-incentivos-reactivacion.js?v=20261122-2"></script>
 <script src="./js/aq-comisiones-normales-pago-seguro.js?v=20261122-1"></script>
+<style>
+  #aq-asistencia-abrir { background: #ffffff20; color: #fff; border: 1px solid #ffffff50; border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 11px; cursor: pointer; }
+  #aq-asistencia-modal { margin: auto; padding: 22px; width: min(92vw, 510px); max-height: 85vh; overflow: auto; border: 1px solid #bccdda; border-radius: 16px; color: #163653; background: #fff; box-shadow: 0 12px 40px #001b3655; }
+  #aq-asistencia-modal::backdrop { background: #07192ac2; }
+  #aq-asistencia-modal h2 { font-size: 21px; margin: 0 0 10px; }
+  #aq-asistencia-modal p { margin: 0 0 10px; }
+  #aq-asistencia-modal .aq-asistencia-acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  #aq-asistencia-modal label { display: grid; gap: 4px; width: fit-content; margin-top: 16px; }
+  #aq-asistencia-modal input { color: inherit; background: transparent; padding: 5px; border: 1px solid #8096aa; border-radius: 6px; }
+  #aq-asistencia-modal .aq-asistencia-fila { display: grid; padding: 9px 0; gap: 4px; border-bottom: 1px solid #8096aa60; }
+  #aq-asistencia-modal #aq-asistencia-mensaje:empty { display: none; }
+  #aq-asistencia-modal [hidden] { display: none !important; }
+  html[data-aq-theme="dark"] #aq-asistencia-modal { color: #e7f3ff; background: #142b41; border-color: #42617e; color-scheme: dark; }
+</style>
+<dialog id="aq-asistencia-modal" aria-labelledby="aq-asistencia-titulo">
+  <h2 id="aq-asistencia-titulo">Asistencia</h2>
+  <p id="aq-asistencia-estado"></p>
+  <p id="aq-asistencia-mensaje" role="status"></p>
+  <section id="aq-asistencia-jefe" hidden>
+    <div class="aq-asistencia-acciones">
+      <button type="button" class="btn" id="aq-asistencia-ubicacion">Guardar ubicación actual</button>
+      <button type="button" class="btn bp" id="aq-asistencia-activar">Activar marcación</button>
+    </div>
+    <label>Fecha de asistencia <input type="date" id="aq-asistencia-fecha"></label>
+    <div id="aq-asistencia-registros" aria-live="polite"></div>
+  </section>
+  <div class="aq-asistencia-acciones">
+    <button type="button" class="btn bp" id="aq-asistencia-marcar" hidden>Marcar entrada</button>
+    <button type="button" class="btn" id="aq-asistencia-reintentar" hidden>Reintentar</button>
+    <button type="button" class="btn" id="aq-asistencia-cerrar">Cerrar</button>
+    <button type="button" class="btn" id="aq-asistencia-salir" hidden>Cerrar sesión</button>
+  </div>
+</dialog>
+<script src="./js/aq-asistencia.js?v=20261128-1"></script>
 </body>
 </html>
